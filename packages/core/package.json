@@ -1,0 +1,32 @@
+{
+  "name": "@vo-coder/core",
+  "version": "0.1.0",
+  "description": "Vo-Coder agent runtime — session state machine, MCP client management, middleware",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@vo-coder/providers": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

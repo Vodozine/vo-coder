@@ -1,0 +1,178 @@
+import { useState } from 'react';
+import {
+  answer,
+  back,
+  current,
+  progress,
+  start,
+  toAnswers,
+  type QuestionnaireState,
+} from '@vo-coder/scaffold/core';
+import type { Detection, InjectResult } from '@vo-coder/scaffold';
+
+const STATE_LABEL: Record<Detection['state'], string> = {
+  new: 'New folder — full scaffold will be injected.',
+  existing: 'Existing project — only missing files will be written, nothing overwritten.',
+  managed: 'Already managed by Vo-Coder — regenerating needs Force.',
+};
+
+export function Scaffold() {
+  const [dir, setDir] = useState<string | null>(null);
+  const [detection, setDetection] = useState<Detection | null>(null);
+  const [qState, setQState] = useState<QuestionnaireState>(start());
+  const [textValue, setTextValue] = useState('');
+  const [force, setForce] = useState(false);
+  const [result, setResult] = useState<InjectResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const pick = async () => {
+    const picked = await window.vo.scaffoldPickDir();
+    if (!picked) return;
+    setDir(picked);
+    setDetection(await window.vo.scaffoldDetect(picked));
+    setQState(start());
+    setResult(null);
+    setError(null);
+  };
+
+  const giveAnswer = (value: string) => {
+    try {
+      setQState(answer(qState, value));
+      setTextValue('');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const generate = async () => {
+    if (!dir) return;
+    setResult(await window.vo.scaffoldGenerate(dir, toAnswers(qState), force));
+  };
+
+  const q = current(qState);
+  const { done, total } = progress(qState);
+
+  return (
+    <div className="settings">
+      <h1>Scaffold</h1>
+      <p className="hint">
+        Seven questions, one personalized PROJECT_CONFIG.md — the north star the harness and the
+        infrastructure MCP build from.
+      </p>
+
+      <section>
+        <h2>1 · Project folder</h2>
+        <div className="field-row">
+          <button onClick={() => void pick()}>Choose folder…</button>
+          {dir && <span className="meta grow">{dir}</span>}
+        </div>
+        {detection && (
+          <p className={`hint detect-${detection.state}`}>
+            {STATE_LABEL[detection.state]}
+            {detection.markers.length > 0 && ` Found: ${detection.markers.join(', ')}.`}
+          </p>
+        )}
+        {detection?.state === 'managed' && (
+          <label className="checkbox">
+            <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+            Force regenerate PROJECT_CONFIG.md
+          </label>
+        )}
+      </section>
+
+      {dir && !result && (
+        <section>
+          <h2>
+            2 · Questionnaire{' '}
+            <span className="meta">
+              {Math.min(done + 1, total)}/{total}
+            </span>
+          </h2>
+          {q ? (
+            <div className="wizard-question">
+              <p className="wizard-prompt">{q.prompt}</p>
+              {q.hint && <p className="hint">{q.hint}</p>}
+              {q.kind === 'select' ? (
+                <div className="wizard-options">
+                  {q.options!.map((o) => (
+                    <button key={o.value} onClick={() => giveAnswer(o.value)}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="field-row">
+                  <input
+                    className="grow"
+                    value={textValue}
+                    placeholder={q.optional ? '(optional — Enter to skip)' : ''}
+                    autoFocus
+                    onChange={(e) => setTextValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') giveAnswer(textValue);
+                    }}
+                  />
+                  <button onClick={() => giveAnswer(textValue)}>Next</button>
+                </div>
+              )}
+              {error && <p className="hint error-text">{error}</p>}
+              {qState.answered.length > 0 && (
+                <button className="ghost" onClick={() => setQState(back(qState))}>
+                  ← Back
+                </button>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="answer-review">
+                {Object.entries(qState.answers).map(([k, v]) => (
+                  <div key={k} className="field-row">
+                    <label>{k}</label>
+                    <span className="meta grow">{v || '—'}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="modal-actions">
+                <button className="ghost" onClick={() => setQState(back(qState))}>
+                  ← Back
+                </button>
+                <button className="send" onClick={() => void generate()}>
+                  Generate PROJECT_CONFIG.md
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {result && (
+        <section>
+          <h2>3 · Result</h2>
+          {result.refused && <p className="hint error-text">{result.refused}</p>}
+          {result.written.length > 0 && (
+            <p className="hint">✓ Written: {result.written.join(', ')}</p>
+          )}
+          {result.skipped.length > 0 && (
+            <p className="hint">Skipped (already present): {result.skipped.join(', ')}</p>
+          )}
+          {result.warnings.map((w, i) => (
+            <p key={i} className="hint error-text">
+              {w}
+            </p>
+          ))}
+          <button
+            onClick={() => {
+              setResult(null);
+              setQState(start());
+              setDetection(null);
+              setDir(null);
+            }}
+          >
+            Scaffold another project
+          </button>
+        </section>
+      )}
+    </div>
+  );
+}

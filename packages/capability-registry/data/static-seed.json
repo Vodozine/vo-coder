@@ -1,0 +1,137 @@
+{
+  "comment": "Curated ground-truth seed. quality is a coarse 1-10 capability rank; estMemGb applies to local (ollama) models at typical quantization; pricing is USD per million tokens.",
+  "models": [
+    {
+      "id": "claude-sonnet-5",
+      "provider": "anthropic",
+      "displayName": "Claude Sonnet 5",
+      "contextLength": 200000,
+      "pricing": { "inputPerMTok": 3, "outputPerMTok": 15 },
+      "tags": ["coding", "reasoning", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "supportsThinking": true,
+      "quality": 9
+    },
+    {
+      "id": "claude-opus-4-8",
+      "provider": "anthropic",
+      "displayName": "Claude Opus 4.8",
+      "contextLength": 200000,
+      "pricing": { "inputPerMTok": 15, "outputPerMTok": 75 },
+      "tags": ["coding", "reasoning", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "supportsThinking": true,
+      "quality": 10
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "provider": "anthropic",
+      "displayName": "Claude Haiku 4.5",
+      "contextLength": 200000,
+      "pricing": { "inputPerMTok": 1, "outputPerMTok": 5 },
+      "tags": ["cheap", "coding", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "supportsThinking": true,
+      "quality": 7
+    },
+    {
+      "id": "gpt-5.2",
+      "provider": "openai",
+      "displayName": "GPT-5.2",
+      "contextLength": 400000,
+      "pricing": { "inputPerMTok": 1.75, "outputPerMTok": 14 },
+      "tags": ["coding", "reasoning", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "supportsThinking": true,
+      "quality": 9
+    },
+    {
+      "id": "gpt-5.2-mini",
+      "provider": "openai",
+      "displayName": "GPT-5.2 mini",
+      "contextLength": 400000,
+      "pricing": { "inputPerMTok": 0.35, "outputPerMTok": 2.8 },
+      "tags": ["cheap", "coding", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "quality": 7
+    },
+    {
+      "id": "grok-4",
+      "provider": "xai",
+      "displayName": "Grok 4",
+      "contextLength": 256000,
+      "pricing": { "inputPerMTok": 3, "outputPerMTok": 15 },
+      "tags": ["reasoning", "coding", "tool-use", "vision"],
+      "supportsTools": true,
+      "supportsVision": true,
+      "supportsThinking": true,
+      "quality": 9
+    },
+    {
+      "id": "llama3.2:3b",
+      "provider": "ollama",
+      "displayName": "Llama 3.2 3B (local)",
+      "contextLength": 128000,
+      "tags": ["cheap", "local"],
+      "supportsTools": true,
+      "estMemGb": 3,
+      "quality": 3
+    },
+    {
+      "id": "llama3.1:8b",
+      "provider": "ollama",
+      "displayName": "Llama 3.1 8B (local)",
+      "contextLength": 128000,
+      "tags": ["cheap", "local", "tool-use"],
+      "supportsTools": true,
+      "estMemGb": 6,
+      "quality": 4
+    },
+    {
+      "id": "qwen2.5-coder:7b",
+      "provider": "ollama",
+      "displayName": "Qwen 2.5 Coder 7B (local)",
+      "contextLength": 128000,
+      "tags": ["cheap", "local", "coding"],
+      "supportsTools": true,
+      "estMemGb": 5.5,
+      "quality": 5
+    },
+    {
+      "id": "qwen3:32b",
+      "provider": "ollama",
+      "displayName": "Qwen 3 32B (local)",
+      "contextLength": 128000,
+      "tags": ["local", "coding", "reasoning"],
+      "supportsTools": true,
+      "supportsThinking": true,
+      "estMemGb": 22,
+      "quality": 6
+    },
+    {
+      "id": "llava:7b",
+      "provider": "ollama",
+      "displayName": "LLaVA 7B (local vision)",
+      "contextLength": 32000,
+      "tags": ["cheap", "local", "vision"],
+      "supportsVision": true,
+      "estMemGb": 6,
+      "quality": 3
+    },
+    {
+      "id": "llama3.3:70b",
+      "provider": "ollama",
+      "displayName": "Llama 3.3 70B (local)",
+      "contextLength": 128000,
+      "tags": ["local", "reasoning", "coding", "tool-use"],
+      "supportsTools": true,
+      "estMemGb": 42,
+      "quality": 7
+    }
+  ]
+}

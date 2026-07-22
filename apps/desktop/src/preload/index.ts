@@ -1,0 +1,93 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import { IPC } from '../shared/ipc-contract';
+import type {
+  AppConfig,
+  ChatEventPayload,
+  CheckinPayload,
+  PermissionPrompt,
+  TermData,
+  TermExit,
+  VoApi,
+} from '../shared/ipc-contract';
+
+function subscribe<T>(channel: string) {
+  return (cb: (payload: T) => void) => {
+    const listener = (_event: unknown, payload: T) => cb(payload);
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
+  };
+}
+
+const api: VoApi = {
+  getConfig: () => ipcRenderer.invoke(IPC.getConfig),
+  setConfig: (patch: Partial<AppConfig>) => ipcRenderer.invoke(IPC.setConfig, patch),
+  setSecret: (provider, value) => ipcRenderer.invoke(IPC.setSecret, provider, value),
+  secretStatus: () => ipcRenderer.invoke(IPC.secretStatus),
+  listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
+  chatSend: (sessionId, parts, override) =>
+    ipcRenderer.invoke(IPC.chatSend, sessionId, parts, override),
+  chatStop: (sessionId) => ipcRenderer.invoke(IPC.chatStop, sessionId),
+  chatReset: (sessionId) => ipcRenderer.invoke(IPC.chatReset, sessionId),
+  onChatEvent: (cb) => {
+    const listener = (_event: unknown, payload: ChatEventPayload) => cb(payload);
+    ipcRenderer.on(IPC.chatEvent, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC.chatEvent, listener);
+    };
+  },
+  mcpList: () => ipcRenderer.invoke(IPC.mcpList),
+  mcpConnect: (name) => ipcRenderer.invoke(IPC.mcpConnect, name),
+  mcpDisconnect: (name) => ipcRenderer.invoke(IPC.mcpDisconnect, name),
+  onPermissionRequest: (cb) => {
+    const listener = (_event: unknown, prompt: PermissionPrompt) => cb(prompt);
+    ipcRenderer.on(IPC.permissionRequest, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC.permissionRequest, listener);
+    };
+  },
+  permissionRespond: (requestId, decision) =>
+    ipcRenderer.invoke(IPC.permissionRespond, requestId, decision),
+  scaffoldPickDir: () => ipcRenderer.invoke(IPC.scaffoldPickDir),
+  scaffoldDetect: (dir) => ipcRenderer.invoke(IPC.scaffoldDetect, dir),
+  scaffoldGenerate: (dir, answers, force) =>
+    ipcRenderer.invoke(IPC.scaffoldGenerate, dir, answers, force),
+  registryCatalog: () => ipcRenderer.invoke(IPC.registryCatalog),
+  registrySuggest: (text, opts) => ipcRenderer.invoke(IPC.registrySuggest, text, opts),
+  chatInject: (sessionId, parts) => ipcRenderer.invoke(IPC.chatInject, sessionId, parts),
+  previewOpen: (url) => ipcRenderer.invoke(IPC.previewOpen, url),
+  previewClose: () => ipcRenderer.invoke(IPC.previewClose),
+  previewHide: () => ipcRenderer.invoke(IPC.previewHide),
+  previewReload: () => ipcRenderer.invoke(IPC.previewReload),
+  previewBounds: (bounds) => ipcRenderer.invoke(IPC.previewBounds, bounds),
+  previewState: () => ipcRenderer.invoke(IPC.previewState),
+  onCheckin: subscribe<CheckinPayload>(IPC.checkin),
+  mcpSearch: (query) => ipcRenderer.invoke(IPC.mcpSearch, query),
+  mcpAdd: (cfg) => ipcRenderer.invoke(IPC.mcpAdd, cfg),
+  onAdvisorSuggest: subscribe(IPC.advisorSuggest),
+  advisorDismiss: (topic) => ipcRenderer.invoke(IPC.advisorDismiss, topic),
+  termCreate: (opts) => ipcRenderer.invoke(IPC.termCreate, opts),
+  termInput: (id, data) => ipcRenderer.invoke(IPC.termInput, id, data),
+  termResize: (id, cols, rows) => ipcRenderer.invoke(IPC.termResize, id, cols, rows),
+  termKill: (id) => ipcRenderer.invoke(IPC.termKill, id),
+  onTermData: subscribe<TermData>(IPC.termData),
+  onTermExit: subscribe<TermExit>(IPC.termExit),
+  watchStart: (dir) => ipcRenderer.invoke(IPC.watchStart, dir),
+  watchStop: () => ipcRenderer.invoke(IPC.watchStop),
+  onWatchEvent: subscribe(IPC.watchEvent),
+  onWatchGit: subscribe(IPC.watchGit),
+  watchReadFile: (relPath) => ipcRenderer.invoke(IPC.watchReadFile, relPath),
+  watchReadBaseline: (relPath) => ipcRenderer.invoke(IPC.watchReadBaseline, relPath),
+  appVersion: () => ipcRenderer.invoke(IPC.appVersion),
+  updateCheck: () => ipcRenderer.invoke(IPC.updateCheck),
+  updateInstall: () => ipcRenderer.invoke(IPC.updateInstall),
+  onUpdateEvent: subscribe(IPC.updateEvent),
+  voiceSetupWhisper: () => ipcRenderer.invoke(IPC.voiceSetupWhisper),
+  openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+  voiceTranscribe: (wav) => ipcRenderer.invoke(IPC.voiceTranscribe, wav),
+  voiceSpeak: (text) => ipcRenderer.invoke(IPC.voiceSpeak, text),
+  voiceStopSpeak: () => ipcRenderer.invoke(IPC.voiceStopSpeak),
+};
+
+contextBridge.exposeInMainWorld('vo', api);

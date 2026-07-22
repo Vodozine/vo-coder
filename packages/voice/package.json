@@ -1,0 +1,32 @@
+{
+  "name": "@vo-coder/voice",
+  "version": "0.1.0",
+  "description": "Pluggable STT / TTS providers and voice-activity detection for push-to-talk and live voice chat",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./dsp": {
+      "types": "./dist/dsp.d.ts",
+      "import": "./dist/dsp.js",
+      "default": "./dist/dsp.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

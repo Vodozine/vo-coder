@@ -1,0 +1,40 @@
+appId: dev.vo-coder.app
+productName: Vo-Coder
+electronVersion: 43.2.0
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - "!**/*.map"
+# The infra MCP ships as a spawnable extraResource OUTSIDE the asar so the
+# packaged app can run it as a child process (via ELECTRON_RUN_AS_NODE).
+extraResources:
+  - from: ../../packages/infra-mcp/dist-bundle
+    to: infra-mcp
+  - from: ../../packages/capability-registry/data
+    to: capability-data
+  - from: ../../packages/scaffold/templates
+    to: scaffold-templates
+asar: true
+npmRebuild: false
+# In-app updates read this feed. Set owner/repo to the real GitHub repository
+# before publishing releases (electron-builder --publish always uploads there).
+publish:
+  provider: github
+  owner: vo-coder
+  repo: vo-coder
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: true
+  deleteAppDataOnUninstall: false
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+linux:
+  target:
+    - AppImage
+  category: Development

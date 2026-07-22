@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/providers" },
+    { "path": "packages/core" },
+    { "path": "packages/project-config" },
+    { "path": "packages/scaffold" },
+    { "path": "packages/infra-mcp" },
+    { "path": "packages/capability-registry" },
+    { "path": "packages/voice" }
+  ]
+}

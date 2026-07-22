@@ -1,0 +1,12 @@
+data: {"id":"cmpl-1","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Weighing the options..."},"finish_reason":null}]}
+
+data: {"id":"cmpl-1","choices":[{"index":0,"delta":{"content":"Grok"},"finish_reason":null}]}
+
+data: {"id":"cmpl-1","choices":[{"index":0,"delta":{"content":" here."},"finish_reason":null}]}
+
+data: {"id":"cmpl-1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"cmpl-1","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":4}}
+
+data: [DONE]
+

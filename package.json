@@ -1,0 +1,27 @@
+{
+  "name": "vo-coder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-agnostic LLM agent harness — the tool shed. Electron desktop app bundling a markdown scaffolding system and a universal infrastructure MCP.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @vo-coder/desktop",
+    "build": "tsc -b && npm run build -w @vo-coder/desktop",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "tsc -b && npm run typecheck -w @vo-coder/desktop",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.6.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.44.0"
+  }
+}

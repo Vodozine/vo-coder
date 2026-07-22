@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "name": "Anthropic: Claude Sonnet 5",
+      "context_length": 200000,
+      "pricing": { "prompt": "0.000003", "completion": "0.000015" },
+      "architecture": { "input_modalities": ["text", "image"] },
+      "supported_parameters": ["tools", "reasoning", "temperature"]
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "name": "Meta: Llama 3.3 70B Instruct",
+      "context_length": 131072,
+      "pricing": { "prompt": "0.00000012", "completion": "0.0000003" },
+      "architecture": { "input_modalities": ["text"] },
+      "supported_parameters": ["tools", "temperature"]
+    },
+    {
+      "id": "qwen/qwen3-max",
+      "name": "Qwen: Qwen3 Max",
+      "context_length": 262144,
+      "pricing": { "prompt": "0.0000012", "completion": "0.000006" },
+      "architecture": { "input_modalities": ["text"] },
+      "supported_parameters": ["temperature"]
+    }
+  ]
+}

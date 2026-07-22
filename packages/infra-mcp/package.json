@@ -1,0 +1,38 @@
+{
+  "name": "@vo-coder/infra-mcp",
+  "version": "0.1.0",
+  "description": "Universal infrastructure MCP — environment discovery and hypervisor management. Infrastructure and dev-environment readiness only: no app deployment, no production operations.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "vo-infra-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "bundle": "node bundle.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@vo-coder/project-config": "^0.1.0",
+    "undici": "^7.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "~5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

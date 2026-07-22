@@ -1,0 +1,31 @@
+{
+  "name": "@vo-coder/providers",
+  "version": "0.1.0",
+  "description": "Provider-agnostic streaming chat abstraction with Anthropic, OpenAI, OpenRouter, and Ollama adapters",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.113.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

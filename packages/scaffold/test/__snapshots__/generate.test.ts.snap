@@ -1,0 +1,283 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PROJECT_CONFIG.md generation matrix > advanced-python-backend-proxmox-linux: renders without warnings and matches snapshot 1`] = `
+"# Project Configuration
+
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"An inference gateway","skillLevel":"advanced","projectType":"backend-service","language":"python","virtualization":"hypervisor","hypervisorKind":"proxmox","devOs":"linux","philosophy":"anti-e-waste hardware reuse"}} -->
+
+Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
+for this build — the harness and the infrastructure MCP read it to scaffold,
+test, and provision. Edit answers by re-running the questionnaire.
+
+## Your Answers
+
+- **Project Description:** An inference gateway
+- **Skill Level:** advanced
+- **Project Type:** backend-service
+- **Development Language:** python
+- **Virtualization Available:** hypervisor (proxmox)
+- **Development OS:** linux
+- **Project Philosophy:** anti-e-waste hardware reuse
+
+## Project Scaffolding
+
+Design rule for every part of this codebase: **small, modular blocks with
+explicit contracts** (inputs, outputs, side effects) and **a test hook at every
+connection point**. Blocks never reach into each other's internals.
+
+\`\`\`
+src/<package>/
+├── __init__.py
+├── modules/           # one package per block; tests live beside the code
+└── contracts.py       # dataclasses / Protocols shared between blocks
+\`\`\`
+
+- Type-hint every public function. Blocks communicate only through contracts.py.
+- Use a src-layout so the package is importable the same way in tests and production.
+
+## Dependency Management
+
+- Declare dependencies in \`pyproject.toml\`; lock with your chosen tool (uv/poetry/pip-tools) and commit the lockfile.
+- One virtual environment per project — never install into the system Python.
+
+Philosophy check — "anti-e-waste hardware reuse": audit every new dependency against
+this before adding it. A dependency you can replace with 30 lines of your own
+code usually should be.
+
+## Development Environment Setup
+
+- Linux dev machine: capture required system packages in a bootstrap script so a fresh machine can be productive in one command.
+
+- Dev/staging VMs live on your hypervisor (proxmox). Let the infrastructure MCP provision them from this config rather than hand-building.
+
+## Testing Strategy
+
+Test points live at every module connection point — that is the payoff of the
+block structure. A block without a test hook is not done.
+
+- Unit + integration + a thin end-to-end smoke path. Property-based tests where invariants exist.
+- Contract tests at block boundaries so refactors inside a block can't break consumers silently.
+
+- Service note: every endpoint gets a request/response test; run integration tests against the containerized service, not an in-process approximation, before release.
+
+## Staging / Pre-Production Validation
+
+- Stage on a dedicated VM on proxmox that mirrors production. Provision it from this config via the infrastructure MCP; never hand-configure.
+- Promotion rule: nothing reaches production that didn't run in staging first, including migrations.
+
+## Production Deployment
+
+- Production runs on its own VM, provisioned like staging. Deploy by replacing the app artifact, not by mutating the machine in place.
+
+## Monitoring and Observability
+
+- Structured logs + metrics + health endpoints; alert on symptoms (user-visible failures), not causes.
+- Every block's contract failure mode should be observable — if a block can fail silently, its contract is incomplete.
+
+## Rollback Procedures
+
+- Every deploy keeps the previous artifact ready to restore in one step; practice the restore before you need it.
+- Database/data migrations ship with a down path, or with a documented reason why rolling forward is the only option.
+
+- VM snapshots before risky infrastructure changes — the infrastructure MCP can take and roll back snapshots on request.
+
+## Learning Loop Documentation
+
+After each meaningful iteration, answer in three lines (append below):
+
+1. What worked?
+2. What didn't?
+3. What should feed back into the template or this config?
+
+Failure is data. If the same friction shows up twice, it belongs in this file;
+if it shows up three times, it belongs in the template.
+
+### Log
+
+<!-- entries append here -->
+"
+`;
+
+exports[`PROJECT_CONFIG.md generation matrix > beginner-js-app-none-windows: renders without warnings and matches snapshot 1`] = `
+"# Project Configuration
+
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A todo desktop app","skillLevel":"beginner","projectType":"standalone-app","language":"javascript","virtualization":"none","devOs":"windows","philosophy":""}} -->
+
+Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
+for this build — the harness and the infrastructure MCP read it to scaffold,
+test, and provision. Edit answers by re-running the questionnaire.
+
+## Your Answers
+
+- **Project Description:** A todo desktop app
+- **Skill Level:** beginner
+- **Project Type:** standalone-app
+- **Development Language:** javascript
+- **Virtualization Available:** none
+- **Development OS:** windows
+- **Project Philosophy:**
+
+## Project Scaffolding
+
+Design rule for every part of this codebase: **small, modular blocks with
+explicit contracts** (inputs, outputs, side effects) and **a test hook at every
+connection point**. Blocks never reach into each other's internals.
+
+\`\`\`
+src/
+├── index.(ts|js)      # entry — wiring only, no business logic
+├── modules/           # one folder per block; each block ships its own tests
+└── shared/            # cross-block contracts: types, interfaces, schemas
+\`\`\`
+
+- Every module exports a typed interface; consumers import the contract, not the implementation.
+- Prefer plain functions over classes unless state genuinely lives in the block.
+
+## Dependency Management
+
+- Commit \`package-lock.json\`; install with \`npm ci\` in CI and fresh clones.
+- Pin direct dependencies with exact or tilde ranges; review lockfile diffs in PRs.
+
+## Development Environment Setup
+
+- Windows dev machine: prefer PowerShell-compatible scripts, or provide both \`.ps1\` and \`.sh\` variants.
+- Watch for path separators and line endings — set \`.gitattributes\` with \`* text=auto eol=lf\` early.
+
+- Local-only development: document every manual setup step in the README the moment you perform it — future-you is the deployment target.
+
+## Testing Strategy
+
+Test points live at every module connection point — that is the payoff of the
+block structure. A block without a test hook is not done.
+
+- Start with **one test per block** that exercises its contract end to end. Copy the pattern; don't study testing theory first.
+- Run the suite before every commit. A red test is information, not failure.
+
+## Staging / Pre-Production Validation
+
+- No virtualization available: your staging path is a clean checkout + full test suite + a manual smoke script. Write that smoke script now and keep it current.
+
+## Production Deployment
+
+- Direct deployment: script it end to end (build → verify → copy → restart) so a release is one command, and keep the previous build alongside for instant rollback.
+
+## Monitoring and Observability
+
+- Log every error with enough context to reproduce it (inputs, not just the message). Structured logging can wait; useful logging cannot.
+- Check the logs after each deploy — that habit is the whole practice at this stage.
+
+## Rollback Procedures
+
+- Git is your rollback: commit small and often; a bad release is \`git revert\` + redeploy.
+- Before risky changes, note the last-known-good commit hash somewhere you'll find it under stress.
+
+## Learning Loop Documentation
+
+After each meaningful iteration, answer in three lines (append below):
+
+1. What worked?
+2. What didn't?
+3. What should feed back into the template or this config?
+
+Failure is data. If the same friction shows up twice, it belongs in this file;
+if it shows up three times, it belongs in the template.
+
+### Log
+
+<!-- entries append here -->
+"
+`;
+
+exports[`PROJECT_CONFIG.md generation matrix > intermediate-rust-cli-docker-macos: renders without warnings and matches snapshot 1`] = `
+"# Project Configuration
+
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A log analyzer CLI","skillLevel":"intermediate","projectType":"cli","language":"rust","virtualization":"docker","devOs":"macos","philosophy":"minimal dependencies"}} -->
+
+Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
+for this build — the harness and the infrastructure MCP read it to scaffold,
+test, and provision. Edit answers by re-running the questionnaire.
+
+## Your Answers
+
+- **Project Description:** A log analyzer CLI
+- **Skill Level:** intermediate
+- **Project Type:** cli
+- **Development Language:** rust
+- **Virtualization Available:** docker
+- **Development OS:** macos
+- **Project Philosophy:** minimal dependencies
+
+## Project Scaffolding
+
+Design rule for every part of this codebase: **small, modular blocks with
+explicit contracts** (inputs, outputs, side effects) and **a test hook at every
+connection point**. Blocks never reach into each other's internals.
+
+\`\`\`
+src/
+├── main.rs / lib.rs   # entry — wiring only
+└── <block>/mod.rs     # one module per block; unit tests in-module (#[cfg(test)])
+\`\`\`
+
+- Public APIs per block are re-exported from lib.rs; everything else stays private.
+
+CLI note: keep argument parsing in the entry layer only — the core logic must
+stay importable as a library so it can be tested without spawning a process.
+
+## Dependency Management
+
+- \`Cargo.toml\` + committed \`Cargo.lock\`. Run \`cargo update\` deliberately, not incidentally.
+
+Philosophy check — "minimal dependencies": audit every new dependency against
+this before adding it. A dependency you can replace with 30 lines of your own
+code usually should be.
+
+## Development Environment Setup
+
+- macOS dev machine: capture Homebrew dependencies in a \`Brewfile\` so setup is one \`brew bundle\` away.
+
+- A \`Dockerfile\` (and \`compose.yaml\` if there are services) defines the canonical runtime — "works in the container" is the bar, not "works on my machine".
+
+## Testing Strategy
+
+Test points live at every module connection point — that is the payoff of the
+block structure. A block without a test hook is not done.
+
+- Unit tests per block contract + integration tests where blocks join. Aim for fast feedback (whole suite under a minute).
+- Fixture/golden-file tests beat mocks when the block talks to an external format.
+
+## Staging / Pre-Production Validation
+
+- Staging is the production compose file pointed at staging data. Same images, different env — configuration is the only variable.
+
+## Production Deployment
+
+- Deploy the image you tested — build once, promote the same artifact through staging to production.
+- Keep container config in env vars; the image itself is environment-agnostic.
+
+## Monitoring and Observability
+
+- Structured logs (JSON) with a request/job id threaded through block boundaries.
+- Track the three basics: error rate, latency of the hot path, and a liveness signal.
+
+## Rollback Procedures
+
+- Every deploy keeps the previous artifact ready to restore in one step; practice the restore before you need it.
+- Database/data migrations ship with a down path, or with a documented reason why rolling forward is the only option.
+
+## Learning Loop Documentation
+
+After each meaningful iteration, answer in three lines (append below):
+
+1. What worked?
+2. What didn't?
+3. What should feed back into the template or this config?
+
+Failure is data. If the same friction shows up twice, it belongs in this file;
+if it shows up three times, it belongs in the template.
+
+### Log
+
+<!-- entries append here -->
+"
+`;

@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"],
+    "paths": {
+      "@vo-coder/providers": ["../../packages/providers/src/index.ts"],
+      "@vo-coder/core": ["../../packages/core/src/index.ts"],
+      "@vo-coder/project-config": ["../../packages/project-config/src/index.ts"],
+      "@vo-coder/scaffold": ["../../packages/scaffold/src/index.ts"],
+      "@vo-coder/scaffold/core": ["../../packages/scaffold/src/core.ts"],
+      "@vo-coder/capability-registry": ["../../packages/capability-registry/src/index.ts"],
+      "@vo-coder/voice": ["../../packages/voice/src/index.ts"],
+      "@vo-coder/voice/dsp": ["../../packages/voice/src/dsp.ts"]
+    }
+  },
+  "include": ["src", "electron.vite.config.ts"]
+}
