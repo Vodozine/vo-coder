@@ -6,6 +6,7 @@ import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
 import { fmtStamp } from './journal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { lookToolSpecs } from './vision-look';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
 interface SessionManagerDeps {
@@ -20,8 +21,8 @@ interface SessionManagerDeps {
     execute(
       name: string,
       args: unknown,
-      ctx?: { projectId?: string },
-    ): Promise<{ content: string; isError?: boolean }>;
+      ctx?: { projectId?: string; dir?: string },
+    ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
   };
   /** Fired for every provider usage report, with the model that produced it. */
   onUsage?: (
@@ -109,6 +110,9 @@ export class SessionManager {
   private projectDirFor(sessionId: string): string | undefined {
     const meta = this.deps.projects.meta(sessionId);
     if (!meta) return undefined;
+    // A folder attached to THIS chat wins over the project's folder — that's
+    // the "point a chat at any folder" affordance (catalog photos, review code).
+    if (meta.dir) return meta.dir;
     return this.deps.projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
   }
 
@@ -188,13 +192,41 @@ export class SessionManager {
         ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${assembly}${planNote}` }
         : spec;
     }
+    // A folder attached directly to the chat is an INSPECTION surface (catalog
+    // photos, review code, dig through files) — different framing than a
+    // project folder, where the agent is expected to build.
+    if (this.deps.projects.meta(sessionId)?.dir) {
+      return {
+        ...spec,
+        systemPrompt:
+          `${spec.systemPrompt ?? ''}\n\n` +
+          `The user attached the folder "${dir}" to this chat — work with its CONTENTS directly: ` +
+          `ws_list (browse, pass a path for subfolders), ws_read (read any text/code file), ` +
+          `look_at_image (SEE an image file — the vision model describes it in detail; camera RAW ` +
+          `files like NEF/CR2/ARW work too via their embedded preview), file_identify (decode ` +
+          `camera/app naming schemes and formats from file names — which device shot it, dates), ` +
+          `ws_write (save notes/reports/catalogs into the folder), ws_run (run commands there).\n` +
+          `- Cataloging photos: ws_list the images, file_identify the names (source camera + ` +
+          `dates), look_at_image EACH one, then ws_write a catalog (e.g. catalog.md) with one ` +
+          `entry per photo — subject, light, colors, and especially the mood/feel — so photos ` +
+          `can be found later by vibe ("the moody one", "sunny beach"). Skip the RAW twin when ` +
+          `a RAW+JPEG pair exists. If a catalog file already exists, read it first and extend it.\n` +
+          `- Finding a photo by feel: ws_read the catalog if there is one and match from it ` +
+          `before re-looking at images.\n` +
+          `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
+          `file references.\n` +
+          `Do the work yourself with the tools instead of instructing the user.` +
+          `${builtinNote}${assembly}${planNote}`,
+      };
+    }
     return {
       ...spec,
       systemPrompt:
         `${spec.systemPrompt ?? ''}\n\n` +
         `You are working in the project folder "${dir}". You have direct workspace tools: ` +
-        `ws_list (see files), ws_read (read a file), ws_write (create/overwrite a file), and ` +
-        `ws_run (run shell commands like npm install, npm run build, tests). ` +
+        `ws_list (see files), ws_read (read a file), ws_write (create/overwrite a file), ` +
+        `ws_run (run shell commands like npm install, npm run build, tests), and ` +
+        `look_at_image (SEE an image file in the folder — the vision model describes it). ` +
         `DO THE WORK YOURSELF with these tools — write the files and run the commands instead of ` +
         `giving the user manual instructions.\n` +
         `HARD RULES:\n` +
@@ -261,7 +293,7 @@ export class SessionManager {
         tools: () => {
           const dir = this.projectDirFor(sessionId);
           return [
-            ...(dir ? workspaceToolSpecs(dir) : []),
+            ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
             ...(this.deps.builtins?.specs() ?? []),
             ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
           ];
@@ -298,12 +330,16 @@ export class SessionManager {
               name.startsWith('memory_') ||
               name.startsWith('archive_') ||
               name.startsWith('map_') ||
-              name.startsWith('image_'))
+              name.startsWith('image_') ||
+              name.startsWith('look_') ||
+              name.startsWith('file_'))
           ) {
             // The session knows its own project — tools default to it instead
-            // of making the model guess a name.
+            // of making the model guess a name. dir carries the chat's folder
+            // (attached or project) for look_at_image / image saves.
             return this.deps.builtins.execute(name, args, {
               projectId: this.deps.projects.meta(sessionId)?.projectId,
+              dir: this.projectDirFor(sessionId),
             });
           }
           return this.deps.mcp.call(name, args);

@@ -18,7 +18,8 @@ export type IconName =
   | 'redo'
   | 'x'
   | 'folder'
-  | 'gauge';
+  | 'gauge'
+  | 'search';
 
 const PATHS: Record<IconName, JSX.Element> = {
   paperclip: (
@@ -90,6 +91,12 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   folder: (
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.35-4.35" />
+    </>
   ),
   gauge: (
     <>

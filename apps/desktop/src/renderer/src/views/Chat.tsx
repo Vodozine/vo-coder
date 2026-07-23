@@ -374,9 +374,21 @@ export function fmtCost(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-/** Mode switch on top, this project's usage below — the composer's left chip. */
+/** Mode switch on top, usage below, code review underneath — the composer's left chip. */
 function ProjectUsage({ projectId }: { projectId: string | undefined }) {
   const usage = useStore((s) => s.usage);
+  const startReview = useStore((s) => s.startReview);
+  const reviewState = useStore((s) =>
+    s.activeSessionId ? s.review[s.activeSessionId] : undefined,
+  );
+  const streaming = useStore((s) =>
+    s.activeSessionId ? (s.sessions[s.activeSessionId]?.streaming ?? false) : false,
+  );
+  const hasFolder = useStore((s) => {
+    const meta = s.sessionMetas.find((m) => m.id === s.activeSessionId);
+    if (!meta) return false;
+    return !!(meta.dir ?? s.projects.find((p) => p.id === meta.projectId)?.dir);
+  });
   const totals = projectId ? usage?.perProject[projectId] : undefined;
   const t = totals ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
   return (
@@ -390,6 +402,19 @@ function ProjectUsage({ projectId }: { projectId: string | undefined }) {
         {'  '}
         {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out
       </span>
+      <button
+        className="review-btn"
+        disabled={!hasFolder || !!reviewState || streaming}
+        title={
+          hasFolder
+            ? 'Start a real code review of this chat’s folder — findings, then proposed fixes you approve or decline'
+            : 'Code review needs a folder — use a project with one, or attach a folder to this chat'
+        }
+        onClick={() => void startReview()}
+      >
+        <Icon name="search" size={12} />{' '}
+        {reviewState === 'running' ? 'Reviewing…' : reviewState === 'verdict' ? 'Awaiting verdict' : 'Code review'}
+      </button>
     </div>
   );
 }
@@ -483,6 +508,12 @@ export function Chat() {
   const newSession = useStore((s) => s.newSession);
   const addAttachment = useStore((s) => s.addAttachment);
   const removeAttachment = useStore((s) => s.removeAttachment);
+  const attachFolder = useStore((s) => s.attachFolder);
+  const detachFolder = useStore((s) => s.detachFolder);
+  const resolveReview = useStore((s) => s.resolveReview);
+  const reviewVerdict = useStore(
+    (s) => (s.activeSessionId ? s.review[s.activeSessionId] : undefined) === 'verdict',
+  );
 
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -664,13 +695,56 @@ export function Chat() {
         <CheckinBanner />
         <AdvisorBanner />
         <SuggestPanel onApply={() => undefined} />
+        {reviewVerdict && !streaming && (
+          <div className="review-verdict">
+            <span className="rv-label">
+              <Icon name="search" size={12} /> Review proposal — your verdict:
+            </span>
+            <button
+              className="rv-approve"
+              title="Apply the proposed fixes (the agent edits and verifies)"
+              onClick={() => void resolveReview('approve')}
+            >
+              Approve
+            </button>
+            <button
+              className="rv-revise"
+              title="Ask for changes to the proposal before anything is applied"
+              onClick={() => {
+                void resolveReview('clear');
+                setInput('Revise the proposal: ');
+              }}
+            >
+              Revise
+            </button>
+            <button
+              className="rv-reject"
+              title="Decline — nothing gets changed"
+              onClick={() => void resolveReview('reject')}
+            >
+              Don&apos;t accept
+            </button>
+          </div>
+        )}
         {voiceError && (
           <div className="hint error-text preview-hint">
             <Icon name="mic" size={12} /> {voiceError}
           </div>
         )}
-        {attachments.length > 0 && (
+        {(attachments.length > 0 || activeMeta?.dir) && (
           <div className="attachment-row staged">
+            {activeMeta?.dir && (
+              <span className="attachment-chip folder-chip" title={activeMeta.dir}>
+                <Icon name="folder" size={12} /> {activeMeta.dir.split(/[\\/]/).pop()}
+                <button
+                  className="chip-x"
+                  title="Detach this folder from the chat"
+                  onClick={() => void detachFolder()}
+                >
+                  ×
+                </button>
+              </span>
+            )}
             {attachments.map((a, i) => (
               <span key={i} className="attachment-chip">
                 <Icon name={a.kind === 'image' ? 'image' : 'file'} size={12} /> {a.name}
@@ -723,6 +797,17 @@ export function Chat() {
             <div className="composer-tools-row">
               <button className="ghost attach" title="Attach files" onClick={() => fileRef.current?.click()}>
                 <Icon name="paperclip" />
+              </button>
+              <button
+                className={`ghost attach ${activeMeta?.dir ? 'folder-on' : ''}`}
+                title={
+                  activeMeta?.dir
+                    ? `Chat folder: ${activeMeta.dir} — click to change`
+                    : 'Point this chat at a folder — browse files, review code, catalog photos'
+                }
+                onClick={() => void attachFolder()}
+              >
+                <Icon name="folder" />
               </button>
               <button
                 className="ghost attach"

@@ -259,6 +259,9 @@ export interface ChatSessionMeta {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** Folder attached to THIS chat (overrides the project folder): workspace
+   *  tools + look_at_image work here — photo cataloging, code review, etc. */
+  dir?: string;
 }
 
 export interface ProjectsData {
@@ -405,6 +408,7 @@ export interface VoApi {
   sessionOpen(sessionId: string): Promise<{ meta: ChatSessionMeta; history: HarnessMessage[] }>;
   sessionDelete(sessionId: string): Promise<void>;
   sessionSetAgent(sessionId: string, agentId: string): Promise<void>;
+  sessionSetDir(sessionId: string, dir: string | null): Promise<void>;
   onProjectsChanged(cb: (data: ProjectsData) => void): () => void;
   usageGet(): Promise<UsageData>;
   onUsageChanged(cb: (data: UsageData) => void): () => void;
@@ -520,6 +524,7 @@ export const IPC = {
   sessionOpen: 'sessions:open',
   sessionDelete: 'sessions:delete',
   sessionSetAgent: 'sessions:setAgent',
+  sessionSetDir: 'sessions:setDir',
   projectsChanged: 'projects:changed',
   usageGet: 'usage:get',
   usageChanged: 'usage:changed',

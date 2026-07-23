@@ -6,6 +6,8 @@
 export const AUTO_ALLOWED_TOOLS = new Set([
   'ws_list',
   'ws_read',
+  'look_at_image',
+  'file_identify',
   'web_search',
   'web_fetch',
   'mission_list',

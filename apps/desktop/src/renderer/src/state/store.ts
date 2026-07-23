@@ -90,6 +90,8 @@ interface AppState {
   suggestions: RankedModel[] | null;
   checkin: CheckinPayload | null;
   mcpSuggestion: McpSuggestion | null;
+  /** Code-review flow per session: running → verdict (pill shown). */
+  review: Record<string, 'running' | 'verdict'>;
   /** Prefills the Settings MCP search (set by the advisor banner). */
   mcpSearchQuery: string | null;
   watchRoot: string | null;
@@ -128,6 +130,13 @@ interface AppState {
   removeSession(sessionId: string): Promise<void>;
   removeProject(projectId: string): Promise<void>;
   setSessionAgent(agentId: string): Promise<void>;
+  /** Point the active chat at a folder (picker), or detach with null. */
+  attachFolder(): Promise<void>;
+  detachFolder(): Promise<void>;
+  /** Kick off a real read-only code review of the chat's folder. */
+  startReview(): Promise<void>;
+  /** Verdict pill: approve applies the fixes, reject declines, clear dismisses. */
+  resolveReview(verdict: 'approve' | 'reject' | 'clear'): Promise<void>;
   send(text: string): Promise<void>;
   stop(): Promise<void>;
   saveConfig(patch: Partial<AppConfig>): Promise<void>;
@@ -175,6 +184,7 @@ export const useStore = create<AppState>((set, get) => ({
   suggestions: null,
   checkin: null,
   mcpSuggestion: null,
+  review: {},
   mcpSearchQuery: null,
   watchRoot: null,
   watchReady: false,
@@ -434,6 +444,67 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
+  async attachFolder() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    const dir = await window.vo.scaffoldPickDir();
+    if (!dir) return;
+    await window.vo.sessionSetDir(sessionId, dir);
+    set((s) => ({
+      sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, dir } : m)),
+    }));
+  },
+
+  async detachFolder() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    await window.vo.sessionSetDir(sessionId, null);
+    set((s) => ({
+      sessionMetas: s.sessionMetas.map((m) =>
+        m.id === sessionId ? { ...m, dir: undefined } : m,
+      ),
+    }));
+  },
+
+  async startReview() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId || get().review[sessionId]) return;
+    set((s) => ({ review: { ...s.review, [sessionId]: 'running' } }));
+    await get().send(
+      'Run a real code review of the working folder now.\n' +
+        '1) ws_list to map the tree, then ws_read the files that matter (core source and configs; ' +
+        'skip lockfiles, build output, and media).\n' +
+        '2) Report findings ordered by severity — each with the file path (line where possible), ' +
+        'what is wrong, and why it matters: bugs, security issues, race conditions, error-handling ' +
+        'gaps, dead code, quick wins.\n' +
+        '3) End with a section titled "PROPOSED CHANGES": a numbered list of the exact edits you ' +
+        'would make (file → change). Do NOT modify any files in this run — propose only, then ' +
+        'stop and wait for my verdict.',
+    );
+  },
+
+  async resolveReview(verdict) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set((s) => {
+      const review = { ...s.review };
+      delete review[sessionId];
+      return { review };
+    });
+    if (verdict === 'approve') {
+      await get().send(
+        'APPROVED — apply the proposed changes now: make the edits with ws_write exactly as ' +
+          'proposed (adjust only where a file has changed underneath you), verify with ws_run ' +
+          '(build/tests), and report what changed plus what the verification said.',
+      );
+    } else if (verdict === 'reject') {
+      await get().send(
+        'DECLINED — do not apply the proposed changes. Leave the files as they are; acknowledge ' +
+          'in one line.',
+      );
+    }
+  },
+
   async send(text) {
     const { activeSessionId, attachments, config, models, sessions, sessionMetas } = get();
     if (!activeSessionId) return;
@@ -563,7 +634,12 @@ export const useStore = create<AppState>((set, get) => ({
       set((s) => {
         const session = s.sessions[activeSessionId];
         if (!session) return s;
+        // A send that never started streaming will never emit 'idle' — drop
+        // any pending review so the button doesn't wedge at "Reviewing…".
+        const review = { ...s.review };
+        delete review[activeSessionId];
         return {
+          review,
           sessions: {
             ...s.sessions,
             [activeSessionId]: {
@@ -843,6 +919,13 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       } else if (event.status === 'idle') {
         patchDraft((m) => ({ ...m, streaming: false }));
         patchSession((session) => ({ ...session, streaming: false }));
+        // A finished review run means the proposal is on screen — show the
+        // Approve / Revise / Don't accept pill.
+        set((s) =>
+          s.review[sessionId] === 'running'
+            ? { review: { ...s.review, [sessionId]: 'verdict' } }
+            : s,
+        );
       }
       break;
   }

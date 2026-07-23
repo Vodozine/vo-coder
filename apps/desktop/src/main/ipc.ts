@@ -41,7 +41,9 @@ import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { UsageTracker } from './usage';
+import { executeFileIdTool, fileIdToolSpecs } from './file-id';
 import { executeImageTool, imageToolSpecs } from './image-gen';
+import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
@@ -154,18 +156,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     specs: () => [
       ...webToolSpecs(),
       ...imageToolSpecs(),
+      ...fileIdToolSpecs(),
       ...journal.toolSpecs(),
       ...(bank?.toolSpecs() ?? []),
       ...(missionsRef?.toolSpecs() ?? []),
     ],
-    execute: (name: string, args: unknown, ctx?: { projectId?: string }) => {
+    execute: (name: string, args: unknown, ctx?: { projectId?: string; dir?: string }) => {
+      // The chat's folder: an attached/session dir when the caller passes one,
+      // else the project's own folder.
+      const ctxDir = () =>
+        ctx?.dir ??
+        (ctx?.projectId
+          ? projects.list().projects.find((p) => p.id === ctx.projectId)?.dir
+          : undefined);
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name === 'image_generate') {
-        const dir = ctx?.projectId
-          ? projects.list().projects.find((p) => p.id === ctx.projectId)?.dir
-          : undefined;
-        return executeImageTool(args, config, secrets, dir);
+        return executeImageTool(args, config, secrets, ctxDir());
       }
+      if (name === 'look_at_image') {
+        return executeLookTool(args, { config, hub }, ctxDir());
+      }
+      if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
       if (name.startsWith('archive_') || name.startsWith('map_')) {
         return bank
@@ -318,6 +329,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     sessions.setAgent(sessionId, agentId);
     broadcastProjects();
   });
+  // Point this chat at any folder (or detach with null). Takes effect on the
+  // next send — specs and tool mounts re-derive from the meta every turn.
+  ipcMain.handle(IPC.sessionSetDir, (_e, sessionId: string, dir: string | null) => {
+    projects.setSessionDir(sessionId, dir);
+    broadcastProjects();
+  });
 
   // The bundled infra MCP registers itself as a first-class default server.
   // Its settings/MCP_SETTINGS.json live under userData via cwd. The entry is
@@ -434,7 +451,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const projectDir = (() => {
         const meta = projects.meta(sessionId);
         if (!meta) return undefined;
-        return projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
+        // A chat-attached folder counts too: the agent has tools over it.
+        return meta.dir ?? projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
       })();
       const builderMode = !!projectDir;
       if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
@@ -767,7 +785,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return out;
   };
   const remoteTools = (dir?: string) => [
-    ...(dir ? workspaceToolSpecs(dir) : []),
+    ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
     ...builtins.specs(),
     ...mcp.toolsFor(undefined),
   ];
@@ -777,8 +795,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (/^(web_|mission_|memory_|archive_|map_|image_)/.test(name)) {
-      return builtins.execute(name, args, { projectId });
+    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_)/.test(name)) {
+      return builtins.execute(name, args, { projectId, ...(dir ? { dir } : {}) });
     }
     return mcp.call(name, args);
   };
@@ -873,6 +891,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const allowedRoots = [
         join(app.getPath('userData'), 'generated'),
         ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
+        ...projects.list().sessions.flatMap((s) => (s.dir ? [s.dir] : [])),
       ];
       const target = resolve(path);
       const inside = (root: string) => {
@@ -882,10 +901,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (!allowedRoots.some(inside)) {
         return { ok: false, error: 'Path outside allowed folders.' };
       }
-      const data = readFileSync(target);
-      if (data.length > 24 * 1024 * 1024) return { ok: false, error: 'Image too large to preview.' };
+      let data: Buffer = readFileSync(target);
       const ext = target.split('.').pop()?.toLowerCase() ?? 'png';
-      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+      // Camera RAW files render via their embedded JPEG preview.
+      if (RAW_EXTS.has(`.${ext}`)) {
+        const preview = extractJpegPreview(data);
+        if (!preview) return { ok: false, error: 'No embedded preview in this RAW file.' };
+        data = preview;
+      }
+      if (data.length > 24 * 1024 * 1024) return { ok: false, error: 'Image too large to preview.' };
+      const mime = RAW_EXTS.has(`.${ext}`) || ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
       return { ok: true, dataUrl: `data:${mime};base64,${data.toString('base64')}` };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

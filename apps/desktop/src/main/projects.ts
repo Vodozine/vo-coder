@@ -133,6 +133,15 @@ export class ProjectStore {
     }
   }
 
+  setSessionDir(id: string, dir: string | null): void {
+    const meta = this.meta(id);
+    if (meta) {
+      if (dir) meta.dir = dir;
+      else delete meta.dir;
+      this.persist();
+    }
+  }
+
   touch(id: string, autoTitle?: string): void {
     const meta = this.meta(id);
     if (!meta) return;
