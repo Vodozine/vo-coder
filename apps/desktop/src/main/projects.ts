@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 import type { HarnessMessage } from '@vo-coder/providers';
@@ -19,15 +19,36 @@ export class ProjectStore {
       try {
         this.cache = JSON.parse(readFileSync(this.file, 'utf8')) as ProjectsData;
       } catch {
+        // A torn/corrupt file must never silently vanish — keep the evidence
+        // next to the fresh start so the structure can be reconstructed.
+        if (existsSync(this.file)) {
+          try {
+            copyFileSync(this.file, `${this.file}.corrupt-${Date.now()}`);
+            console.error('[projects] projects.json was unreadable — backed up and starting fresh');
+          } catch {
+            /* backup is best-effort */
+          }
+        }
         this.cache = { projects: [], sessions: [] };
       }
     }
     return this.cache;
   }
 
+  /** Write-temp-then-rename: a kill mid-write can never tear the real file. */
   private persist(): void {
     mkdirSync(this.chatsDir, { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.load(), null, 2), 'utf8');
+    const tmp = `${this.file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.load(), null, 2), 'utf8');
+    renameSync(tmp, this.file);
+  }
+
+  setDir(id: string, dir: string): boolean {
+    const project = this.load().projects.find((p) => p.id === id);
+    if (!project) return false;
+    project.dir = dir;
+    this.persist();
+    return true;
   }
 
   ensureDefault(): void {
@@ -120,7 +141,9 @@ export class ProjectStore {
 
   saveTranscript(id: string, history: HarnessMessage[]): void {
     mkdirSync(this.chatsDir, { recursive: true });
-    writeFileSync(this.transcriptPath(id), JSON.stringify(history), 'utf8');
+    const path = this.transcriptPath(id);
+    writeFileSync(`${path}.tmp`, JSON.stringify(history), 'utf8');
+    renameSync(`${path}.tmp`, path);
   }
 
   loadTranscript(id: string): HarnessMessage[] {

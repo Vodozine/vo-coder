@@ -261,6 +261,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     bank?.purgeProject(id);
     broadcastProjects();
   });
+  ipcMain.handle(IPC.projectSetDir, (_e, id: string, dir: string) => {
+    try {
+      if (!existsSync(dir)) return { ok: false, error: 'That folder does not exist.' };
+      if (!projects.setDir(id, dir)) return { ok: false, error: 'Unknown project.' };
+      journal.append({
+        kind: 'project',
+        text: `attached folder to "${projectNameOf(id) ?? id}"`,
+        ...(projectNameOf(id) ? { project: projectNameOf(id) } : {}),
+      });
+      broadcastProjects();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
   ipcMain.handle(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
     const meta = projects.createSession(projectId, agentId);
     broadcastProjects();

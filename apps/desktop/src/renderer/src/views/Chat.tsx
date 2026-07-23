@@ -210,6 +210,9 @@ function StatusCard({
   const models = useStore((s) => s.models);
   const modelsError = useStore((s) => s.modelsError);
   const mcpStatus = useStore((s) => s.mcpStatus);
+  const projects = useStore((s) => s.projects);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeProject = projects.find((p) => p.id === activeProjectId);
 
   const config = useStore((s) => s.config);
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
@@ -275,7 +278,30 @@ function StatusCard({
               : 'no MCP servers connected (Settings → MCP servers)'
           }
         />
+        {activeProject && (
+          <StatusRow
+            state={activeProject.dir ? 'ok' : 'warn'}
+            label="folder"
+            detail={
+              activeProject.dir ??
+              'no project folder — agents cannot build here and routing treats chats as talk'
+            }
+          />
+        )}
       </div>
+      {activeProject && !activeProject.dir && (
+        <button
+          className="send"
+          onClick={() =>
+            void (async () => {
+              const dir = await window.vo.scaffoldPickDir();
+              if (dir) await window.vo.projectSetDir(activeProject.id, dir);
+            })()
+          }
+        >
+          Attach project folder…
+        </button>
+      )}
       <p>Drop files or images anywhere to attach them. Hold Ctrl+Space to talk.</p>
     </div>
   );

@@ -354,6 +354,8 @@ export interface VoApi {
     name: string,
   ): Promise<{ ok: boolean; project?: ProjectInfo; error?: string }>;
   projectDelete(id: string): Promise<void>;
+  /** Attach (or change) a project's folder — enables builder mode + ws tools. */
+  projectSetDir(id: string, dir: string): Promise<{ ok: boolean; error?: string }>;
   sessionCreate(projectId: string, agentId?: string): Promise<ChatSessionMeta>;
   sessionOpen(sessionId: string): Promise<{ meta: ChatSessionMeta; history: HarnessMessage[] }>;
   sessionDelete(sessionId: string): Promise<void>;
@@ -458,6 +460,7 @@ export const IPC = {
   projectCreate: 'projects:create',
   projectCreateIn: 'projects:createIn',
   projectDelete: 'projects:delete',
+  projectSetDir: 'projects:setDir',
   sessionCreate: 'sessions:create',
   sessionOpen: 'sessions:open',
   sessionDelete: 'sessions:delete',

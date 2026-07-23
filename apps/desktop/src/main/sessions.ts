@@ -111,8 +111,16 @@ export class SessionManager {
         `ws_list (see files), ws_read (read a file), ws_write (create/overwrite a file), and ` +
         `ws_run (run shell commands like npm install, npm run build, tests). ` +
         `DO THE WORK YOURSELF with these tools — write the files and run the commands instead of ` +
-        `giving the user manual instructions. Verify your work by running builds/tests. ` +
-        `Ask before anything destructive.${builtinNote}`,
+        `giving the user manual instructions.\n` +
+        `HARD RULES:\n` +
+        `- NEVER end a reply by telling the user to run a command ("To deploy: npm run build", ` +
+        `"cd X && …", "rebuild and test"). If a command is worth mentioning, YOU run it with ` +
+        `ws_run and report its output instead.\n` +
+        `- After changing files, ALWAYS verify: run the build/tests/linter with ws_run (or open ` +
+        `the entry file check) BEFORE answering. A reply about code changes must end with what ` +
+        `you ran and what happened, not with homework for the user.\n` +
+        `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
+        `${builtinNote}`,
     };
   }
 
