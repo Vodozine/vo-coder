@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { McpRegistryEntry } from '@vo-coder/core';
-import type { TelegramInfo } from '../../../shared/ipc-contract';
+import type { AppConfig, TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
@@ -687,6 +687,79 @@ function TelegramSection() {
   );
 }
 
+/** Routing blocklist: vendors/models Vodo must never auto-pick. */
+function ExcludedModels() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const catalog = useStore((s) => s.catalog);
+  const [term, setTerm] = useState('');
+
+  if (!config) return null;
+  const excluded = config.excludedModels;
+
+  const vendors = [
+    ...new Set(
+      (catalog?.records ?? [])
+        .filter((r) => r.provider === 'openrouter' && r.id.includes('/'))
+        .map((r) => r.id.split('/')[0]!),
+    ),
+  ].sort();
+
+  const add = (raw: string) => {
+    const terms = raw
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 1 && !excluded.includes(t));
+    if (terms.length) void saveConfig({ excludedModels: [...excluded, ...terms] });
+    setTerm('');
+  };
+  const remove = (t: string) =>
+    void saveConfig({ excludedModels: excluded.filter((x) => x !== t) });
+
+  return (
+    <>
+      <div className="field-row">
+        <label>exclude</label>
+        <select
+          value=""
+          title="Vodo never auto-routes to matching models (manual picking still works)"
+          onChange={(e) => {
+            if (e.target.value) add(e.target.value);
+          }}
+        >
+          <option value="">exclude a vendor…</option>
+          {vendors.map((v) => (
+            <option key={v} value={v} disabled={excluded.includes(v)}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <input
+          className="grow"
+          placeholder="or type: glm, kimi, fable… (Enter to add)"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add(term);
+          }}
+        />
+      </div>
+      {excluded.length > 0 && (
+        <div className="attachment-row" style={{ marginBottom: 10 }}>
+          {excluded.map((t) => (
+            <span key={t} className="attachment-chip">
+              {t}
+              <button className="chip-x" title="Allow again" onClick={() => remove(t)}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function UpdatesSection() {
   const updateInfo = useStore((s) => s.updateInfo);
   const config = useStore((s) => s.config);
@@ -846,6 +919,22 @@ export function Settings() {
             </label>
           ))}
         </div>
+        <div className="field-row">
+          <label>tier</label>
+          <select
+            className="grow"
+            value={config.routeTier}
+            title="How Vodo trades cost against capability when picking models"
+            onChange={(e) =>
+              void saveConfig({ routeTier: e.target.value as AppConfig['routeTier'] })
+            }
+          >
+            <option value="cheap">1 · cheapest capable model</option>
+            <option value="balanced">2 · mid-priced, most capable</option>
+            <option value="best">3 · best for the job — price no object</option>
+          </select>
+        </div>
+        <ExcludedModels />
         <textarea
           className="system-prompt"
           rows={4}

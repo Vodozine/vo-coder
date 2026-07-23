@@ -304,6 +304,21 @@ describe('advisory router', () => {
     for (const r of ranked) expect(r.model.supportsVision).toBe(true);
   });
 
+  it('routing tiers reorder the same pool: cheap vs balanced vs best', () => {
+    const signal = signalFromPrompt('short question');
+    const cheap = suggest(signal, catalog, bigBox, 1, { tier: 'cheap' })[0]!;
+    const best = suggest(signal, catalog, bigBox, 1, { tier: 'best' })[0]!;
+    // Best tier ignores price: quality strictly >= the cheap pick, and the
+    // top-quality model of the pool wins.
+    expect(best.model.quality ?? 0).toBeGreaterThanOrEqual(cheap.model.quality ?? 0);
+    const maxQ = Math.max(...suggest(signal, catalog, bigBox, 50).map((r) => r.model.quality ?? 0));
+    expect(best.model.quality).toBe(maxQ);
+    expect(best.rationale).toContain('best in class');
+    expect(cheap.rationale).toContain('cheapest capable');
+    const balanced = suggest(signal, catalog, bigBox, 1, { tier: 'balanced' })[0]!;
+    expect(balanced.rationale).toContain('mid-price capable');
+  });
+
   it('hardware filters local models that do not fit', () => {
     const signal = signalFromPrompt('short question');
     const ranked = suggest(signal, catalog, smallBox, 20);

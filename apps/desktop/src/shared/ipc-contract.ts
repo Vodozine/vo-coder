@@ -48,6 +48,16 @@ export interface AppConfig {
    * 'off'         — always use the selected model
    */
   routeMode: 'auto' | 'agents' | 'agents-only' | 'off';
+  /**
+   * Cost/intelligence tier for model routing:
+   * 'cheap'    — cheapest capable model (default)
+   * 'balanced' — most capable among mid-priced options
+   * 'best'     — best-ranked model for the job, price ignored
+   */
+  routeTier: 'cheap' | 'balanced' | 'best';
+  /** Case-insensitive substrings — matching models never get auto-routed
+   *  (manual selection still works). e.g. ["glm", "kimi", "fable"]. */
+  excludedModels: string[];
   /** OAuth client id for xAI subscription sign-in (public desktop client). */
   xaiOauthClientId: string;
   /** Check for and download updates automatically (manual check always works). */
@@ -124,6 +134,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   scaffoldDefaults: {},
   routeMode: 'auto',
+  routeTier: 'cheap',
+  excludedModels: [],
   // Public client id of xAI's own CLI device flow (verified from shipping
   // open-source integrations; editable in Settings if xAI rotates it).
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',

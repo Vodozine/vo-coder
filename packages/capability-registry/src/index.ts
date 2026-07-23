@@ -9,6 +9,7 @@ export {
   signalFromPrompt,
   suggest,
 } from './router.js';
+export type { RouteTier } from './router.js';
 export { annotateQuality, qualityFor, QUALITY_PATTERNS } from './quality.js';
 export {
   applyArenaQuality,

@@ -671,8 +671,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const liveOpenRouter = new Set(
       records.filter((r) => r.provider === 'openrouter').map((r) => r.id),
     );
+    // User blocklist: excluded models/vendors never enter routing.
+    const excluded = config
+      .get()
+      .excludedModels.map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    const isExcluded = (m: ModelRecord): boolean =>
+      excluded.some(
+        (term) =>
+          m.id.toLowerCase().includes(term) ||
+          (m.displayName ?? '').toLowerCase().includes(term),
+      );
     const eligible: ModelRecord[] = [];
     for (const m of records) {
+      if (isExcluded(m)) continue;
       if (m.provider && registered.has(m.provider)) {
         if (m.provider === 'ollama' || m.provider === 'lmstudio') {
           if (installed[m.provider]?.includes(m.id)) eligible.push(m);
@@ -692,7 +704,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         eligible.push({ ...m, provider: 'openrouter', id: m.openrouterId });
       }
     }
-    const top = suggest(signal, eligible, profileHardware(), 1)[0];
+    const top = suggest(signal, eligible, profileHardware(), 1, {
+      tier: config.get().routeTier,
+    })[0];
     if (!top?.model.provider) return undefined;
     return { provider: top.model.provider, model: top.model.id, rationale: top.rationale };
   };
@@ -845,7 +859,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       _e,
       text: string,
       opts?: { needsTools?: boolean; needsVision?: boolean; wantsThinking?: boolean },
-    ) => suggest(signalFromPrompt(text, opts), (await getCatalog()).records, profileHardware()),
+    ) => {
+      const excluded = config
+        .get()
+        .excludedModels.map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      const records = (await getCatalog()).records.filter(
+        (m) =>
+          !excluded.some(
+            (term) =>
+              m.id.toLowerCase().includes(term) ||
+              (m.displayName ?? '').toLowerCase().includes(term),
+          ),
+      );
+      return suggest(signalFromPrompt(text, opts), records, profileHardware(), 3, {
+        tier: config.get().routeTier,
+      });
+    },
   );
 
   // ---- voice (PTT + live chat) ----

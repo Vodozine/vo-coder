@@ -59,18 +59,23 @@ export function estCostPerExchange(m: ModelRecord): number {
   return ((m.pricing.inputPerMTok ?? 0) * 2000 + (m.pricing.outputPerMTok ?? 0) * 1000) / 1e6;
 }
 
+export type RouteTier = 'cheap' | 'balanced' | 'best';
+
 /**
- * Advisory-only "cheapest adequate" ranking: filter by hard requirements
- * (vision/tools/hardware fit), demand a quality floor scaled to task
- * complexity, then prefer the cheapest — the always-on local foundation takes
- * simple work, the big brain only fires when the task earns it.
+ * Advisory-only ranking: filter by hard requirements (vision/tools/hardware
+ * fit), demand a quality floor scaled to task complexity, then order by the
+ * chosen tier — 'cheap' prefers the cheapest capable model, 'balanced' the
+ * most capable among mid-priced options, 'best' pure quality with price only
+ * as a tiebreak.
  */
 export function suggest(
   signal: TaskSignal,
   catalog: ModelRecord[],
   hw: HardwareProfile,
   limit = 3,
+  opts: { tier?: RouteTier } = {},
 ): RankedModel[] {
+  const tier = opts.tier ?? 'cheap';
   const complexity = complexityOf(signal);
   const minQuality = MIN_QUALITY[complexity]!;
 
@@ -83,7 +88,29 @@ export function suggest(
   });
 
   const adequate = eligible.filter((m) => (m.quality ?? 0) >= minQuality);
-  const pool = adequate.length > 0 ? adequate : eligible; // degrade gracefully
+  let pool = (adequate.length > 0 ? adequate : eligible).map((m) => ({
+    model: m,
+    cost: estCostPerExchange(m),
+  }));
+
+  if (tier === 'best') {
+    pool = pool.sort(
+      (a, b) => (b.model.quality ?? 0) - (a.model.quality ?? 0) || a.cost - b.cost,
+    );
+  } else if (tier === 'balanced') {
+    // Most capable among the mid-priced: trim the cheapest and priciest
+    // quartiles (when the pool is big enough), then rank by quality.
+    const byCost = [...pool].sort((a, b) => a.cost - b.cost);
+    const band =
+      byCost.length >= 8
+        ? byCost.slice(Math.floor(byCost.length * 0.25), Math.ceil(byCost.length * 0.75))
+        : byCost;
+    pool = band.sort(
+      (a, b) => (b.model.quality ?? 0) - (a.model.quality ?? 0) || a.cost - b.cost,
+    );
+  } else {
+    pool = pool.sort((a, b) => a.cost - b.cost || (b.model.quality ?? 0) - (a.model.quality ?? 0));
+  }
 
   const label =
     complexity === 0
@@ -93,21 +120,20 @@ export function suggest(
         : complexity === 2
           ? 'complex task'
           : 'hard reasoning task';
+  const tierLabel =
+    tier === 'best' ? 'best in class' : tier === 'balanced' ? 'mid-price capable' : 'cheapest capable';
 
-  return pool
-    .map((m) => ({ model: m, cost: estCostPerExchange(m) }))
-    .sort((a, b) => a.cost - b.cost || (b.model.quality ?? 0) - (a.model.quality ?? 0))
-    .slice(0, limit)
-    .map(({ model, cost }) => ({
-      model,
-      estCostPerExchange: cost,
-      rationale:
-        `${label} → ${model.displayName ?? model.id}` +
-        (cost === 0
-          ? ' (local, est. $0)'
-          : ` (est. $${cost.toFixed(cost < 0.01 ? 4 : 2)}/exchange)`) +
-        `, quality ${Number.isInteger(model.quality) ? model.quality : model.quality?.toFixed(1)}/10` +
-        (model.qualitySource === 'arena' ? ' (arena elo)' : '') +
-        (adequate.length === 0 ? ' — best available below the ideal quality bar' : ''),
-    }));
+  return pool.slice(0, limit).map(({ model, cost }) => ({
+    model,
+    estCostPerExchange: cost,
+    rationale:
+      `${label} → ${model.displayName ?? model.id}` +
+      (cost === 0
+        ? ' (local, est. $0)'
+        : ` (est. $${cost.toFixed(cost < 0.01 ? 4 : 2)}/exchange)`) +
+      `, quality ${Number.isInteger(model.quality) ? model.quality : model.quality?.toFixed(1)}/10` +
+      (model.qualitySource === 'arena' ? ' (arena elo)' : '') +
+      ` · ${tierLabel}` +
+      (adequate.length === 0 ? ' — best available below the ideal quality bar' : ''),
+  }));
 }
