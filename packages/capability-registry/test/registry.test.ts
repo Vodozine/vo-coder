@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildCatalog, loadSeed, mergeRecords } from '../src/catalog.ts';
 import { checkFit } from '../src/hardware.ts';
 import { fetchOpenRouterModels } from '../src/sources/openrouter.ts';
-import { complexityOf, signalFromPrompt, suggest } from '../src/router.ts';
+import {
+  complexityOf,
+  looksLikeWorkRequest,
+  signalFromPrompt,
+  suggest,
+} from '../src/router.ts';
 import type { HardwareProfile, ModelRecord } from '../src/types.ts';
 
 const smallBox: HardwareProfile = {
@@ -255,6 +260,22 @@ describe('advisory router', () => {
     const [top] = suggest(signal, catalog, smallBox);
     expect((top!.model.quality ?? 0)).toBeGreaterThanOrEqual(8);
     expect(top!.rationale).toMatch(/hard reasoning task/);
+  });
+
+  it('detects work requests but not chit-chat', () => {
+    for (const t of [
+      'make it look more modern',
+      'add a scoreboard',
+      'fix the hover bug',
+      'can you refactor this into modules',
+      'redesign the header',
+      '```ts\nconst x = 1\n```',
+    ]) {
+      expect(looksLikeWorkRequest(t)).toBe(true);
+    }
+    for (const t of ['hello', 'hey there', 'thanks!', 'what does this project do?', 'nice, cool']) {
+      expect(looksLikeWorkRequest(t)).toBe(false);
+    }
   });
 
   it('a terse agentic build turn still demands a capable executor', () => {

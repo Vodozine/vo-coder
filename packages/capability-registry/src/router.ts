@@ -23,6 +23,19 @@ export function signalFromPrompt(
   };
 }
 
+/**
+ * Does this message actually ask the agent to DO something to the project
+ * (build/edit/run), versus chat ("hello", "thanks", "what does this do")? Used
+ * to decide whether a folder-backed turn deserves the agentic quality floor —
+ * so greetings in a build project stay cheap instead of waking the big brain.
+ */
+const WORK_INTENT =
+  /\b(add|build|make|create|implement|write|code|generate|scaffold|fix|debug|repair|refactor|clean[\s-]?up|change|modify|update|edit|adjust|tweak|rename|move|delete|remove|drop|replace|install|run|execute|test|set[\s-]?up|configure|wire|integrate|hook[\s-]?up|connect|render|deploy|compile|package|redesign|restyle|design|style|lay[\s-]?out|improve|enhance|polish|optimi[sz]e|convert|migrate|port)\b/i;
+
+export function looksLikeWorkRequest(text: string): boolean {
+  return /```/.test(text) || WORK_INTENT.test(text);
+}
+
 /** 0 = trivial … 3 = hard reasoning. Drives the minimum quality bar. */
 export function complexityOf(signal: TaskSignal): number {
   let c = 0;

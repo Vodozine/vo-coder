@@ -35,7 +35,7 @@ function AgentForm({
     setServers((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
   return (
-    <div className="agent-form">
+    <div className="agent-form form-grid">
       <div className="field-row">
         <label>name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" />
@@ -60,15 +60,6 @@ function AgentForm({
         />
       </div>
       <div className="field-row">
-        <label>system prompt</label>
-        <textarea
-          rows={3}
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-          placeholder="What is this agent for?"
-        />
-      </div>
-      <div className="field-row">
         <label>specialty</label>
         <input
           className="grow"
@@ -78,8 +69,17 @@ function AgentForm({
           title='With routing set to "My agents first", Vodo hands messages matching these to this agent'
         />
       </div>
+      <div className="field-row wide">
+        <label>system prompt</label>
+        <textarea
+          rows={3}
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          placeholder="What is this agent for?"
+        />
+      </div>
       {mcpServerNames.length > 0 && (
-        <div className="field-row">
+        <div className="field-row wide">
           <label>MCP servers</label>
           <div className="checkbox-row">
             {mcpServerNames.map((s) => (
@@ -169,7 +169,7 @@ export function Agents() {
   };
 
   return (
-    <div className="settings">
+    <div className="settings settings-full">
       <h1>Agents</h1>
       <p className="hint">
         Each agent has its own conversation, system prompt, and optional provider/model override —
@@ -182,32 +182,36 @@ export function Agents() {
         </div>
       )}
 
-      {config.agents.map((a) => (
-        <div key={a.id} className="agent-row">
-          <div className="agent-info">
-            <strong>{a.name}</strong>
-            <span className="meta">
-              {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
-              {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
-            </span>
-            {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
-          </div>
-          <div className="agent-actions">
-            <button
-              title="Start a new chat with this agent in the current project"
-              onClick={() => void newSession(undefined, a.id)}
-            >
-              Chat
-            </button>
-            <button className="ghost" onClick={() => setEditing(a)}>
-              Edit
-            </button>
-            <button className="ghost" onClick={() => remove(a.id)}>
-              Delete
-            </button>
-          </div>
+      {config.agents.length > 0 && (
+        <div className="agents-list">
+          {config.agents.map((a) => (
+            <div key={a.id} className="agent-row">
+              <div className="agent-info">
+                <strong>{a.name}</strong>
+                <span className="meta">
+                  {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
+                  {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
+                </span>
+                {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
+              </div>
+              <div className="agent-actions">
+                <button
+                  title="Start a new chat with this agent in the current project"
+                  onClick={() => void newSession(undefined, a.id)}
+                >
+                  Chat
+                </button>
+                <button className="ghost" onClick={() => setEditing(a)}>
+                  Edit
+                </button>
+                <button className="ghost" onClick={() => remove(a.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
       {editing !== null ? (
         <AgentForm

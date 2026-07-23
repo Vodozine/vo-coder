@@ -17,6 +17,7 @@ import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
   buildCatalog,
   checkFit,
+  looksLikeWorkRequest,
   profileHardware,
   signalFromPrompt,
   suggest,
@@ -437,10 +438,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // history forces a vision-capable model, not just images sent right now.
       needsVision: historyHasImages || parts.some((p) => p.type === 'image'),
       // A folder-backed project always ships ws_ tools in the request, so the
-      // model MUST be able to call them — and the turn is a real build, so
-      // demand a capable executor, not the cheapest model that merely narrates.
+      // model MUST be able to call them. But only demand the capable-executor
+      // quality floor when the message actually asks for work — a plain "hello"
+      // in a build project should still route cheap.
       needsTools: builderMode || mcp.list().some((s) => s.connected),
-      agentic: builderMode,
+      agentic: builderMode && looksLikeWorkRequest(text),
       wantsThinking: config.get().thinkingDefault,
     });
     const { records, installed } = await getCatalog();
