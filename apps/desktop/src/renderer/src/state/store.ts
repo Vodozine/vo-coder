@@ -243,10 +243,11 @@ export const useStore = create<AppState>((set, get) => ({
     const { attachments, sessions, activeSessionId } = get();
     const history = activeSessionId ? (sessions[activeSessionId]?.messages ?? []) : [];
     const suggestions = await window.vo.registrySuggest(text, {
-      // Images anywhere in the conversation demand vision on every turn.
+      // Vision only while an image is recent — older ones get stubbed for
+      // blind models by the session layer.
       needsVision:
         attachments.some((a) => a.kind === 'image') ||
-        history.some((m) => m.attachments?.some((a) => a.kind === 'image')),
+        history.slice(-6).some((m) => m.attachments?.some((a) => a.kind === 'image')),
       needsTools: get().mcpStatus.some((s) => s.connected),
     });
     set({ suggestions });

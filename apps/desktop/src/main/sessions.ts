@@ -41,7 +41,13 @@ interface SessionManagerDeps {
     /** Bounded map briefing for window-as-buffer assembly. */
     digest(projectId: string): string;
   };
+  /** Catalog lookup: does this model accept image input? undefined = unknown. */
+  modelCanSee?: (modelId: string) => boolean | undefined;
 }
+
+const IMAGE_STUB =
+  '[image attachment from earlier in this conversation — not visible to the current model; ' +
+  'ask the user or route to a vision model if its contents matter now]';
 
 /** Window-as-buffer tuning: only kicks in past this many messages… */
 const ASSEMBLE_MIN_MESSAGES = 12;
@@ -218,6 +224,22 @@ export class SessionManager {
       // applies to live sessions immediately.
       contextStart: (history) =>
         this.assembleEnabled(sessionId) ? this.bufferCut(history) : 0,
+      // Old images stop handcuffing every later turn to vision models: when
+      // the resolved model explicitly can't see, image parts become text
+      // stubs instead of a provider 400.
+      prepareMessages: (messages, bound) => {
+        if (this.deps.modelCanSee?.(bound.model) !== false) return [...messages];
+        return messages.map((m) =>
+          m.role === 'user' && m.content.some((p) => p.type === 'image')
+            ? {
+                ...m,
+                content: m.content.map((p) =>
+                  p.type === 'image' ? ({ type: 'text', text: IMAGE_STUB } as const) : p,
+                ),
+              }
+            : m,
+        );
+      },
       resolve: (spec) => {
         const { defaultProvider, defaultModel } = this.deps.config.get();
         const bound = this.deps.hub

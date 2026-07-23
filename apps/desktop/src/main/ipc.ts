@@ -169,6 +169,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     },
   };
 
+  // Sync mirror of the catalog for hot paths that can't await getCatalog().
+  let catalogSync: ModelRecord[] = [];
+
   const sessions = new SessionManager({
     config,
     hub,
@@ -176,6 +179,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projects,
     send: sendToWindow,
     builtins,
+    modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
     ...(bank
       ? {
           bank: {
@@ -409,8 +413,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       let routed: { provider: string; model: string; rationale: string } | undefined;
       let specOverride: AgentSpec | undefined;
       const mode = config.get().routeMode;
+      // Vision is demanded only while an image is RECENT — old images get
+      // stubbed for blind models (prepareMessages), so later coding turns can
+      // go back to the user's coder instead of staying vision-locked forever.
       const historyHasImages = sessions
         .historyOf(sessionId)
+        .slice(-6)
         .some((m) => m.role === 'user' && m.content.some((p) => p.type === 'image'));
       // Builder mode: the session's project has a folder, so the agent gets
       // workspace tools (ws_write/ws_run) and is expected to actually build —
@@ -636,8 +644,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           /* local server not running — catalog still works */
         }
       }
-      return { records: await buildCatalog({ cacheDir: app.getPath('userData'), extra }), installed };
+      const records = await buildCatalog({ cacheDir: app.getPath('userData'), extra });
+      catalogSync = records; // refresh the sync mirror for hot paths
+      return { records, installed };
     })());
+  void getCatalog().catch(() => {}); // warm both catalog and mirror at startup
 
   /**
    * The economic core: the user talks to Vodo, Vodo picks the right man for

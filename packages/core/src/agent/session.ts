@@ -56,6 +56,15 @@ export interface AgentSessionOptions {
    * Absent or 0 → full replay (today's behavior).
    */
   contextStart?: (history: readonly HarnessMessage[]) => number;
+  /**
+   * Last-mile adaptation of the outgoing request for the resolved model
+   * (e.g. stubbing image parts for non-vision models). Never mutates
+   * `history` — return a new array.
+   */
+  prepareMessages?: (
+    messages: readonly HarnessMessage[],
+    bound: BoundModel,
+  ) => HarnessMessage[];
 }
 
 export interface SendResult {
@@ -186,7 +195,11 @@ export class AgentSession {
           {
             model: bound.model,
             system: this.spec.systemPrompt,
-            messages: this.startIdx > 0 ? this.history.slice(this.startIdx) : this.history,
+            messages: (() => {
+              const window =
+                this.startIdx > 0 ? this.history.slice(this.startIdx) : this.history;
+              return this.opts.prepareMessages?.(window, bound) ?? (window as HarnessMessage[]);
+            })(),
             params: this.spec.params,
             ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
             ...(tools.length ? { tools } : {}),

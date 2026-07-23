@@ -75,6 +75,36 @@ describe('window-as-buffer (contextStart)', () => {
     expect(session.history).toHaveLength(4);
   });
 
+  it('prepareMessages adapts the request without touching history', async () => {
+    const { provider, requests } = scripted([
+      [{ type: 'text_delta', text: 'ok' }, usage, { type: 'done', stopReason: 'end_turn' }],
+    ]);
+    const { session, done } = makeSession(provider, {
+      prepareMessages: (messages) =>
+        messages.map((m) =>
+          m.role === 'user'
+            ? {
+                ...m,
+                content: m.content.map((p) =>
+                  p.type === 'image' ? ({ type: 'text', text: '[image stub]' } as const) : p,
+                ),
+              }
+            : m,
+        ),
+    });
+    session.history.push({
+      role: 'user',
+      content: [{ type: 'image', mediaType: 'image/png', data: 'abc' }],
+    });
+    session.history.push({ role: 'assistant', content: [{ type: 'text', text: 'seen' }] });
+    session.send('now change the layout');
+    await done;
+    // The wire request carries the stub…
+    expect(requests[0]!.messages[0]!.content).toEqual([{ type: 'text', text: '[image stub]' }]);
+    // …but the real history still holds the image.
+    expect(session.history[0]!.content[0]!.type).toBe('image');
+  });
+
   it('absent contextStart keeps full replay', async () => {
     const { provider, requests } = scripted([
       [{ type: 'text_delta', text: 'ok' }, usage, { type: 'done', stopReason: 'end_turn' }],
