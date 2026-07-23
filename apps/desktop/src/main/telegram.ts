@@ -366,6 +366,7 @@ export class TelegramBridge {
     args: unknown,
   ): Promise<PermissionDecision> {
     if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
+    if (this.config.get().approvalMode === 'auto') return Promise.resolve('allow');
     return new Promise((resolve) => {
       const id = `tg${++this.permSeq}`;
       this.pendingPerms.set(id, resolve);

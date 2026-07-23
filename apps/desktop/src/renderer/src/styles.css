@@ -1340,6 +1340,37 @@ select:focus {
   letter-spacing: 0.08em;
   font-size: 10.5px;
 }
+.usage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.mode-toggle button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 10px;
+  padding: 2px 8px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mode-toggle button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+.mode-toggle button.on:first-child {
+  background: rgba(70, 213, 224, 0.14);
+  color: var(--accent2);
+}
 .route-modes {
   display: flex;
   flex-direction: column;
@@ -1621,6 +1652,15 @@ select:focus {
   padding: 10px 14px;
   background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
   margin-bottom: 16px;
+}
+.mem-assemble .checkbox {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.4;
+}
+.mem-assemble .meta {
+  flex: 0 0 auto;
 }
 .mem-grid {
   display: grid;

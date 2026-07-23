@@ -451,6 +451,9 @@ export class SessionManager {
     args: unknown,
   ): Promise<PermissionDecision> {
     if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
+    // Auto mode: the user has opted into agents acting without prompts.
+    // Destructive infra tools still enforce their own confirm tier downstream.
+    if (this.deps.config.get().approvalMode === 'auto') return Promise.resolve('allow');
     return new Promise((resolve) => {
       const requestId = `perm_${++this.permSeq}`;
       this.pendingPermissions.set(requestId, resolve);

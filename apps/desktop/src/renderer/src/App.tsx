@@ -238,10 +238,31 @@ function ProjectsPanel() {
 /** All-time usage across every project — the tool shed's meter. */
 function TotalUsage() {
   const usage = useStore((s) => s.usage);
+  const mode = useStore((s) => s.config?.approvalMode ?? 'guided');
+  const saveConfig = useStore((s) => s.saveConfig);
   const t = usage?.allTime ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
   return (
     <div className="sidebar-footer usage-footer" title="All-time usage across all projects">
-      <span className="usage-label">Usage</span>
+      <span className="usage-head">
+        <span className="usage-label">Usage</span>
+        <span
+          className="mode-toggle"
+          title="Auto: agents act autonomously — no permission prompts (destructive infra tools still require confirmation). Guided: approve every write/run."
+        >
+          <button
+            className={mode === 'auto' ? 'on' : ''}
+            onClick={() => void saveConfig({ approvalMode: 'auto' })}
+          >
+            Auto
+          </button>
+          <button
+            className={mode === 'guided' ? 'on' : ''}
+            onClick={() => void saveConfig({ approvalMode: 'guided' })}
+          >
+            Guided
+          </button>
+        </span>
+      </span>
       <span className="usage-cost">{fmtCost(t.cost)}</span>
       <span>
         {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out

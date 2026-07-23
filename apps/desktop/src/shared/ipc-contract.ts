@@ -52,6 +52,12 @@ export interface AppConfig {
   xaiOauthClientId: string;
   /** Check for and download updates automatically (manual check always works). */
   autoUpdate: boolean;
+  /**
+   * Tool-call approvals: 'guided' prompts for every write/run/MCP call;
+   * 'auto' lets agents act without prompts. Read-only tools never prompt;
+   * destructive infra tools keep their own confirm tier in both modes.
+   */
+  approvalMode: 'guided' | 'auto';
   /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
   telegramEnabled: boolean;
   /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
@@ -118,6 +124,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // open-source integrations; editable in Settings if xAI rotates it).
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
   autoUpdate: true,
+  approvalMode: 'guided',
   telegramEnabled: false,
   telegramPaired: [],
 };

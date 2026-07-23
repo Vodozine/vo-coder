@@ -13,10 +13,13 @@ function ContextChip({
   messages,
   model,
   streaming,
+  assemble,
 }: {
   messages: UiMessage[];
   model: string;
   streaming: boolean;
+  /** Smart context on for this project — the request is digest + buffer. */
+  assemble: boolean;
 }) {
   const catalog = useStore((s) => s.catalog);
   const routeMode = useStore((s) => s.config?.routeMode ?? 'off');
@@ -42,7 +45,11 @@ function ContextChip({
 
   const record = catalog?.records.find((r) => r.id === model);
   const windowTokens = record?.contextLength ?? 128_000;
-  const pct = Math.min(100, Math.round((estTokens / windowTokens) * 100));
+  // With Smart context on, the request is digest + recent buffer — the last
+  // turn's ACTUAL input tokens are the honest gauge, not the full-history sum.
+  const assembled = assemble && !!lastUsage;
+  const basis = assembled ? lastUsage!.inputTokens : estTokens;
+  const pct = Math.min(100, Math.round((basis / windowTokens) * 100));
   const level = pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
 
   const compact = async () => {
@@ -65,27 +72,45 @@ function ContextChip({
               {record?.contextLength ? '' : ' (est.)'}
             </b>
           </div>
-          <div className="ctx-row">
-            <span>in context now (est.)</span>
-            <b>
-              {fmtTokens(estTokens)} · {pct}%
-            </b>
-          </div>
-          {lastUsage && (
-            <div className="ctx-row">
-              <span>last turn actual</span>
-              <b>
-                {fmtTokens(lastUsage.inputTokens)} in · {fmtTokens(lastUsage.outputTokens)} out
-              </b>
-            </div>
+          {assembled ? (
+            <>
+              <div className="ctx-row">
+                <span>assembled request (last turn)</span>
+                <b>
+                  {fmtTokens(lastUsage!.inputTokens)} · {pct}%
+                </b>
+              </div>
+              <div className="ctx-row">
+                <span>full history (est.)</span>
+                <b>{fmtTokens(estTokens)}</b>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="ctx-row">
+                <span>in context now (est.)</span>
+                <b>
+                  {fmtTokens(estTokens)} · {pct}%
+                </b>
+              </div>
+              {lastUsage && (
+                <div className="ctx-row">
+                  <span>last turn actual</span>
+                  <b>
+                    {fmtTokens(lastUsage.inputTokens)} in · {fmtTokens(lastUsage.outputTokens)} out
+                  </b>
+                </div>
+              )}
+            </>
           )}
           <div className="ctx-row">
             <span>messages</span>
             <b>{messages.length}</b>
           </div>
           <p className="hint">
-            The whole conversation replays every turn{routeMode === 'auto' ? ' (window shown is the selected fallback model)' : ''}.
-            Compacting rewrites it into a short briefing — same chat, fraction of the tokens.
+            {assemble
+              ? 'Smart context is on — requests carry the map digest plus recent turns; older turns live in the memory bank, one tool call away.'
+              : `The whole conversation replays every turn${routeMode === 'auto' ? ' (window shown is the selected fallback model)' : ''}. Compacting rewrites it into a short briefing — same chat, fraction of the tokens.`}
           </p>
           {error && <p className="hint error-text">{error}</p>}
           <button className="send ctx-compact" disabled={busy || streaming} onClick={() => void compact()}>
@@ -408,6 +433,9 @@ export function Chat() {
   const suggestFor = useStore((s) => s.suggestFor);
   const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
   const activeAgentId = activeMeta?.agentId ?? 'default';
+  const assembleOn = useStore(
+    (s) => !!s.projects.find((p) => p.id === activeMeta?.projectId)?.assemble,
+  );
   const session = useStore((s) =>
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
@@ -704,6 +732,7 @@ export function Chat() {
               messages={messages}
               model={activeAgent?.model ?? config.defaultModel}
               streaming={streaming}
+              assemble={assembleOn}
             />
             <div className="send-btns">
               {streaming ? (
