@@ -344,12 +344,11 @@ export class MemoryBank {
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'Project name (required)' },
             query: { type: 'string', description: 'Search words; omit for an overview' },
+            project: { type: 'string', description: "Project name (omit = this chat's project)" },
             type: { type: 'string', description: 'Filter: file|component|decision|task|fact|issue|preference' },
             includeInactive: { type: 'boolean', description: 'Include superseded/dropped nodes' },
           },
-          required: ['project'],
         },
       },
       {
@@ -363,10 +362,10 @@ export class MemoryBank {
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'Project name' },
             ops: { type: 'array', description: 'Array of op objects (see description)' },
+            project: { type: 'string', description: "Project name (omit = this chat's project)" },
           },
-          required: ['project', 'ops'],
+          required: ['ops'],
         },
       },
       {
@@ -380,7 +379,8 @@ export class MemoryBank {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'FTS query — words or "quoted phrases"' },
-            project: { type: 'string', description: 'Limit to a project name (recommended)' },
+            project: { type: 'string', description: "Project name (omit = this chat's project)" },
+            allProjects: { type: 'boolean', description: 'Search every project, not just this one' },
             limit: { type: 'number', description: `Max results (default 8, cap ${SEARCH_MAX})` },
           },
           required: ['query'],
@@ -408,13 +408,28 @@ export class MemoryBank {
     name: string,
     args: unknown,
     resolveProject: (name: string) => string | undefined,
+    projectNames: () => string,
+    ctx?: { projectId?: string },
   ): Promise<{ content: string; isError?: boolean }> {
     const a = (args ?? {}) as Record<string, unknown>;
+    // Models paraphrase or omit project names — resolve what they gave us,
+    // fall back to the session's own project, and make misses self-correcting.
+    const projectIdOf = (): { id?: string; err?: string } => {
+      if (a.project) {
+        const id = resolveProject(String(a.project));
+        return id
+          ? { id }
+          : { err: `No project called "${a.project}". Projects: ${projectNames()}. Omit the project param to use this chat's project.` };
+      }
+      if (ctx?.projectId) return { id: ctx.projectId };
+      return { err: `No project in scope — pass project: one of ${projectNames()}.` };
+    };
     try {
       switch (name) {
         case 'map_query': {
-          const projectId = resolveProject(String(a.project ?? ''));
-          if (!projectId) return { content: `No project called "${a.project}".`, isError: true };
+          const scope = projectIdOf();
+          if (!scope.id) return { content: scope.err!, isError: true };
+          const projectId = scope.id;
           const includeInactive = a.includeInactive === true;
           const typeFilter =
             a.type && NODE_TYPES.has(String(a.type)) ? String(a.type) : undefined;
@@ -467,10 +482,10 @@ export class MemoryBank {
           return { content: lines.join('\n') };
         }
         case 'map_update': {
-          const projectId = resolveProject(String(a.project ?? ''));
-          if (!projectId) return { content: `No project called "${a.project}".`, isError: true };
+          const scope = projectIdOf();
+          if (!scope.id) return { content: scope.err!, isError: true };
           if (!Array.isArray(a.ops)) return { content: 'ops must be an array.', isError: true };
-          const applied = this.applyOps(projectId, a.ops as MapOp[]);
+          const applied = this.applyOps(scope.id, a.ops as MapOp[]);
           return { content: `Applied ${applied} of ${(a.ops as unknown[]).length} ops to the map.` };
         }
         case 'archive_search': {
@@ -479,10 +494,11 @@ export class MemoryBank {
           const limit = Math.min(Math.max(Number(a.limit) || 8, 1), SEARCH_MAX);
           let projectFilter = '';
           let projectId: string | undefined;
-          if (a.project) {
-            projectId = resolveProject(String(a.project));
-            if (!projectId) return { content: `No project called "${a.project}".`, isError: true };
-            projectFilter = 'AND archive.project_id = ?';
+          if (a.allProjects !== true) {
+            const scope = projectIdOf();
+            if (a.project && !scope.id) return { content: scope.err!, isError: true };
+            projectId = scope.id;
+            if (projectId) projectFilter = 'AND archive.project_id = ?';
           }
           // FTS5 chokes on stray operators — quote each term defensively.
           const safe = query

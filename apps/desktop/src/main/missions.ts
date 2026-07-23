@@ -36,6 +36,7 @@ export interface MissionAgentBackend {
     name: string,
     args: unknown,
     projectDir?: string,
+    projectId?: string,
   ): Promise<{ content: string; isError?: boolean }>;
   /** Fallback prompt when a mission is NOT auto-approved (e.g. Telegram buttons). */
   askPermission?: (
@@ -209,12 +210,18 @@ export class MissionManager {
     ];
   }
 
-  async executeTool(name: string, args: unknown): Promise<{ content: string; isError?: boolean }> {
+  async executeTool(
+    name: string,
+    args: unknown,
+    ctx?: { projectId?: string },
+  ): Promise<{ content: string; isError?: boolean }> {
     const a = (args ?? {}) as Record<string, unknown>;
     try {
       switch (name) {
         case 'mission_create': {
-          const projectId = a.project ? this.backend.resolveProject(String(a.project)) : undefined;
+          const projectId = a.project
+            ? this.backend.resolveProject(String(a.project))
+            : ctx?.projectId;
           if (a.project && !projectId) {
             return { content: `No project called "${a.project}".`, isError: true };
           }
@@ -325,7 +332,7 @@ export class MissionManager {
       },
       toolExecutor: {
         tools: () => this.backend.tools(dir),
-        execute: (name, args) => this.backend.execute(name, args, dir),
+        execute: (name, args) => this.backend.execute(name, args, dir, mission.projectId),
       },
       permission: async (req) => {
         const current = this.byId(mission.id);

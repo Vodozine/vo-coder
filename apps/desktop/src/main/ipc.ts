@@ -117,13 +117,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const journal = new Journal(join(app.getPath('userData'), 'journal.jsonl'));
   const projectNameOf = (projectId?: string): string | undefined =>
     projectId ? projects.list().projects.find((p) => p.id === projectId)?.name : undefined;
+  // Forgiving on purpose: models paraphrase project names ("solitaire" for
+  // "solitare"), so match id → exact name → normalized → contains.
   const resolveProjectId = (nameOrId: string): string | undefined => {
     const all = projects.list().projects;
+    const raw = nameOrId.trim();
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     return (
-      all.find((p) => p.id === nameOrId)?.id ??
-      all.find((p) => p.name.toLowerCase() === nameOrId.toLowerCase())?.id
+      all.find((p) => p.id === raw)?.id ??
+      all.find((p) => p.name.toLowerCase() === raw.toLowerCase())?.id ??
+      all.find((p) => norm(p.name) === norm(raw))?.id ??
+      all.find((p) => norm(p.name).includes(norm(raw)) || norm(raw).includes(norm(p.name)))?.id
     );
   };
+  const projectNamesHint = (): string =>
+    projects.list().projects.map((p) => `"${p.name}"`).join(', ') || '(none)';
 
   // The lossless archive (memory bank step 1): every conversation turn,
   // verbatim, searchable forever — fail-soft if sqlite is unavailable.
@@ -146,15 +154,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...(bank?.toolSpecs() ?? []),
       ...(missionsRef?.toolSpecs() ?? []),
     ],
-    execute: (name: string, args: unknown) => {
+    execute: (name: string, args: unknown, ctx?: { projectId?: string }) => {
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
       if (name.startsWith('archive_') || name.startsWith('map_')) {
         return bank
-          ? bank.executeTool(name, args, resolveProjectId)
+          ? bank.executeTool(name, args, resolveProjectId, projectNamesHint, ctx)
           : Promise.resolve({ content: 'The memory bank is unavailable.', isError: true });
       }
-      if (missionsRef) return missionsRef.executeTool(name, args);
+      if (missionsRef) return missionsRef.executeTool(name, args, ctx);
       return Promise.resolve({ content: 'Missions are not ready yet.', isError: true });
     },
   };
@@ -692,13 +700,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     ...builtins.specs(),
     ...mcp.toolsFor(undefined),
   ];
-  const remoteExecute = (name: string, args: unknown, dir?: string) => {
+  const remoteExecute = (name: string, args: unknown, dir?: string, projectId?: string) => {
     if (name.startsWith('ws_')) {
       return dir
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (name.startsWith('web_') || name.startsWith('mission_')) return builtins.execute(name, args);
+    if (/^(web_|mission_|memory_|archive_|map_)/.test(name)) {
+      return builtins.execute(name, args, { projectId });
+    }
     return mcp.call(name, args);
   };
 

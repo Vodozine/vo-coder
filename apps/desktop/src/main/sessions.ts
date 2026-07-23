@@ -17,7 +17,11 @@ interface SessionManagerDeps {
   /** Always-on tools every session gets (web search/fetch, mission control). */
   builtins?: {
     specs(): ToolSpec[];
-    execute(name: string, args: unknown): Promise<{ content: string; isError?: boolean }>;
+    execute(
+      name: string,
+      args: unknown,
+      ctx?: { projectId?: string },
+    ): Promise<{ content: string; isError?: boolean }>;
   };
   /** Fired for every provider usage report, with the model that produced it. */
   onUsage?: (
@@ -172,8 +176,19 @@ export class SessionManager {
             }
             return executeWorkspaceTool(dir, name, args);
           }
-          if (this.deps.builtins && (name.startsWith('web_') || name.startsWith('mission_'))) {
-            return this.deps.builtins.execute(name, args);
+          if (
+            this.deps.builtins &&
+            (name.startsWith('web_') ||
+              name.startsWith('mission_') ||
+              name.startsWith('memory_') ||
+              name.startsWith('archive_') ||
+              name.startsWith('map_'))
+          ) {
+            // The session knows its own project — tools default to it instead
+            // of making the model guess a name.
+            return this.deps.builtins.execute(name, args, {
+              projectId: this.deps.projects.meta(sessionId)?.projectId,
+            });
           }
           return this.deps.mcp.call(name, args);
         },
