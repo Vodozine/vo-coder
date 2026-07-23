@@ -17,7 +17,7 @@ interface OpenRouterModel {
   name?: string;
   context_length?: number;
   pricing?: { prompt?: string; completion?: string };
-  architecture?: { input_modalities?: string[] };
+  architecture?: { input_modalities?: string[]; output_modalities?: string[] };
   supported_parameters?: string[];
 }
 
@@ -34,6 +34,9 @@ export async function fetchOpenRouterModels(
     const vision = m.architecture?.input_modalities?.includes('image') ?? false;
     const tools = m.supported_parameters?.includes('tools') ?? false;
     const thinking = m.supported_parameters?.includes('reasoning') ?? false;
+    // Image GENERATORS (e.g. "… Pro Image") score high on arena but cannot
+    // drive a tool-using chat — flag them so routing skips them.
+    const outputsImage = m.architecture?.output_modalities?.includes('image') ?? false;
     return {
       id: m.id,
       provider: 'openrouter',
@@ -51,6 +54,7 @@ export async function fetchOpenRouterModels(
       supportsTools: tools,
       supportsVision: vision,
       supportsThinking: thinking,
+      ...(outputsImage ? { outputsImage: true } : {}),
     } satisfies ModelRecord;
   });
 }

@@ -475,7 +475,12 @@ export class MemoryBank {
         inputSchema: {
           type: 'object',
           properties: {
-            ops: { type: 'array', description: 'Array of op objects (see description)' },
+            // `items` is mandatory for some providers (Gemini 400s without it).
+            ops: {
+              type: 'array',
+              description: 'Array of op objects (see description)',
+              items: { type: 'object' },
+            },
             project: { type: 'string', description: "Project name (omit = this chat's project)" },
           },
           required: ['ops'],

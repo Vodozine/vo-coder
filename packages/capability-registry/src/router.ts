@@ -30,7 +30,7 @@ export function signalFromPrompt(
  * so greetings in a build project stay cheap instead of waking the big brain.
  */
 const WORK_INTENT =
-  /\b(add|build|make|create|implement|write|code|generate|scaffold|fix|debug|repair|refactor|clean[\s-]?up|change|modify|update|edit|adjust|tweak|rename|move|delete|remove|drop|replace|install|run|execute|test|set[\s-]?up|configure|wire|integrate|hook[\s-]?up|connect|render|deploy|compile|package|redesign|restyle|design|style|lay[\s-]?out|improve|enhance|polish|optimi[sz]e|convert|migrate|port)\b/i;
+  /\b(add|build|make|create|implement|write|code|generate|scaffold|fix|debug|repair|refactor|clean[\s-]?up|change|modify|update|edit|adjust|tweak|rename|move|delete|remove|drop|replace|install|run|execute|test|set[\s-]?up|configure|wire|integrate|hook[\s-]?up|connect|render|deploy|compile|package|redesign|restyle|design|style|lay[\s-]?out|improve|enhance|polish|optimi[sz]e|convert|migrate|port|continue|proceed|resume|keep\s+going|go\s+ahead|finish|next\s+step)\b/i;
 
 export function looksLikeWorkRequest(text: string): boolean {
   return /```/.test(text) || WORK_INTENT.test(text);
@@ -80,6 +80,7 @@ export function suggest(
   const minQuality = MIN_QUALITY[complexity]!;
 
   const eligible = catalog.filter((m) => {
+    if (m.outputsImage === true) return false; // image generators can't chat
     if (signal.needsVision && m.supportsVision !== true) return false;
     if (signal.needsTools && m.supportsTools !== true) return false;
     if (m.quality === undefined) return false; // unrated models never get auto-suggested

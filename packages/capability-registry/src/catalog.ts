@@ -37,9 +37,14 @@ export interface CatalogOptions {
 }
 
 interface CacheFile {
+  /** Bump to invalidate caches written before a schema-affecting change. */
+  v?: number;
   at: number;
   records: ModelRecord[];
 }
+
+/** v2: records carry outputsImage — older caches must refetch. */
+const CACHE_VERSION = 2;
 
 const DEFAULT_TTL = 24 * 60 * 60 * 1000;
 /** Benchmark scores are near-static; weekly refresh is plenty. */
@@ -103,7 +108,9 @@ export async function buildCatalog(opts: CatalogOptions = {}): Promise<ModelReco
       // Filter on read too: a variant OpenRouter delisted (e.g. `…:batch`) can
       // still sit in a cache written before this guard existed, or before the
       // delisting — drop it now rather than waiting out the TTL.
-      if (now() - cached.at < ttl) live = cached.records.filter((r) => isStreamableModelId(r.id));
+      if (cached.v === CACHE_VERSION && now() - cached.at < ttl) {
+        live = cached.records.filter((r) => isStreamableModelId(r.id));
+      }
     } catch {
       /* cache miss */
     }
@@ -113,7 +120,7 @@ export async function buildCatalog(opts: CatalogOptions = {}): Promise<ModelReco
       live = await fetchOpenRouterModels(opts.fetchFn);
       if (cachePath) {
         mkdirSync(dirname(cachePath), { recursive: true });
-        writeFileSync(cachePath, JSON.stringify({ at: now(), records: live }), 'utf8');
+        writeFileSync(cachePath, JSON.stringify({ v: CACHE_VERSION, at: now(), records: live }), 'utf8');
       }
     } catch {
       // Offline is fine — the curated seed is the ground truth fallback.

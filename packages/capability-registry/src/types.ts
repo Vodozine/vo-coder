@@ -14,6 +14,9 @@ export interface ModelRecord {
   supportsTools?: boolean;
   supportsVision?: boolean;
   supportsThinking?: boolean;
+  /** Image-GENERATION models (output modality includes image) — never routed
+   *  for chat/coding work, still manually selectable. */
+  outputsImage?: boolean;
   /** Estimated resident memory for local models at typical quantization. */
   estMemGb?: number;
   /** Capability rank 1–10. Sources layer: curated > arena benchmark > family pattern. */

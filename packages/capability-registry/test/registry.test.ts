@@ -269,6 +269,8 @@ describe('advisory router', () => {
       'fix the hover bug',
       'can you refactor this into modules',
       'redesign the header',
+      'continue',
+      'keep going where you left off',
       '```ts\nconst x = 1\n```',
     ]) {
       expect(looksLikeWorkRequest(t)).toBe(true);
@@ -302,6 +304,25 @@ describe('advisory router', () => {
     const ranked = suggest(signal, catalog, smallBox);
     expect(ranked.length).toBeGreaterThan(0);
     for (const r of ranked) expect(r.model.supportsVision).toBe(true);
+  });
+
+  it('image-generation models never get routed, even at top quality', () => {
+    const withImageGen: ModelRecord[] = [
+      ...catalog,
+      {
+        id: 'google/gemini-3-pro-image',
+        provider: 'openrouter',
+        displayName: 'Nano Banana Pro',
+        quality: 9.5,
+        outputsImage: true,
+        supportsTools: true,
+        supportsVision: true,
+        tags: [],
+        pricing: { inputPerMTok: 1, outputPerMTok: 4 },
+      },
+    ];
+    const ranked = suggest(signalFromPrompt('continue'), withImageGen, bigBox, 50, { tier: 'best' });
+    expect(ranked.some((r) => r.model.id === 'google/gemini-3-pro-image')).toBe(false);
   });
 
   it('routing tiers reorder the same pool: cheap vs balanced vs best', () => {
