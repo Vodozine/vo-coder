@@ -196,6 +196,28 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   });
   ipcMain.handle(IPC.projectDelete, (_e, id: string) => {
+    // Epitaph before the purge: the project's data goes, but a brief overview
+    // stays in the shared journal so "what was that project I did in July?"
+    // always has an answer.
+    const data = projects.list();
+    const project = data.projects.find((p) => p.id === id);
+    if (project) {
+      const chats = data.sessions.filter((s) => s.projectId === id);
+      const topics = chats
+        .slice(0, 4)
+        .map((c) => `"${c.title}"`)
+        .join(', ');
+      const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+      const lastActive = Math.max(project.createdAt, ...chats.map((c) => c.updatedAt));
+      journal.append({
+        kind: 'project',
+        text:
+          `deleted project "${project.name}" (created ${day(project.createdAt)}, ` +
+          `${chats.length} chat${chats.length === 1 ? '' : 's'}, last active ${day(lastActive)})` +
+          (topics ? ` — it was about: ${topics}` : ''),
+        project: project.name,
+      });
+    }
     for (const sessionId of projects.deleteProject(id)) sessions.dropLive(sessionId);
     broadcastProjects();
   });
