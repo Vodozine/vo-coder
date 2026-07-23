@@ -31,6 +31,10 @@ interface SessionManagerDeps {
   pickCheap?: (
     text: string,
   ) => Promise<{ provider: string; model: string } | undefined>;
+  /** Lossless archive — new turns sync on every persist. */
+  bank?: {
+    syncSession(projectId: string, sessionId: string, history: HarnessMessage[]): void;
+  };
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
@@ -90,7 +94,9 @@ export class SessionManager {
         'long or repeating work instead of doing it inline. You also have cross-everything memory: ' +
         'memory_recall searches the timestamped journal of ALL activity (every chat in every ' +
         'project, missions, Telegram, file writes, commands) — use it for questions about what the ' +
-        'user was doing at some time or in some project. memory_note pins a durable fact there.'
+        'user was doing at some time or in some project. memory_note pins a durable fact there. ' +
+        'For what was actually SAID, archive_search full-text-searches the lossless verbatim ' +
+        'archive of all conversations, and archive_read pulls the exact surrounding turns.'
       : '';
     if (!dir) {
       return builtinNote ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}` } : spec;
@@ -328,6 +334,8 @@ export class SessionManager {
     const live = this.sessions.get(sessionId);
     if (!live) return;
     this.deps.projects.saveTranscript(sessionId, live.history);
+    const meta = this.deps.projects.meta(sessionId);
+    if (meta) this.deps.bank?.syncSession(meta.projectId, sessionId, live.history);
     const firstUser = live.history.find((m) => m.role === 'user');
     const firstText =
       firstUser && firstUser.role === 'user'

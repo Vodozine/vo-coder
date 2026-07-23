@@ -11,4 +11,6 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   'mission_list',
   'memory_recall',
   'memory_note',
+  'archive_search',
+  'archive_read',
 ]);

@@ -33,6 +33,7 @@ import {
 } from '../shared/ipc-contract';
 import { ConfigStore } from './config';
 import { Journal } from './journal';
+import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
 import { ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
@@ -116,6 +117,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const journal = new Journal(join(app.getPath('userData'), 'journal.jsonl'));
   const projectNameOf = (projectId?: string): string | undefined =>
     projectId ? projects.list().projects.find((p) => p.id === projectId)?.name : undefined;
+  const resolveProjectId = (nameOrId: string): string | undefined => {
+    const all = projects.list().projects;
+    return (
+      all.find((p) => p.id === nameOrId)?.id ??
+      all.find((p) => p.name.toLowerCase() === nameOrId.toLowerCase())?.id
+    );
+  };
+
+  // The lossless archive (memory bank step 1): every conversation turn,
+  // verbatim, searchable forever — fail-soft if sqlite is unavailable.
+  let bank: MemoryBank | null = null;
+  try {
+    bank = new MemoryBank(join(app.getPath('userData'), 'membank.sqlite'));
+  } catch (err) {
+    console.error('[membank] disabled:', err);
+  }
 
   // Built-in tools every agent session carries: web access, mission control,
   // and memory. Mission tools resolve through a late ref — MissionManager
@@ -123,10 +140,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   let missionsRef: MissionManager | null = null;
   let telegramRef: TelegramBridge | null = null;
   const builtins = {
-    specs: () => [...webToolSpecs(), ...journal.toolSpecs(), ...(missionsRef?.toolSpecs() ?? [])],
+    specs: () => [
+      ...webToolSpecs(),
+      ...journal.toolSpecs(),
+      ...(bank?.toolSpecs() ?? []),
+      ...(missionsRef?.toolSpecs() ?? []),
+    ],
     execute: (name: string, args: unknown) => {
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
+      if (name.startsWith('archive_')) {
+        return bank
+          ? bank.executeTool(name, args, resolveProjectId)
+          : Promise.resolve({ content: 'The archive is unavailable.', isError: true });
+      }
       if (missionsRef) return missionsRef.executeTool(name, args);
       return Promise.resolve({ content: 'Missions are not ready yet.', isError: true });
     },
@@ -139,6 +166,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projects,
     send: sendToWindow,
     builtins,
+    ...(bank ? { bank } : {}),
     onUsage: (sessionId, bound, ev) => {
       const meta = projects.meta(sessionId);
       if (meta) recordUsage(bound, ev, meta.projectId);
@@ -219,6 +247,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       });
     }
     for (const sessionId of projects.deleteProject(id)) sessions.dropLive(sessionId);
+    bank?.purgeProject(id);
     broadcastProjects();
   });
   ipcMain.handle(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
@@ -630,13 +659,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const missions = new MissionManager(join(app.getPath('userData'), 'missions.json'), {
     vodoSpec,
     projectDir: (projectId) => projects.list().projects.find((p) => p.id === projectId)?.dir,
-    resolveProject: (nameOrId) => {
-      const all = projects.list().projects;
-      return (
-        all.find((p) => p.id === nameOrId)?.id ??
-        all.find((p) => p.name.toLowerCase() === nameOrId.toLowerCase())?.id
-      );
-    },
+    resolveProject: resolveProjectId,
     resolve: resolveSpec,
     route: (text, builderMode) =>
       routeForVodo([{ type: 'text', text }], false, builderMode),
