@@ -257,6 +257,25 @@ describe('advisory router', () => {
     expect(top!.rationale).toMatch(/hard reasoning task/);
   });
 
+  it('a terse agentic build turn still demands a capable executor', () => {
+    // "make it look more modern" is trivial by length, but in a folder-backed
+    // project it means editing code — must not route to a cheap quality-6 model
+    // that only narrates the change.
+    const chatty = signalFromPrompt('make it look more modern');
+    expect(complexityOf(chatty)).toBe(0);
+
+    // Builder mode sets both flags: tools required + agentic quality floor.
+    const agentic = signalFromPrompt('make it look more modern', {
+      agentic: true,
+      needsTools: true,
+    });
+    expect(complexityOf(agentic)).toBe(2); // floored to the "complex" bar
+    const [top] = suggest(agentic, catalog, bigBox);
+    expect(top!.model.supportsTools).toBe(true);
+    expect(top!.model.quality ?? 0).toBeGreaterThanOrEqual(8);
+    expect(top!.rationale).toMatch(/complex task/);
+  });
+
   it('vision requirement filters non-vision models', () => {
     const signal = signalFromPrompt('what is in this screenshot?', { needsVision: true });
     const ranked = suggest(signal, catalog, smallBox);

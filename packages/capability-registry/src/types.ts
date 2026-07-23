@@ -42,6 +42,13 @@ export interface TaskSignal {
   needsTools: boolean;
   needsVision: boolean;
   wantsThinking: boolean;
+  /**
+   * The agent has hands (workspace tools) and is expected to edit files and run
+   * commands, not just chat. Forces a higher quality floor: cheap "adequate"
+   * models advertise tool support but tend to narrate ("run npm build…")
+   * instead of doing the work — an agentic build needs a capable executor.
+   */
+  agentic?: boolean;
 }
 
 export interface RankedModel {

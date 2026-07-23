@@ -3,7 +3,12 @@ import type { HardwareProfile, ModelRecord, RankedModel, TaskSignal } from './ty
 
 export function signalFromPrompt(
   text: string,
-  opts: { needsTools?: boolean; needsVision?: boolean; wantsThinking?: boolean } = {},
+  opts: {
+    needsTools?: boolean;
+    needsVision?: boolean;
+    wantsThinking?: boolean;
+    agentic?: boolean;
+  } = {},
 ): TaskSignal {
   return {
     promptChars: text.length,
@@ -14,6 +19,7 @@ export function signalFromPrompt(
     needsTools: opts.needsTools ?? false,
     needsVision: opts.needsVision ?? false,
     wantsThinking: opts.wantsThinking ?? false,
+    agentic: opts.agentic ?? false,
   };
 }
 
@@ -23,6 +29,10 @@ export function complexityOf(signal: TaskSignal): number {
   if (signal.promptChars > 1200) c++;
   if (signal.hasCodeFence) c++;
   if (signal.wantsThinking) c++;
+  // A folder-backed build turn is real work regardless of how terse the ask is
+  // ("make it modern" is 15 chars) — floor it at the "complex" bar so a capable
+  // executor is chosen over a cheap model that only describes the change.
+  if (signal.agentic) c = Math.max(c, 2);
   return c;
 }
 

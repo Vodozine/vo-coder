@@ -255,6 +255,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const historyHasImages = sessions
         .historyOf(sessionId)
         .some((m) => m.role === 'user' && m.content.some((p) => p.type === 'image'));
+      // Builder mode: the session's project has a folder, so the agent gets
+      // workspace tools (ws_write/ws_run) and is expected to actually build —
+      // route to a capable executor, not a cheap narrate-only model.
+      const projectDir = (() => {
+        const meta = projects.meta(sessionId);
+        if (!meta) return undefined;
+        return projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
+      })();
+      const builderMode = !!projectDir;
       if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
         // "My agents first": hand the whole job (prompt, tools, model) to the
         // user's best-matching specialist; unset agent models still get
@@ -269,7 +278,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             specOverride = match.agent;
             const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;
             if (!match.agent.model) {
-              const pick = await routeForVodo(parts, historyHasImages).catch(() => undefined);
+              const pick = await routeForVodo(parts, historyHasImages, builderMode).catch(
+                () => undefined,
+              );
               if (pick) override = { provider: pick.provider, model: pick.model };
               routed = {
                 provider: override?.provider ?? '',
@@ -286,7 +297,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
         if (!specOverride) {
-          const pick = await routeForVodo(parts, historyHasImages).catch(() => undefined);
+          const pick = await routeForVodo(parts, historyHasImages, builderMode).catch(
+            () => undefined,
+          );
           if (pick) {
             override = { provider: pick.provider, model: pick.model };
             routed = pick;
@@ -413,6 +426,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const routeForVodo = async (
     parts: UserPart[],
     historyHasImages = false,
+    builderMode = false,
   ): Promise<{ provider: string; model: string; rationale: string } | undefined> => {
     const text = parts
       .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
@@ -422,7 +436,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // The whole conversation replays on every turn — an image anywhere in
       // history forces a vision-capable model, not just images sent right now.
       needsVision: historyHasImages || parts.some((p) => p.type === 'image'),
-      needsTools: mcp.list().some((s) => s.connected),
+      // A folder-backed project always ships ws_ tools in the request, so the
+      // model MUST be able to call them — and the turn is a real build, so
+      // demand a capable executor, not the cheapest model that merely narrates.
+      needsTools: builderMode || mcp.list().some((s) => s.connected),
+      agentic: builderMode,
       wantsThinking: config.get().thinkingDefault,
     });
     const { records, installed } = await getCatalog();
