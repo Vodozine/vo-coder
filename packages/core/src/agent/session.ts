@@ -90,6 +90,9 @@ export interface SendResult {
 }
 
 const DENIED_RESULT = 'The user denied permission for this tool call.';
+const BUDGET_RESULT =
+  'Tool-step budget reached — this call was NOT executed. The run paused here; it resumes when ' +
+  'the user says continue.';
 
 const STALL_TIMEOUT_MS = 120_000;
 
@@ -314,11 +317,33 @@ export class AgentSession {
         if (this.cancelled || erred || !wantsTools) return;
 
         if (turn === maxTurns - 1) {
+          // The model asked for tools we won't run (budget hit). Those tool_call
+          // parts are already in history — leaving them without matching results
+          // makes the NEXT send malformed for strict providers (Anthropic 400s),
+          // so "continue" would fail. Stub a result for each, then pause with an
+          // actionable message instead of a dead error.
+          for (const tc of toolCalls) {
+            this.history.push({
+              role: 'tool',
+              toolCallId: tc.id,
+              content: BUDGET_RESULT,
+              isError: true,
+            });
+            this.opts.emit(this.id, {
+              type: 'tool_result',
+              callId: tc.id,
+              name: tc.name,
+              result: BUDGET_RESULT,
+              isError: true,
+            });
+          }
           this.opts.emit(this.id, {
             type: 'error',
             error: {
               kind: 'unknown',
-              message: `Stopped after ${maxTurns} tool turns without a final answer.`,
+              message:
+                `Paused after ${maxTurns} tool steps to check in — this run did a lot of work. ` +
+                `Say "continue" to keep going, or tell me what to adjust.`,
             },
           });
           return;

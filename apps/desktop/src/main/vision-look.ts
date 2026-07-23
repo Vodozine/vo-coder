@@ -127,15 +127,17 @@ export async function executeLookTool(
   const isRaw = RAW_EXTS.has(ext);
   const mediaType = isRaw ? 'image/jpeg' : IMAGE_MIME[ext];
   if (!mediaType) {
-    return {
-      content:
-        ext === '.heic' || ext === '.heif'
+    const hint =
+      ext === '.svg'
+        ? `"${relPath}" is an SVG — it is TEXT, not a raster image. Use ws_read to read its markup ` +
+          'directly instead of look_at_image.'
+        : ext === '.heic' || ext === '.heif'
           ? `"${relPath}" is HEIC — vision APIs do not accept it; convert to JPEG first ` +
             '(camera RAW files DO work: their embedded JPEG preview is used).'
           : `"${relPath}" is not a supported image (png, jpg, jpeg, webp, gif — plus camera RAW ` +
-            'formats like NEF/CR2/CR3/ARW/RAF/ORF/RW2/DNG via their embedded preview).',
-      isError: true,
-    };
+            'formats like NEF/CR2/CR3/ARW/RAF/ORF/RW2/DNG via their embedded preview). For SVG or ' +
+            'other text-based graphics, use ws_read.';
+    return { content: hint, isError: true };
   }
   let size: number;
   try {

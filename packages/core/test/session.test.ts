@@ -264,7 +264,7 @@ describe('AgentSession loop', () => {
     expect(session.getStatus()).toBe('idle');
   });
 
-  it('turn cap stops runaway tool loops with an explicit error', async () => {
+  it('turn cap pauses runaway loops and keeps history valid for continue', async () => {
     const { provider, requests } = scripted([
       [
         { type: 'tool_call', id: 't1', name: 'fs__read', args: {} },
@@ -282,9 +282,20 @@ describe('AgentSession loop', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'error',
-        error: expect.objectContaining({ message: expect.stringContaining('2 tool turns') }),
+        error: expect.objectContaining({ message: expect.stringContaining('2 tool steps') }),
       }),
     );
+    // Every dangling tool_call from the capped turn has a matching tool result,
+    // so a follow-up send is well-formed (no orphaned tool_use for Anthropic).
+    const toolCallIds = session.history
+      .filter((m) => m.role === 'assistant')
+      .flatMap((m) => (m.role === 'assistant' ? m.content : []))
+      .filter((p) => p.type === 'tool_call')
+      .map((p) => (p.type === 'tool_call' ? p.id : ''));
+    const resultIds = session.history
+      .filter((m) => m.role === 'tool')
+      .map((m) => (m.role === 'tool' ? m.toolCallId : ''));
+    for (const id of toolCallIds) expect(resultIds).toContain(id);
   });
 
   it('rejects sends while busy', async () => {

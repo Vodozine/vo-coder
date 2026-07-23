@@ -13,6 +13,9 @@ function BrowserPreview() {
   const [active, setActive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  /** A bundler project that needs its dev server started. */
+  const [devReady, setDevReady] = useState<{ command: string; port: number } | null>(null);
+  const [startingDev, setStartingDev] = useState(false);
   const regionRef = useRef<HTMLDivElement>(null);
 
   const sendBounds = () => {
@@ -39,6 +42,7 @@ function BrowserPreview() {
       }
       if (!activeProject?.dir) return;
       setDetecting(true);
+      setDevReady(null);
       const found = await window.vo.previewDetect(activeProject.dir);
       setDetecting(false);
       if (found.kind === 'url') {
@@ -48,6 +52,11 @@ function BrowserPreview() {
           setUrl(found.url);
           requestAnimationFrame(sendBounds);
         }
+      } else if (found.kind === 'dev') {
+        // Bundler project — don't load a blank disk index.html; offer to start
+        // the dev server that actually renders it.
+        setDevReady({ command: found.command, port: found.port });
+        setUrl(`http://localhost:${found.port}`);
       } else if (found.kind === 'file') {
         const result = await window.vo.previewOpenFile(found.path);
         if (result.ok) {
@@ -87,6 +96,26 @@ function BrowserPreview() {
   const close = async () => {
     await window.vo.previewClose();
     setActive(null);
+    setDevReady(null);
+  };
+
+  const startDev = async () => {
+    if (!activeProject?.dir) return;
+    setError(null);
+    setStartingDev(true);
+    const result = await window.vo.previewStartDev(activeProject.dir);
+    setStartingDev(false);
+    if (result.ok && result.url) {
+      setDevReady(null);
+      setActive(result.url);
+      setUrl(result.url);
+      requestAnimationFrame(sendBounds);
+    } else {
+      setError(
+        (result.error ?? 'Could not start the dev server.') +
+          (result.log ? `\n\n${result.log.slice(-600)}` : ''),
+      );
+    }
   };
 
   return (
@@ -113,14 +142,31 @@ function BrowserPreview() {
           </>
         )}
       </div>
-      {error && <p className="hint error-text preview-hint">{error}</p>}
+      {error && <p className="hint error-text preview-hint" style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
       {active?.startsWith('file • ') && (
         <p className="hint preview-hint">
           Showing the project's page directly: {active.slice(7)} — reload after changes, or start a
           dev server for hot reload.
         </p>
       )}
-      {!active && (
+      {!active && devReady && (
+        <div className="empty-state">
+          <h2>This app needs its dev server</h2>
+          <p>
+            {activeProject?.name} is a bundler project (React/Vite and friends). Its page is built
+            live by a dev server — opening the file directly shows a blank screen. Start it and the
+            preview connects on its own.
+          </p>
+          <p className="hint">
+            Will run <code>{devReady.command}</code> and wait for{' '}
+            <code>http://localhost:{devReady.port}</code>.
+          </p>
+          <button className="send" disabled={startingDev} onClick={() => void startDev()}>
+            {startingDev ? 'Starting dev server…' : 'Start dev server'}
+          </button>
+        </div>
+      )}
+      {!active && !devReady && (
         <div className="empty-state">
           <h2>Live app preview</h2>
           <p>

@@ -363,8 +363,13 @@ export interface VoApi {
   previewOpen(url: string): Promise<{ ok: boolean; error?: string }>;
   previewOpenFile(path: string): Promise<{ ok: boolean; error?: string }>;
   previewDetect(dir: string): Promise<
-    { kind: 'url'; url: string } | { kind: 'file'; path: string } | { kind: 'none' }
+    | { kind: 'url'; url: string }
+    | { kind: 'dev'; command: string; port: number }
+    | { kind: 'file'; path: string }
+    | { kind: 'none' }
   >;
+  /** Start the project's dev server and wait until it responds. */
+  previewStartDev(dir: string): Promise<{ ok: boolean; url?: string; error?: string; log?: string }>;
   previewClose(): Promise<void>;
   previewHide(): Promise<void>;
   previewReload(): Promise<void>;
@@ -490,6 +495,7 @@ export const IPC = {
   previewOpen: 'preview:open',
   previewOpenFile: 'preview:openFile',
   previewDetect: 'preview:detect',
+  previewStartDev: 'preview:startDev',
   previewClose: 'preview:close',
   previewHide: 'preview:hide',
   previewReload: 'preview:reload',

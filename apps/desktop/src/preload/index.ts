@@ -60,6 +60,7 @@ const api: VoApi = {
   previewOpen: (url) => ipcRenderer.invoke(IPC.previewOpen, url),
   previewOpenFile: (path) => ipcRenderer.invoke(IPC.previewOpenFile, path),
   previewDetect: (dir) => ipcRenderer.invoke(IPC.previewDetect, dir),
+  previewStartDev: (dir) => ipcRenderer.invoke(IPC.previewStartDev, dir),
   previewClose: () => ipcRenderer.invoke(IPC.previewClose),
   previewHide: () => ipcRenderer.invoke(IPC.previewHide),
   previewReload: () => ipcRenderer.invoke(IPC.previewReload),

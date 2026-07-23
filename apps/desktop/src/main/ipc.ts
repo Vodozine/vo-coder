@@ -47,7 +47,7 @@ import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
-import { PreviewManager, type PreviewBounds } from './preview';
+import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
 import { ProviderHub } from './providers';
@@ -1001,6 +1001,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ---- live preview pane ----
   const preview = new PreviewManager(getWindow);
+  // A dev server we spawned must not outlive the app.
+  app.on('before-quit', () => preview.close());
   ipcMain.handle(IPC.previewOpen, (_e, url: string) => preview.open(url));
   ipcMain.handle(IPC.previewOpenFile, (_e, path: string) => preview.openFile(path));
   ipcMain.handle(IPC.previewDetect, async (_e, dir: string) => {
@@ -1023,12 +1025,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     );
     const port = hits.find((p) => p !== null);
     if (port) return { kind: 'url', url: `http://127.0.0.1:${port}/` };
-    // 2) A static entry page in the project.
+    // 2) A bundler project (Vite/Next/CRA…): its index.html is a module entry
+    // that ONLY works through the dev server — loading it from disk renders
+    // blank. Offer to start the server instead of a broken static file.
+    const dev = detectDevCommand(dir);
+    if (dev) return { kind: 'dev', command: dev.command, port: dev.port };
+    // 3) A genuinely static entry page (vanilla HTML/CSS/JS — relative paths).
     for (const rel of ['index.html', 'dist/index.html', 'build/index.html', 'public/index.html', 'src/index.html']) {
       const candidate = join(dir, rel);
       if (existsSync(candidate)) return { kind: 'file', path: candidate };
     }
     return { kind: 'none' };
+  });
+  ipcMain.handle(IPC.previewStartDev, async (_e, dir: string) => {
+    const result = await preview.startDev(dir);
+    if (result.ok && result.url) preview.open(result.url);
+    return result;
   });
   ipcMain.handle(IPC.previewClose, () => preview.close());
   ipcMain.handle(IPC.previewHide, () => preview.hide());

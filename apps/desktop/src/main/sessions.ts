@@ -256,6 +256,11 @@ export class SessionManager {
     session = new AgentSession({
       id: sessionId,
       spec: this.projectized(this.specFor(meta.agentId), sessionId),
+      // Building a real app takes many steps (install → build → fix → rebuild →
+      // verify → launch); 16 was far too few and cut off mid-task. 60 gives room
+      // while still backstopping a runaway loop — and the pause is now a "say
+      // continue" check-in, not a dead error.
+      maxToolTurns: 60,
       // Window-as-buffer: checked at send time, so the Memory-view toggle
       // applies to live sessions immediately.
       contextStart: (history) =>
