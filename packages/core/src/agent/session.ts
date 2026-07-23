@@ -33,6 +33,8 @@ export interface ToolExecutor {
   execute(
     name: string,
     args: unknown,
+    /** Aborted when the user stops the run — long tools (ws_run) must honor it. */
+    signal?: AbortSignal,
   ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
 }
 
@@ -148,7 +150,10 @@ export class AgentSession {
   spec: AgentSpec;
   readonly history: HarnessMessage[] = [];
   private status: SessionStatus = 'idle';
+  /** Aborts the current provider stream (per turn). */
   private abortCtl: AbortController | null = null;
+  /** Aborts the whole run including a running tool — this is what Stop hits. */
+  private runAbort: AbortController | null = null;
   private cancelled = false;
   private injectQueue: UserPart[][] = [];
   /** First history index sent to the provider this run (window-as-buffer). */
@@ -187,7 +192,10 @@ export class AgentSession {
 
   stop(): void {
     this.cancelled = true;
+    // Abort the in-flight stream AND the run — the latter reaches a hung tool
+    // (ws_run launching a GUI app, a wedged MCP call) so Stop always bites.
     this.abortCtl?.abort();
+    this.runAbort?.abort();
   }
 
   /**
@@ -238,6 +246,8 @@ export class AgentSession {
 
   private async runLoop(bound: BoundModel): Promise<void> {
     this.cancelled = false;
+    const runAbort = new AbortController();
+    this.runAbort = runAbort;
     const maxTurns = this.opts.maxToolTurns ?? 16;
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
@@ -351,7 +361,7 @@ export class AgentSession {
           let result: { content: string; isError?: boolean; imagePath?: string };
           try {
             result = this.opts.toolExecutor
-              ? await this.opts.toolExecutor.execute(tc.name, tc.args)
+              ? await this.opts.toolExecutor.execute(tc.name, tc.args, runAbort.signal)
               : { content: 'No tool executor configured.', isError: true };
           } catch (err) {
             result = {
@@ -373,11 +383,15 @@ export class AgentSession {
             isError: !!result.isError,
             ...(result.imagePath ? { imagePath: result.imagePath } : {}),
           });
+          // Stop pressed while (or just after) the tool ran — end now instead
+          // of feeding the aborted result back for another turn.
+          if (this.cancelled) return;
         }
         if (this.cancelled) return;
       }
     } finally {
       this.abortCtl = null;
+      this.runAbort = null;
       this.setStatus('idle');
       // Microtask so the finally block fully unwinds before a queued or
       // injected message starts the next run.

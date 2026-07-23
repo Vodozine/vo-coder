@@ -328,3 +328,38 @@ describe('stall watchdog', () => {
     expect(session.getStatus()).toBe('idle');
   });
 });
+
+describe('Stop interrupts a hanging tool', () => {
+  it('aborts a tool that only resolves on signal, and returns to idle', async () => {
+    const { provider } = scripted([
+      // Turn 1: ask for a tool. The tool then hangs until Stop aborts it.
+      [
+        { type: 'tool_call', id: 't1', name: 'fs__read', args: {} },
+        usage,
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+    ]);
+    let sawAbort = false;
+    let started = false;
+    const hangingExec: ToolExecutor = {
+      tools: () => [{ name: 'fs__read', description: 'read', inputSchema: { type: 'object' } }],
+      execute: (_name, _args, signal) =>
+        new Promise((resolve) => {
+          started = true;
+          signal?.addEventListener('abort', () => {
+            sawAbort = true;
+            resolve({ content: '[stopped by user]', isError: true });
+          });
+        }),
+    };
+    const { session, done } = makeSession(provider, { toolExecutor: hangingExec });
+    session.send('read the file');
+    // Let the tool phase begin, then hit Stop.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toBe(true);
+    session.stop();
+    await done;
+    expect(sawAbort).toBe(true);
+    expect(session.getStatus()).toBe('idle');
+  });
+});

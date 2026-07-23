@@ -236,6 +236,9 @@ export class SessionManager {
         `- After changing files, ALWAYS verify: run the build/tests/linter with ws_run (or open ` +
         `the entry file check) BEFORE answering. A reply about code changes must end with what ` +
         `you ran and what happened, not with homework for the user.\n` +
+        `- To LAUNCH the built app or a dev server for the user to try, call ws_run with ` +
+        `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
+        `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
         `${builtinNote}${assembly}${planNote}`,
     };
@@ -298,7 +301,7 @@ export class SessionManager {
             ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
           ];
         },
-        execute: (name, args) => {
+        execute: (name, args, signal) => {
           // Plan mode: read-only tools work; anything mutating is blocked
           // with feedback the model can plan around instead of a bare denial.
           if (
@@ -321,7 +324,7 @@ export class SessionManager {
                 isError: true,
               });
             }
-            return executeWorkspaceTool(dir, name, args);
+            return executeWorkspaceTool(dir, name, args, signal);
           }
           if (
             this.deps.builtins &&

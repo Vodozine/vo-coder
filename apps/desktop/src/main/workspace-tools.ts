@@ -62,12 +62,21 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
     {
       name: 'ws_run',
       description:
-        'Run a shell command in the project folder (npm install, npm run build, tests, git…). Returns exit code and output.',
+        'Run a shell command in the project folder (npm install, npm run build, tests, git…). ' +
+        'Waits for the command to FINISH and returns its exit code and output. ' +
+        'To LAUNCH a GUI app or start a long-running server (an .exe, npm start, electron .) for ' +
+        'the user to try, set background:true — it starts the process detached and returns at ' +
+        'once. A normal (foreground) ws_run on something that never exits will block the turn.',
       inputSchema: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'The command line to run' },
-          timeoutSec: { type: 'number', description: 'Timeout in seconds (default 300, max 600)' },
+          timeoutSec: { type: 'number', description: 'Timeout in seconds (default 300, max 600). Ignored when background:true.' },
+          background: {
+            type: 'boolean',
+            description:
+              'Launch detached and return immediately (for GUI apps / servers that do not exit). Default false.',
+          },
         },
         required: ['command'],
       },
@@ -120,43 +129,94 @@ function listDir(root: string, sub: string): string {
   return lines.join('\n') + truncated;
 }
 
+/** Hard-kill a child and everything it spawned (Windows needs the tree walk). */
+function killTree(pid: number | undefined): void {
+  if (pid === undefined) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
+  } else {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+}
+
 function runCommand(
   dir: string,
   command: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolvePromise) => {
+    if (signal?.aborted) {
+      resolvePromise({ code: null, output: '[stopped before start]' });
+      return;
+    }
     const child = spawn(command, { cwd: dir, shell: true, windowsHide: true, env: process.env });
     let output = '';
+    let settled = false;
     const capture = (chunk: Buffer) => {
       output += chunk.toString();
       if (output.length > MAX_RUN_OUTPUT) output = output.slice(-MAX_RUN_OUTPUT);
     };
     child.stdout?.on('data', capture);
     child.stderr?.on('data', capture);
-    const timer = setTimeout(() => {
-      if (process.platform === 'win32' && child.pid) {
-        spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
-      } else {
-        child.kill();
-      }
-      output += '\n[timed out]';
-    }, timeoutMs);
-    child.on('close', (code) => {
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       resolvePromise({ code, output });
-    });
+    };
+    const onAbort = () => {
+      killTree(child.pid);
+      output += '\n[stopped by user]';
+      finish(null);
+    };
+    const timer = setTimeout(() => {
+      killTree(child.pid);
+      output += '\n[timed out]';
+      finish(null);
+    }, timeoutMs);
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+    child.on('close', (code) => finish(code));
     child.on('error', (err) => {
-      clearTimeout(timer);
-      resolvePromise({ code: null, output: err.message });
+      if (settled) return;
+      output += (output ? '\n' : '') + err.message;
+      finish(null);
     });
   });
+}
+
+/** Fire-and-forget launch for GUI apps / servers that never exit on their own. */
+function launchDetached(dir: string, command: string): { pid: number | undefined } {
+  const child = spawn(command, {
+    cwd: dir,
+    shell: true,
+    windowsHide: true,
+    env: process.env,
+    detached: process.platform !== 'win32',
+    stdio: 'ignore',
+  });
+  const pid = child.pid;
+  child.unref();
+  return { pid };
 }
 
 export async function executeWorkspaceTool(
   dir: string,
   name: string,
   args: unknown,
+  signal?: AbortSignal,
 ): Promise<{ content: string; isError?: boolean }> {
   const a = (args ?? {}) as Record<string, unknown>;
   try {
@@ -188,8 +248,18 @@ export async function executeWorkspaceTool(
       case 'ws_run': {
         const command = String(a.command ?? '').trim();
         if (!command) return { content: 'No command given.', isError: true };
+        if (a.background === true) {
+          const { pid } = launchDetached(dir, command);
+          return {
+            content:
+              pid === undefined
+                ? `Launched (detached): ${command}`
+                : `Launched (detached, PID ${pid}): ${command}\nIt is running independently; this ` +
+                  `turn did not wait for it. Ask the user how it looks.`,
+          };
+        }
         const timeoutMs = Math.min(Math.max(Number(a.timeoutSec) || 300, 5), 600) * 1000;
-        const { code, output } = await runCommand(dir, command, timeoutMs);
+        const { code, output } = await runCommand(dir, command, timeoutMs, signal);
         return {
           content: `exit code: ${code ?? 'error'}\n\n${output.trim() || '(no output)'}`,
           isError: code !== 0,
