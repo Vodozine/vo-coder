@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSpec } from '@vo-coder/providers';
-import { matchAgentForMessage } from '../src/agent/agent-router.ts';
+import { matchAgentForMessage, rankAgents } from '../src/agent/agent-router.ts';
 
 const agents: AgentSpec[] = [
   {
@@ -47,6 +47,17 @@ describe('matchAgentForMessage', () => {
   it('prompt-only agents need substantial overlap, not a single word', () => {
     // One prompt word ("documentation") alone scores below the threshold.
     expect(matchAgentForMessage('add some documentation', agents)).toBeNull();
+  });
+
+  it('rankAgents returns every agent, best first, stable on ties', () => {
+    const ranked = rankAgents('snapshot the proxmox vm', agents);
+    expect(ranked).toHaveLength(3);
+    expect(ranked[0]?.agent.id).toBe('a1');
+    expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score);
+    // Total tie (chatter): creation order preserved.
+    const tied = rankAgents('what is the weather like today', agents);
+    expect(tied.map((r) => r.agent.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(tied.every((r) => r.score === 0)).toBe(true);
   });
 
   it('always mode ("My agents only") lands on some agent regardless of score', () => {

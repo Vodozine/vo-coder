@@ -7,6 +7,7 @@ import {
   matchAgentForMessage,
   McpAdvisor,
   McpClientManager,
+  rankAgents,
   searchMcpRegistry,
   type McpServerConfig,
   type RequestLogEntry,
@@ -430,9 +431,44 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
             .map((p) => p.text)
             .join(' ');
-          const match = matchAgentForMessage(text, config.get().agents, {
+          const agents = config.get().agents;
+          const needsVision =
+            historyHasImages || parts.some((p) => p.type === 'image');
+          let match = matchAgentForMessage(text, agents, {
             always: mode === 'agents-only',
           });
+          // "My agents first" + a WORK request in a project: if no keyword
+          // hit, still hand it to the user's best agent — you built staff so
+          // project work goes to your staff, not back to the catalog.
+          if (!match && mode === 'agents' && builderMode && looksLikeWorkRequest(text) && agents.length > 0) {
+            const top = rankAgents(text, agents)[0];
+            if (top) {
+              match = {
+                agent: top.agent,
+                matched: top.matched.length ? top.matched : ['best fit for project work'],
+              };
+            }
+          }
+          // Image turns must land on a vision-capable agent model — swap to
+          // the best-ranked agent whose model can actually see, if one exists.
+          if (match && needsVision && match.agent.model) {
+            try {
+              const { records } = await getCatalog();
+              const canSee = (modelId?: string) =>
+                !modelId || records.find((r) => r.id === modelId)?.supportsVision === true;
+              if (!canSee(match.agent.model)) {
+                const alt = rankAgents(text, agents).find((r) => canSee(r.agent.model));
+                if (alt) {
+                  match = {
+                    agent: alt.agent,
+                    matched: [...(alt.matched.length ? alt.matched : ['best available']), 'vision required'],
+                  };
+                }
+              }
+            } catch {
+              /* catalog offline — keep the original match */
+            }
+          }
           if (match) {
             specOverride = match.agent;
             const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;

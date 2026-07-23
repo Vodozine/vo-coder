@@ -9,16 +9,16 @@ import type { AgentSpec } from '@vo-coder/providers';
  * `always` is set ("My agents only" mode), where the best-scoring agent wins
  * regardless so the turn always lands on one of the user's agents.
  */
-export function matchAgentForMessage(
-  text: string,
-  agents: AgentSpec[],
-  opts: { always?: boolean } = {},
-): { agent: AgentSpec; matched: string[] } | null {
-  const haystack = ` ${text.toLowerCase()} `;
-  const minScore = opts.always ? 0 : 3;
-  let best: { agent: AgentSpec; matched: string[]; score: number } | null = null;
+export interface AgentRank {
+  agent: AgentSpec;
+  matched: string[];
+  score: number;
+}
 
-  for (const agent of agents) {
+/** Score every agent against the message; sorted best-first, stable on ties. */
+export function rankAgents(text: string, agents: AgentSpec[]): AgentRank[] {
+  const haystack = ` ${text.toLowerCase()} `;
+  const ranked: AgentRank[] = agents.map((agent) => {
     const matched: string[] = [];
     let score = 0;
 
@@ -52,14 +52,23 @@ export function matchAgentForMessage(
     score += promptHits;
     if (promptHits > 0 && matched.length === 0) matched.push(`${promptHits} specialty terms`);
 
-    if (score >= minScore && (!best || score > best.score)) {
-      best = { agent, matched, score };
-    }
-  }
+    return { agent, matched: [...new Set(matched)], score };
+  });
+  // Stable sort keeps creation order on ties — the user's first agent is the
+  // implicit generalist.
+  return ranked.sort((a, b) => b.score - a.score);
+}
 
+export function matchAgentForMessage(
+  text: string,
+  agents: AgentSpec[],
+  opts: { always?: boolean } = {},
+): { agent: AgentSpec; matched: string[] } | null {
+  const minScore = opts.always ? 0 : 3;
+  const best = rankAgents(text, agents).find((r) => r.score >= minScore);
   if (!best) return null;
   return {
     agent: best.agent,
-    matched: best.matched.length ? [...new Set(best.matched)] : ['best available'],
+    matched: best.matched.length ? best.matched : ['best available'],
   };
 }
