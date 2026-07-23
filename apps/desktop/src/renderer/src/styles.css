@@ -1363,13 +1363,19 @@ select:focus {
   letter-spacing: 0.05em;
 }
 .mode-toggle button.on {
-  background: var(--accent-soft);
-  color: var(--accent);
   font-weight: 700;
 }
-.mode-toggle button.on:first-child {
+.mode-toggle button.m-auto.on {
   background: rgba(70, 213, 224, 0.14);
   color: var(--accent2);
+}
+.mode-toggle button.m-plan.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mode-toggle button.m-manual.on {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .route-modes {
   display: flex;

@@ -247,19 +247,25 @@ function TotalUsage() {
         <span className="usage-label">Usage</span>
         <span
           className="mode-toggle"
-          title="Auto: agents act autonomously — no permission prompts (destructive infra tools still require confirmation). Guided: approve every write/run."
+          title="Auto: autonomous — agents act, no prompts. Plan: read-only — Vodo proposes a plan, changes nothing. Manual: approve every write/run. (Destructive infra tools always require confirmation.)"
         >
           <button
-            className={mode === 'auto' ? 'on' : ''}
+            className={`m-auto ${mode === 'auto' ? 'on' : ''}`}
             onClick={() => void saveConfig({ approvalMode: 'auto' })}
           >
             Auto
           </button>
           <button
-            className={mode === 'guided' ? 'on' : ''}
-            onClick={() => void saveConfig({ approvalMode: 'guided' })}
+            className={`m-plan ${mode === 'plan' ? 'on' : ''}`}
+            onClick={() => void saveConfig({ approvalMode: 'plan' })}
           >
-            Guided
+            Plan
+          </button>
+          <button
+            className={`m-manual ${mode === 'manual' ? 'on' : ''}`}
+            onClick={() => void saveConfig({ approvalMode: 'manual' })}
+          >
+            Manual
           </button>
         </span>
       </span>

@@ -169,9 +169,16 @@ export class SessionManager {
         'links); map_update corrects it.'
       : '';
     const assembly = this.assemblyNote(sessionId);
+    const planNote =
+      this.deps.config.get().approvalMode === 'plan'
+        ? '\n\nPLAN MODE IS ON: make NO changes — mutating tools (ws_write, ws_run, mission ' +
+          'creation, MCP actions) are disabled and will not execute. Explore with read-only ' +
+          'tools if needed, then answer with a concrete numbered plan: what files change, what ' +
+          'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
+        : '';
     if (!dir) {
-      return builtinNote || assembly
-        ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${assembly}` }
+      return builtinNote || assembly || planNote
+        ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${assembly}${planNote}` }
         : spec;
     }
     return {
@@ -191,7 +198,7 @@ export class SessionManager {
         `the entry file check) BEFORE answering. A reply about code changes must end with what ` +
         `you ran and what happened, not with homework for the user.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}${assembly}`,
+        `${builtinNote}${assembly}${planNote}`,
     };
   }
 
@@ -237,6 +244,20 @@ export class SessionManager {
           ];
         },
         execute: (name, args) => {
+          // Plan mode: read-only tools work; anything mutating is blocked
+          // with feedback the model can plan around instead of a bare denial.
+          if (
+            this.deps.config.get().approvalMode === 'plan' &&
+            !AUTO_ALLOWED_TOOLS.has(name)
+          ) {
+            return Promise.resolve({
+              content:
+                'PLAN MODE: execution is disabled — this call was not run. Do not retry it. ' +
+                'Gather what you need with read-only tools, then present a numbered plan; the ' +
+                'user switches to Auto or Manual to execute.',
+              isError: true,
+            });
+          }
           if (name.startsWith('ws_')) {
             const dir = this.projectDirFor(sessionId);
             if (!dir) {
@@ -451,9 +472,11 @@ export class SessionManager {
     args: unknown,
   ): Promise<PermissionDecision> {
     if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
-    // Auto mode: the user has opted into agents acting without prompts.
+    const mode = this.deps.config.get().approvalMode;
+    // Auto: the user opted into autonomous agents. Plan: allow through so the
+    // executor's plan-mode block answers instructively (no modal either way).
     // Destructive infra tools still enforce their own confirm tier downstream.
-    if (this.deps.config.get().approvalMode === 'auto') return Promise.resolve('allow');
+    if (mode === 'auto' || mode === 'plan') return Promise.resolve('allow');
     return new Promise((resolve) => {
       const requestId = `perm_${++this.permSeq}`;
       this.pendingPermissions.set(requestId, resolve);

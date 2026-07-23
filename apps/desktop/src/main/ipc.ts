@@ -38,6 +38,7 @@ import { MissionManager } from './missions';
 import { ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
+import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { UsageTracker } from './usage';
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
@@ -742,12 +743,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     resolve: resolveSpec,
     route: (text) => routeForVodo([{ type: 'text', text }], false, false),
     tools: () => remoteTools(),
-    execute: (name, args) => remoteExecute(name, args),
+    execute: (name, args) => telegramExecute(name, args),
     missionsSummary: () => missions.describeAll(),
     onUsage: (bound, ev) => recordUsage(bound, ev),
     onChanged: (info) => sendToWindow(IPC.telegramChanged, info),
     log: (text) => journal.append({ kind: 'chat', text, surface: 'telegram' }),
   });
+  // Plan mode gates interactive surfaces only — scheduled missions keep their
+  // own autoApprove semantics and are never silently blocked by the toggle.
+  const telegramExecute = (name: string, args: unknown) => {
+    if (config.get().approvalMode === 'plan' && !AUTO_ALLOWED_TOOLS.has(name)) {
+      return Promise.resolve({
+        content:
+          'PLAN MODE: execution is disabled — this call was not run. Present a plan; the user ' +
+          'switches to Auto or Manual to execute.',
+        isError: true,
+      });
+    }
+    return remoteExecute(name, args);
+  };
   telegramRef = telegram;
   telegram.sync();
   app.on('before-quit', () => {

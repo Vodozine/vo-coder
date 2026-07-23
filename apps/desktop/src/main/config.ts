@@ -25,6 +25,10 @@ export class ConfigStore {
         if (raw.xaiOauthClientId === 'grok-cli') {
           this.cache.xaiOauthClientId = DEFAULT_CONFIG.xaiOauthClientId;
         }
+        // Migration: the short-lived 'guided' label became 'manual'.
+        if ((raw as { approvalMode?: string }).approvalMode === 'guided') {
+          this.cache.approvalMode = 'manual';
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }
