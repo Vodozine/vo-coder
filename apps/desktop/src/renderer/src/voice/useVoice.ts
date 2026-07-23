@@ -7,9 +7,10 @@ export type LiveState = 'off' | 'listening' | 'processing' | 'speaking';
 
 /**
  * Push-to-talk + live chat, both built on the same 16 kHz capture.
- * Live-chat barge-in reuses the injection/abort primitive: user speech during
- * playback stops TTS, aborts generation, and the utterance goes in as the
- * next message.
+ * Live chat is half-duplex: the mic goes deaf while our own TTS plays (no
+ * echo-cancellation exists for system TTS, which plays outside Chromium), so
+ * the assistant can never hear itself and loop. Speaking during generation
+ * still injects gracefully; interrupt playback by clicking Live or typing.
  */
 export function useVoice(appendToInput: (text: string) => void) {
   const [recording, setRecording] = useState(false);
@@ -23,13 +24,15 @@ export function useVoice(appendToInput: (text: string) => void) {
     utterance: Float32Array[];
     preroll: Float32Array[];
     collecting: boolean;
+    muted: boolean;
   } | null>(null);
   const liveStateRef = useRef<LiveState>('off');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenIdRef = useRef<number>(0);
+  /** Mic stays deaf until this time — set when our own TTS stops playing. */
+  const muteUntilRef = useRef<number>(0);
 
   const send = useStore((s) => s.send);
-  const stop = useStore((s) => s.stop);
 
   const setLiveState = (state: LiveState) => {
     liveStateRef.current = state;
@@ -81,7 +84,15 @@ export function useVoice(appendToInput: (text: string) => void) {
       const result = await window.vo.voiceTranscribe(wav.buffer as ArrayBuffer);
       if (liveStateRef.current === 'off') return;
       if (result.ok && result.text) {
-        void send(result.text); // busy session → graceful injection
+        // Whisper labels non-speech as bracketed noise — never send those.
+        const cleaned = result.text
+          .replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, '')
+          .trim();
+        if (cleaned.length < 2) {
+          setLiveState('listening');
+          return;
+        }
+        void send(cleaned); // busy session → graceful injection
       } else if (!result.ok) {
         setVoiceError(result.error ?? 'Transcription failed');
       }
@@ -108,20 +119,32 @@ export function useVoice(appendToInput: (text: string) => void) {
         utterance: [] as Float32Array[],
         preroll: [] as Float32Array[],
         collecting: false,
+        muted: false,
         capture: null as unknown as MicCapture,
       };
       state.capture = await MicCapture.start((frame) => {
+        // Half-duplex: while our own TTS plays (plus a short decay tail), the
+        // mic mostly hears the speakers — treating that as speech loops the
+        // assistant into talking to itself. Browser echo-cancellation can't
+        // help for system TTS (it plays outside Chromium), so we go deaf
+        // instead. Interrupt during playback by clicking Live or typing.
+        if (liveStateRef.current === 'speaking' || Date.now() < muteUntilRef.current) {
+          if (!state.muted) {
+            state.muted = true;
+            state.collecting = false;
+            state.utterance = [];
+            state.preroll = [];
+            state.vad.reset();
+          }
+          return;
+        }
+        state.muted = false;
         // Keep ~0.6s of preroll so utterance starts aren't clipped.
         state.preroll.push(frame);
         if (state.preroll.length > 10) state.preroll.shift();
         if (state.collecting) state.utterance.push(frame);
         const event = state.vad.push(frame);
         if (event === 'speech_start') {
-          // Barge-in: user talking over playback/generation.
-          if (liveStateRef.current === 'speaking') {
-            stopPlayback();
-            void stop();
-          }
           state.collecting = true;
           state.utterance = [...state.preroll];
         } else if (event === 'speech_end' && state.collecting) {
@@ -137,7 +160,7 @@ export function useVoice(appendToInput: (text: string) => void) {
       setVoiceError(err instanceof Error ? err.message : String(err));
       setLiveState('off');
     }
-  }, [handleUtterance, stop, stopPlayback]);
+  }, [handleUtterance]);
 
   const liveToggle = useCallback(() => {
     if (liveStateRef.current === 'off') void liveStart();
@@ -161,11 +184,16 @@ export function useVoice(appendToInput: (text: string) => void) {
     if (!text) return;
     lastSpokenIdRef.current = last.id;
     setLiveState('speaking');
+    // Room-decay grace after playback so the mic doesn't catch the TTS tail.
+    const resumeListening = () => {
+      muteUntilRef.current = Date.now() + 600;
+      if (liveStateRef.current === 'speaking') setLiveState('listening');
+    };
     void window.vo.voiceSpeak(text).then((result) => {
       if (liveStateRef.current === 'off') return;
       if (!result.ok) {
         setVoiceError(result.error);
-        setLiveState('listening');
+        resumeListening();
         return;
       }
       if (result.output.kind === 'audio') {
@@ -174,12 +202,12 @@ export function useVoice(appendToInput: (text: string) => void) {
         audioRef.current = audio;
         audio.onended = () => {
           audioRef.current = null;
-          if (liveStateRef.current === 'speaking') setLiveState('listening');
+          resumeListening();
         };
         void audio.play();
       } else {
         // Native (system) TTS finished speaking synchronously.
-        if (liveStateRef.current === 'speaking') setLiveState('listening');
+        resumeListening();
       }
     });
   }, [activeSession]);
