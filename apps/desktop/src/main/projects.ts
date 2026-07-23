@@ -51,6 +51,14 @@ export class ProjectStore {
     return true;
   }
 
+  setAssemble(id: string, enabled: boolean): boolean {
+    const project = this.load().projects.find((p) => p.id === id);
+    if (!project) return false;
+    project.assemble = enabled;
+    this.persist();
+    return true;
+  }
+
   ensureDefault(): void {
     const data = this.load();
     if (data.projects.length === 0) {

@@ -46,6 +46,48 @@ const executor = (impl: Partial<ToolExecutor> = {}): ToolExecutor => ({
   ...impl,
 });
 
+describe('window-as-buffer (contextStart)', () => {
+  it('slices the request at the given index while history stays complete', async () => {
+    const { provider, requests } = scripted([
+      [{ type: 'text_delta', text: 'ok' }, usage, { type: 'done', stopReason: 'end_turn' }],
+    ]);
+    const { session, done } = makeSession(provider, {
+      contextStart: (history) => {
+        // Drop everything before the final (just-pushed) user message.
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i]!.role === 'user') return i;
+        }
+        return 0;
+      },
+    });
+    // Pre-seed an old conversation the request should NOT replay.
+    session.history.push(
+      { role: 'user', content: [{ type: 'text', text: 'old question' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] },
+    );
+    session.send('new question');
+    await done;
+    // Request carried only the new user turn…
+    expect(requests[0]!.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'new question' }] },
+    ]);
+    // …while the full history (old + new + reply) is intact.
+    expect(session.history).toHaveLength(4);
+  });
+
+  it('absent contextStart keeps full replay', async () => {
+    const { provider, requests } = scripted([
+      [{ type: 'text_delta', text: 'ok' }, usage, { type: 'done', stopReason: 'end_turn' }],
+    ]);
+    const { session, done } = makeSession(provider);
+    session.history.push({ role: 'user', content: [{ type: 'text', text: 'old' }] });
+    session.history.push({ role: 'assistant', content: [{ type: 'text', text: 'reply' }] });
+    session.send('new');
+    await done;
+    expect(requests[0]!.messages).toHaveLength(3);
+  });
+});
+
 describe('AgentSession loop', () => {
   it('text-only turn: streams, finalizes history, returns to idle', async () => {
     const { provider } = scripted([

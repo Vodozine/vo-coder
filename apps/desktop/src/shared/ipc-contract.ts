@@ -205,6 +205,25 @@ export interface ProjectInfo {
   /** Optional project folder (ties into scaffold/preview). */
   dir?: string;
   createdAt: number;
+  /**
+   * Smart context (window-as-buffer): requests carry a map digest + recent
+   * turns instead of replaying the whole conversation. Opt-in per project.
+   */
+  assemble?: boolean;
+}
+
+/** A memory-map node as shown in the Memory view. */
+export interface MapNodeDto {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  status: string;
+  tags: string;
+  updatedAt: number;
+  srcSession?: string;
+  srcTurn?: number;
+  links: Array<{ rel: string; type: string; title: string }>;
 }
 
 export interface ChatSessionMeta {
@@ -399,6 +418,14 @@ export interface VoApi {
   telegramPairCode(): Promise<{ code: string; expiresInSec: number }>;
   telegramUnpair(chatId: number): Promise<void>;
   onTelegramChanged(cb: (info: TelegramInfo) => void): () => void;
+  projectSetAssemble(projectId: string, enabled: boolean): Promise<void>;
+  memStats(projectId: string): Promise<{ nodes: number; archiveTurns: number }>;
+  memMapList(
+    projectId: string,
+    opts?: { query?: string; type?: string; includeInactive?: boolean },
+  ): Promise<MapNodeDto[]>;
+  memMapSetStatus(projectId: string, nodeId: number, status: string): Promise<void>;
+  memMapDelete(projectId: string, nodeId: number): Promise<void>;
 }
 
 export interface CatalogInfo {
@@ -486,4 +513,9 @@ export const IPC = {
   telegramPairCode: 'telegram:pairCode',
   telegramUnpair: 'telegram:unpair',
   telegramChanged: 'telegram:changed',
+  projectSetAssemble: 'projects:setAssemble',
+  memStats: 'mem:stats',
+  memMapList: 'mem:mapList',
+  memMapSetStatus: 'mem:mapSetStatus',
+  memMapDelete: 'mem:mapDelete',
 } as const;

@@ -57,7 +57,15 @@ interface SessionUi {
   streaming: boolean;
 }
 
-export type View = 'chat' | 'settings' | 'agents' | 'scaffold' | 'preview' | 'console' | 'missions';
+export type View =
+  | 'chat'
+  | 'settings'
+  | 'agents'
+  | 'scaffold'
+  | 'preview'
+  | 'console'
+  | 'missions'
+  | 'memory';
 
 const emptySession = (): SessionUi => ({ messages: [], streaming: false });
 

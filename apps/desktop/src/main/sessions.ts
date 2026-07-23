@@ -38,7 +38,25 @@ interface SessionManagerDeps {
   /** Lossless archive — new turns sync on every persist. */
   bank?: {
     syncSession(projectId: string, sessionId: string, history: HarnessMessage[]): void;
+    /** Bounded map briefing for window-as-buffer assembly. */
+    digest(projectId: string): string;
   };
+}
+
+/** Window-as-buffer tuning: only kicks in past this many messages… */
+const ASSEMBLE_MIN_MESSAGES = 12;
+/** …and keeps roughly this many chars (~5k tokens) of recent turns verbatim. */
+const ASSEMBLE_BUFFER_CHARS = 20_000;
+
+function approxChars(msg: HarnessMessage): number {
+  if (msg.role === 'tool') return msg.content.length;
+  let n = 0;
+  for (const part of msg.content) {
+    if (part.type === 'text' || part.type === 'thinking') n += part.text.length;
+    else if (part.type === 'tool_call') n += JSON.stringify(part.args ?? {}).length + 40;
+    else n += 400; // images/files: replayed as refs, keep a nominal weight
+  }
+  return n;
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
@@ -88,6 +106,52 @@ export class SessionManager {
     return this.deps.projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
   }
 
+  /** Smart context on for this session's project (and the bank is available)? */
+  private assembleEnabled(sessionId: string): string | null {
+    if (!this.deps.bank) return null;
+    const meta = this.deps.projects.meta(sessionId);
+    if (!meta) return null;
+    const project = this.deps.projects.list().projects.find((p) => p.id === meta.projectId);
+    return project?.assemble ? project.id : null;
+  }
+
+  /**
+   * The buffer cut: keep ~ASSEMBLE_BUFFER_CHARS of recent turns, then snap
+   * FORWARD to the next user message so the request always opens on a user
+   * turn and tool_call/result pairs are never split. 0 = full replay.
+   */
+  private bufferCut(history: readonly HarnessMessage[]): number {
+    if (history.length <= ASSEMBLE_MIN_MESSAGES) return 0;
+    let chars = 0;
+    let over = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      chars += approxChars(history[i]!);
+      if (chars > ASSEMBLE_BUFFER_CHARS) {
+        over = i;
+        break;
+      }
+      if (i === 0) return 0; // whole history fits the buffer budget
+    }
+    for (let k = over; k < history.length; k++) {
+      if (history[k]!.role === 'user') return k;
+    }
+    return 0;
+  }
+
+  /** Window-as-buffer briefing, appended to the prompt when assembly is on. */
+  private assemblyNote(sessionId: string): string {
+    const projectId = this.assembleEnabled(sessionId);
+    if (!projectId) return '';
+    const digest = this.deps.bank!.digest(projectId);
+    return (
+      '\n\nSMART CONTEXT IS ON: older turns of this conversation are NOT replayed — your working ' +
+      'context is this project briefing plus the most recent messages. Durable project knowledge:\n' +
+      (digest || '(the map is still filling in)') +
+      '\nFor anything older or verbatim, use archive_search / archive_read / map_query — the full ' +
+      'record always exists.'
+    );
+  }
+
   /** Folder-backed projects: tell the agent it has hands and where they work. */
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
@@ -104,8 +168,11 @@ export class SessionManager {
         "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
         'links); map_update corrects it.'
       : '';
+    const assembly = this.assemblyNote(sessionId);
     if (!dir) {
-      return builtinNote ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}` } : spec;
+      return builtinNote || assembly
+        ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${assembly}` }
+        : spec;
     }
     return {
       ...spec,
@@ -124,7 +191,7 @@ export class SessionManager {
         `the entry file check) BEFORE answering. A reply about code changes must end with what ` +
         `you ran and what happened, not with homework for the user.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}`,
+        `${builtinNote}${assembly}`,
     };
   }
 
@@ -140,6 +207,10 @@ export class SessionManager {
     session = new AgentSession({
       id: sessionId,
       spec: this.projectized(this.specFor(meta.agentId), sessionId),
+      // Window-as-buffer: checked at send time, so the Memory-view toggle
+      // applies to live sessions immediately.
+      contextStart: (history) =>
+        this.assembleEnabled(sessionId) ? this.bufferCut(history) : 0,
       resolve: (spec) => {
         const { defaultProvider, defaultModel } = this.deps.config.get();
         const bound = this.deps.hub

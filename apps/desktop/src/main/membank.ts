@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { HarnessMessage, ToolSpec } from '@vo-coder/providers';
+import type { MapNodeDto } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
 
 /**
@@ -253,6 +254,118 @@ export class MemoryBank {
       }
     }
     return applied;
+  }
+
+  /**
+   * The digest: a bounded briefing rendered from the map, appended to the
+   * system prompt when window-as-buffer assembly is on. This is what makes
+   * dropping old turns safe — the durable knowledge rides along every turn.
+   */
+  digest(projectId: string, maxChars = 5_500): string {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT id, type, title, body, status, tags FROM nodes
+           WHERE project_id = ? AND status IN ('active', 'done')
+           ORDER BY updated_at DESC LIMIT 40`,
+        )
+        .all(projectId) as Array<{ id: number; type: string; title: string; body: string; status: string; tags: string }>;
+      if (rows.length === 0) return '';
+      const linkStmt = this.db.prepare(
+        `SELECT links.rel, n2.title AS t FROM links
+         JOIN nodes n2 ON n2.id = links.to_id WHERE links.from_id = ? LIMIT 4`,
+      );
+      let out = '';
+      for (const r of rows) {
+        const links = (linkStmt.all(r.id) as Array<{ rel: string; t: string }>)
+          .map((l) => `${l.rel}→${l.t}`)
+          .join(', ');
+        const line =
+          `• ${r.type}: ${r.title}${r.status === 'done' ? ' [done]' : ''}` +
+          (r.body ? ` — ${r.body}` : '') +
+          (links ? ` (${links})` : '') +
+          '\n';
+        if (out.length + line.length > maxChars) break;
+        out += line;
+      }
+      return out.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /** Structured node listing for the Memory view. */
+  listNodes(
+    projectId: string,
+    opts: { query?: string; type?: string; includeInactive?: boolean } = {},
+  ): MapNodeDto[] {
+    const typeFilter = opts.type && NODE_TYPES.has(opts.type) ? opts.type : undefined;
+    let rows: Array<{ id: number; type: string; title: string; body: string; status: string; tags: string; src_session: string | null; src_turn: number | null; updated_at: number }>;
+    if (opts.query?.trim()) {
+      const safe = opts.query
+        .trim()
+        .split(/\s+/)
+        .map((t) => `"${t.replace(/"/g, '')}"`)
+        .join(' ');
+      rows = this.db
+        .prepare(
+          `SELECT nodes.* FROM nodes_fts JOIN nodes ON nodes.id = nodes_fts.rowid
+           WHERE nodes_fts MATCH ? AND nodes.project_id = ?
+           ${typeFilter ? 'AND nodes.type = ?' : ''} ORDER BY rank LIMIT 100`,
+        )
+        .all(...(typeFilter ? [safe, projectId, typeFilter] : [safe, projectId])) as typeof rows;
+    } else {
+      rows = this.db
+        .prepare(
+          `SELECT * FROM nodes WHERE project_id = ?
+           ${typeFilter ? 'AND type = ?' : ''} ORDER BY updated_at DESC LIMIT 200`,
+        )
+        .all(...(typeFilter ? [projectId, typeFilter] : [projectId])) as typeof rows;
+    }
+    if (!opts.includeInactive) {
+      rows = rows.filter((r) => r.status === 'active' || r.status === 'done');
+    }
+    const linkStmt = this.db.prepare(
+      `SELECT links.rel, n2.type AS ttype, n2.title AS ttitle
+       FROM links JOIN nodes n2 ON n2.id = links.to_id WHERE links.from_id = ? LIMIT 8`,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      body: r.body,
+      status: r.status,
+      tags: r.tags,
+      updatedAt: r.updated_at,
+      srcSession: r.src_session ?? undefined,
+      srcTurn: r.src_turn ?? undefined,
+      links: (linkStmt.all(r.id) as Array<{ rel: string; ttype: string; ttitle: string }>).map(
+        (l) => ({ rel: l.rel, type: l.ttype, title: l.ttitle }),
+      ),
+    }));
+  }
+
+  setNodeStatus(projectId: string, nodeId: number, status: string): boolean {
+    if (!NODE_STATUS.has(status)) return false;
+    this.db
+      .prepare('UPDATE nodes SET status = ?, updated_at = ? WHERE id = ? AND project_id = ?')
+      .run(status, Date.now(), nodeId, projectId);
+    return true;
+  }
+
+  deleteNode(projectId: string, nodeId: number): void {
+    this.db.prepare('DELETE FROM links WHERE from_id = ? OR to_id = ?').run(nodeId, nodeId);
+    this.db.prepare('DELETE FROM nodes WHERE id = ? AND project_id = ?').run(nodeId, projectId);
+  }
+
+  stats(projectId: string): { nodes: number; archiveTurns: number } {
+    const nodes = this.db
+      .prepare('SELECT COUNT(*) AS n FROM nodes WHERE project_id = ?')
+      .get(projectId) as { n: number };
+    const turns = this.db
+      .prepare('SELECT COUNT(*) AS n FROM archive WHERE project_id = ?')
+      .get(projectId) as { n: number };
+    return { nodes: nodes.n, archiveTurns: turns.n };
   }
 
   /** Compact map listing the distiller sees for dedup/supersede decisions. */

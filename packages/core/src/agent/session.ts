@@ -47,6 +47,15 @@ export interface AgentSessionOptions {
   permission?: PermissionCallback;
   /** Max provider round-trips per user send. Default 16. */
   maxToolTurns?: number;
+  /**
+   * Context assembly (window-as-buffer): called once per user send with the
+   * full history; returns the index of the first message to include in
+   * provider requests for that run. Older messages stay in `history` (UI,
+   * persistence, archive) but drop out of the wire request. The index MUST
+   * point at a user message so tool_call/result pairs are never split.
+   * Absent or 0 → full replay (today's behavior).
+   */
+  contextStart?: (history: readonly HarnessMessage[]) => number;
 }
 
 export interface SendResult {
@@ -72,6 +81,8 @@ export class AgentSession {
   private abortCtl: AbortController | null = null;
   private cancelled = false;
   private injectQueue: UserPart[][] = [];
+  /** First history index sent to the provider this run (window-as-buffer). */
+  private startIdx = 0;
 
   constructor(private opts: AgentSessionOptions) {
     this.id = opts.id;
@@ -97,6 +108,9 @@ export class AgentSession {
     }
     const parts: UserPart[] = typeof input === 'string' ? [{ type: 'text', text: input }] : input;
     this.history.push({ role: 'user', content: parts });
+    // Anchor the buffer cut once per send — recomputing mid-run could shift
+    // the boundary under an in-flight tool loop.
+    this.startIdx = Math.max(0, Math.min(this.opts.contextStart?.(this.history) ?? 0, this.history.length - 1));
     void this.runLoop(bound);
     return { ok: true };
   }
@@ -172,7 +186,7 @@ export class AgentSession {
           {
             model: bound.model,
             system: this.spec.systemPrompt,
-            messages: this.history,
+            messages: this.startIdx > 0 ? this.history.slice(this.startIdx) : this.history,
             params: this.spec.params,
             ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
             ...(tools.length ? { tools } : {}),

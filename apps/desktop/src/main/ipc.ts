@@ -183,6 +183,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               // watermark advances only on success.
               void bank.distillPending(projectId, sessionId, completeCheap);
             },
+            digest: (projectId: string) => bank.digest(projectId),
           },
         }
       : {}),
@@ -762,6 +763,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.telegramInfo, () => telegram.info());
   ipcMain.handle(IPC.telegramPairCode, () => telegram.generatePairCode());
   ipcMain.handle(IPC.telegramUnpair, (_e, chatId: number) => telegram.unpair(chatId));
+
+  // ---- memory view + smart-context toggle ----
+  ipcMain.handle(IPC.projectSetAssemble, (_e, projectId: string, enabled: boolean) => {
+    projects.setAssemble(projectId, enabled);
+    broadcastProjects();
+  });
+  ipcMain.handle(IPC.memStats, (_e, projectId: string) =>
+    bank ? bank.stats(projectId) : { nodes: 0, archiveTurns: 0 },
+  );
+  ipcMain.handle(
+    IPC.memMapList,
+    (_e, projectId: string, opts?: { query?: string; type?: string; includeInactive?: boolean }) =>
+      bank ? bank.listNodes(projectId, opts ?? {}) : [],
+  );
+  ipcMain.handle(IPC.memMapSetStatus, (_e, projectId: string, nodeId: number, status: string) => {
+    bank?.setNodeStatus(projectId, nodeId, status);
+  });
+  ipcMain.handle(IPC.memMapDelete, (_e, projectId: string, nodeId: number) => {
+    bank?.deleteNode(projectId, nodeId);
+  });
 
   ipcMain.handle(IPC.registryCatalog, async () => {
     const hardware = profileHardware();

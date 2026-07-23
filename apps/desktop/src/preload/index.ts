@@ -116,6 +116,13 @@ const api: VoApi = {
   telegramPairCode: () => ipcRenderer.invoke(IPC.telegramPairCode),
   telegramUnpair: (chatId) => ipcRenderer.invoke(IPC.telegramUnpair, chatId),
   onTelegramChanged: subscribe(IPC.telegramChanged),
+  projectSetAssemble: (projectId, enabled) =>
+    ipcRenderer.invoke(IPC.projectSetAssemble, projectId, enabled),
+  memStats: (projectId) => ipcRenderer.invoke(IPC.memStats, projectId),
+  memMapList: (projectId, opts) => ipcRenderer.invoke(IPC.memMapList, projectId, opts),
+  memMapSetStatus: (projectId, nodeId, status) =>
+    ipcRenderer.invoke(IPC.memMapSetStatus, projectId, nodeId, status),
+  memMapDelete: (projectId, nodeId) => ipcRenderer.invoke(IPC.memMapDelete, projectId, nodeId),
 };
 
 contextBridge.exposeInMainWorld('vo', api);
