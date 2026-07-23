@@ -524,6 +524,8 @@ function VoiceSection() {
         <select value={v.tts} onChange={(e) => save({ tts: e.target.value as typeof v.tts })}>
           <option value="system">System voice (offline)</option>
           <option value="openai">OpenAI TTS (uses your openai key)</option>
+          <option value="elevenlabs">ElevenLabs</option>
+          <option value="compat">Custom endpoint (OpenAI-compatible)</option>
           <option value="none">Off</option>
         </select>
         {v.tts === 'openai' && (
@@ -534,6 +536,77 @@ function VoiceSection() {
           />
         )}
       </div>
+      {v.tts === 'system' && (
+        <div className="field-row">
+          <label>voice / rate</label>
+          <input
+            className="grow"
+            placeholder="installed voice name (empty = default)"
+            value={v.systemVoice}
+            onChange={(e) => save({ systemVoice: e.target.value })}
+          />
+          <input
+            type="number"
+            min={-10}
+            max={10}
+            title="Speaking rate: -10 slow … 10 fast"
+            value={v.systemRate}
+            onChange={(e) => save({ systemRate: Number(e.target.value) || 0 })}
+          />
+        </div>
+      )}
+      {v.tts === 'elevenlabs' && (
+        <>
+          <KeyRow provider="elevenlabs" />
+          <div className="field-row">
+            <label>voice id</label>
+            <input
+              className="grow"
+              placeholder="from elevenlabs.io → Voices (e.g. 21m00Tcm4TlvDq8ikWAM)"
+              value={v.elevenVoiceId}
+              onChange={(e) => save({ elevenVoiceId: e.target.value })}
+            />
+            <input
+              placeholder="model"
+              title="Model id (default eleven_multilingual_v2)"
+              value={v.elevenModel}
+              onChange={(e) => save({ elevenModel: e.target.value })}
+            />
+          </div>
+        </>
+      )}
+      {v.tts === 'compat' && (
+        <>
+          <p className="hint">
+            Any OpenAI-compatible /audio/speech endpoint works: Groq (PlayAI voices), a local
+            Kokoro server, LiteLLM proxies… Key is optional — local servers usually need none.
+          </p>
+          <div className="field-row">
+            <label>base URL</label>
+            <input
+              className="grow"
+              placeholder="https://api.groq.com/openai/v1 or http://127.0.0.1:8880/v1"
+              value={v.compatBaseUrl}
+              onChange={(e) => save({ compatBaseUrl: e.target.value })}
+            />
+          </div>
+          <div className="field-row">
+            <label>model / voice</label>
+            <input
+              className="grow"
+              placeholder="model (e.g. playai-tts, kokoro)"
+              value={v.compatModel}
+              onChange={(e) => save({ compatModel: e.target.value })}
+            />
+            <input
+              placeholder="voice"
+              value={v.compatVoice}
+              onChange={(e) => save({ compatVoice: e.target.value })}
+            />
+          </div>
+          <KeyRow provider="tts-custom" />
+        </>
+      )}
     </section>
   );
 }

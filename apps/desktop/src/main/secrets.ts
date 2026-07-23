@@ -58,7 +58,15 @@ export class SecretStore {
 
   status(): Record<string, string | null> {
     const out: Record<string, string | null> = {};
-    for (const provider of ['anthropic', 'openai', 'openrouter', 'xai', 'telegram']) {
+    for (const provider of [
+      'anthropic',
+      'openai',
+      'openrouter',
+      'xai',
+      'telegram',
+      'elevenlabs',
+      'tts-custom',
+    ]) {
       const value = this.get(provider);
       out[provider] = value ? `…${value.slice(-4)}` : null;
     }

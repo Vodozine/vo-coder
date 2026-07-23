@@ -1,8 +1,10 @@
 import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
+  ElevenLabsTts,
   OpenAiStt,
   OpenAiTts,
+  speakable,
   SystemTts,
   WhisperLocalStt,
   type SttProvider,
@@ -66,15 +68,51 @@ export class VoiceHost {
   async speak(text: string): Promise<TtsOutput> {
     const v = this.config.get().voice;
     if (v.tts === 'none') return { kind: 'native' };
+    // Markdown reads terribly aloud — every engine gets speakable text only.
+    const clean = speakable(text);
+    if (!clean) return { kind: 'native' };
     this.stopSpeak();
-    if (v.tts === 'openai') {
-      const apiKey = this.secrets.get('openai');
-      if (!apiKey) throw new Error('OpenAI TTS needs your OpenAI key (Settings → API keys).');
-      this.activeTts = new OpenAiTts({ apiKey, voice: v.openaiVoice });
-    } else {
-      this.activeTts = new SystemTts();
+    switch (v.tts) {
+      case 'openai': {
+        const apiKey = this.secrets.get('openai');
+        if (!apiKey) throw new Error('OpenAI TTS needs your OpenAI key (Settings → API keys).');
+        this.activeTts = new OpenAiTts({ apiKey, voice: v.openaiVoice });
+        break;
+      }
+      case 'compat': {
+        if (!v.compatBaseUrl) {
+          throw new Error('Custom TTS needs its endpoint base URL (Settings → Voice).');
+        }
+        // Many local endpoints (Kokoro etc.) need no key at all.
+        const apiKey = this.secrets.get('tts-custom') ?? 'none';
+        this.activeTts = new OpenAiTts({
+          apiKey,
+          baseURL: v.compatBaseUrl,
+          ...(v.compatModel ? { model: v.compatModel } : {}),
+          ...(v.compatVoice ? { voice: v.compatVoice } : {}),
+        });
+        break;
+      }
+      case 'elevenlabs': {
+        const apiKey = this.secrets.get('elevenlabs');
+        if (!apiKey) throw new Error('ElevenLabs needs its API key (Settings → Voice).');
+        if (!v.elevenVoiceId) {
+          throw new Error('ElevenLabs needs a voice id (Settings → Voice).');
+        }
+        this.activeTts = new ElevenLabsTts({
+          apiKey,
+          voiceId: v.elevenVoiceId,
+          ...(v.elevenModel ? { model: v.elevenModel } : {}),
+        });
+        break;
+      }
+      default:
+        this.activeTts = new SystemTts({
+          ...(v.systemVoice ? { voice: v.systemVoice } : {}),
+          rate: v.systemRate,
+        });
     }
-    return this.activeTts.speak(text);
+    return this.activeTts.speak(clean);
   }
 
   stopSpeak(): void {

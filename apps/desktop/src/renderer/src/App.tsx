@@ -19,6 +19,72 @@ const NAV = [
   { id: 'settings', label: 'Settings', enabled: true },
 ] as const;
 
+type DeleteTarget =
+  | { kind: 'project'; id: string; name: string; chatCount: number }
+  | { kind: 'session'; id: string; title: string };
+
+/**
+ * Guard rail for destructive sidebar actions: projects must have their name
+ * typed back (chats are gone for good; the folder on disk is never touched),
+ * chats get a plain confirm instead of dying to a stray click.
+ */
+function DeleteGuard({ target, onClose }: { target: DeleteTarget; onClose: () => void }) {
+  const removeSession = useStore((s) => s.removeSession);
+  const removeProject = useStore((s) => s.removeProject);
+  const [typed, setTyped] = useState('');
+  const isProject = target.kind === 'project';
+  const armed = !isProject || typed.trim().toLowerCase() === target.name.trim().toLowerCase();
+
+  const confirm = async () => {
+    if (!armed) return;
+    if (target.kind === 'project') await removeProject(target.id);
+    else await removeSession(target.id);
+    onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{isProject ? 'Delete project' : 'Delete chat'}</h3>
+        {isProject ? (
+          <>
+            <p className="hint">
+              This deletes <strong>{target.name}</strong> and its{' '}
+              {target.chatCount === 1 ? '1 chat' : `${target.chatCount} chats`} from Vo-Coder —
+              chat history is gone for good. The project folder on disk is <em>not</em> touched.
+            </p>
+            <div className="field-row">
+              <input
+                autoFocus
+                className="grow"
+                placeholder={`Type "${target.name}" to confirm`}
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void confirm();
+                  if (e.key === 'Escape') onClose();
+                }}
+              />
+            </div>
+          </>
+        ) : (
+          <p className="hint">
+            Delete the chat <strong>{target.title}</strong>? Its history is gone for good.
+          </p>
+        )}
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="stop" disabled={!armed} onClick={() => void confirm()}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Projects stack up in the sidebar; each expands into its chat sessions. */
 function ProjectsPanel() {
   const projects = useStore((s) => s.projects);
@@ -28,14 +94,13 @@ function ProjectsPanel() {
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
   const newProjectIn = useStore((s) => s.newProjectIn);
-  const removeSession = useStore((s) => s.removeSession);
-  const removeProject = useStore((s) => s.removeProject);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
   const [parent, setParent] = useState(() => localStorage.getItem('vo-projects-parent') ?? '');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
   const toggle = (id: string) =>
     setCollapsed((prev) => {
@@ -120,10 +185,14 @@ function ProjectsPanel() {
                   <button
                     className="chip-x"
                     title="Delete project and its chats"
-                    onClick={() => {
-                      if (window.confirm(`Delete "${project.name}" and its ${sessions.length} chat(s)?`))
-                        void removeProject(project.id);
-                    }}
+                    onClick={() =>
+                      setDeleteTarget({
+                        kind: 'project',
+                        id: project.id,
+                        name: project.name,
+                        chatCount: sessions.length,
+                      })
+                    }
                   >
                     ×
                   </button>
@@ -141,7 +210,9 @@ function ProjectsPanel() {
                     <button
                       className="chip-x session-x"
                       title="Delete chat"
-                      onClick={() => void removeSession(meta.id)}
+                      onClick={() =>
+                        setDeleteTarget({ kind: 'session', id: meta.id, title: meta.title })
+                      }
                     >
                       ×
                     </button>
@@ -154,6 +225,9 @@ function ProjectsPanel() {
           );
         })}
       </div>
+      {deleteTarget && (
+        <DeleteGuard target={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
     </div>
   );
 }

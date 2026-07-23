@@ -15,6 +15,9 @@ export class ConfigStore {
           autoRoute?: boolean;
         };
         this.cache = { ...DEFAULT_CONFIG, ...raw };
+        // Nested objects need their own defaults merged — a config written by
+        // an older version would otherwise drop newly added fields.
+        this.cache.voice = { ...DEFAULT_CONFIG.voice, ...(raw.voice ?? {}) };
         // Migration: the pre-routeMode boolean.
         if (!raw.routeMode && raw.autoRoute === false) this.cache.routeMode = 'off';
       } catch {

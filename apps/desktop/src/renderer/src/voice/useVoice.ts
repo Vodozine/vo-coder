@@ -31,6 +31,11 @@ export function useVoice(appendToInput: (text: string) => void) {
   const lastSpokenIdRef = useRef<number>(0);
   /** Mic stays deaf until this time — set when our own TTS stops playing. */
   const muteUntilRef = useRef<number>(0);
+  /** Streaming TTS: sentences queue up as the model writes them. */
+  const speakQueueRef = useRef<string[]>([]);
+  const speakPumpingRef = useRef(false);
+  /** How far into the current assistant message we've already spoken. */
+  const spokenPosRef = useRef<{ id: number; chars: number }>({ id: 0, chars: 0 });
 
   const send = useStore((s) => s.send);
 
@@ -105,6 +110,7 @@ export function useVoice(appendToInput: (text: string) => void) {
     const session = liveRef.current;
     liveRef.current = null;
     setLiveState('off');
+    speakQueueRef.current = [];
     stopPlayback();
     if (session) await session.capture.stop();
   }, [stopPlayback]);
@@ -167,50 +173,89 @@ export function useVoice(appendToInput: (text: string) => void) {
     else void liveStop();
   }, [liveStart, liveStop]);
 
-  // Speak each finished assistant reply while live mode is on.
+  // Sequentially voice queued sentences; the mic stays deaf the whole time.
+  const pumpSpeech = useCallback(async () => {
+    if (speakPumpingRef.current) return;
+    speakPumpingRef.current = true;
+    try {
+      while (speakQueueRef.current.length > 0) {
+        // The ref mutates across awaits — re-read it uncached each pass.
+        if ((liveStateRef.current as LiveState) === 'off') return;
+        setLiveState('speaking');
+        const chunk = speakQueueRef.current.shift()!;
+        const result = await window.vo.voiceSpeak(chunk);
+        if ((liveStateRef.current as LiveState) === 'off') return;
+        if (!result.ok) {
+          setVoiceError(result.error);
+          break;
+        }
+        const output = result.output;
+        if (output.kind === 'audio') {
+          await new Promise<void>((resolve) => {
+            const blob = new Blob([output.data], { type: output.mimeType });
+            const audio = new Audio(URL.createObjectURL(blob));
+            audioRef.current = audio;
+            audio.onended = () => {
+              audioRef.current = null;
+              resolve();
+            };
+            audio.onerror = () => resolve();
+            void audio.play().catch(() => resolve());
+          });
+        }
+        // 'native' resolves only after the OS voice finished.
+      }
+    } finally {
+      speakPumpingRef.current = false;
+      // Room-decay grace so the mic doesn't catch the TTS tail.
+      muteUntilRef.current = Date.now() + 600;
+      if (liveStateRef.current === 'speaking') setLiveState('listening');
+    }
+  }, []);
+
+  // Speak WHILE the model streams: each completed sentence is queued the
+  // moment it exists instead of waiting for the whole reply.
   const activeSession = useStore((s) =>
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
   useEffect(() => {
     if (liveStateRef.current === 'off' || !activeSession) return;
     const last = activeSession.messages[activeSession.messages.length - 1];
-    if (!last || last.role !== 'assistant' || last.streaming) return;
+    if (!last) return;
+    if (last.role !== 'assistant') {
+      // The user moved on — stop voicing the previous reply.
+      speakQueueRef.current = [];
+      return;
+    }
     if (last.id <= lastSpokenIdRef.current) return;
+    if (spokenPosRef.current.id !== last.id) spokenPosRef.current = { id: last.id, chars: 0 };
+
     const text = (last.segments ?? [])
       .filter((seg) => seg.kind === 'text')
       .map((seg) => (seg as { text: string }).text)
-      .join(' ')
-      .trim();
-    if (!text) return;
-    lastSpokenIdRef.current = last.id;
-    setLiveState('speaking');
-    // Room-decay grace after playback so the mic doesn't catch the TTS tail.
-    const resumeListening = () => {
-      muteUntilRef.current = Date.now() + 600;
-      if (liveStateRef.current === 'speaking') setLiveState('listening');
-    };
-    void window.vo.voiceSpeak(text).then((result) => {
-      if (liveStateRef.current === 'off') return;
-      if (!result.ok) {
-        setVoiceError(result.error);
-        resumeListening();
-        return;
+      .join(' ');
+    const pending = text.slice(spokenPosRef.current.chars);
+
+    let cut = -1;
+    if (!last.streaming) {
+      cut = pending.length;
+      lastSpokenIdRef.current = last.id; // reply fully queued
+    } else {
+      // Latest sentence boundary — but only speak fragments of a useful size.
+      for (const mark of ['. ', '! ', '? ', '.\n', '!\n', '?\n', '\n']) {
+        const at = pending.lastIndexOf(mark);
+        if (at >= 0) cut = Math.max(cut, at + mark.length);
       }
-      if (result.output.kind === 'audio') {
-        const blob = new Blob([result.output.data], { type: result.output.mimeType });
-        const audio = new Audio(URL.createObjectURL(blob));
-        audioRef.current = audio;
-        audio.onended = () => {
-          audioRef.current = null;
-          resumeListening();
-        };
-        void audio.play();
-      } else {
-        // Native (system) TTS finished speaking synchronously.
-        resumeListening();
-      }
-    });
-  }, [activeSession]);
+      if (cut < 60) return;
+    }
+    if (cut <= 0) return;
+    const chunk = pending.slice(0, cut).trim();
+    spokenPosRef.current.chars += cut;
+    if (chunk) {
+      speakQueueRef.current.push(chunk);
+      void pumpSpeech();
+    }
+  }, [activeSession, pumpSpeech]);
 
   // Teardown on unmount.
   useEffect(

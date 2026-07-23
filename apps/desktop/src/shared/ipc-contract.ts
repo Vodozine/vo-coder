@@ -61,8 +61,26 @@ export interface VoiceSettings {
   sttModel: string;
   whisperPath: string;
   whisperModel: string;
-  tts: 'openai' | 'system' | 'none';
+  /**
+   * TTS engine:
+   * 'system'     — offline OS voice (SAPI / say / espeak)
+   * 'openai'     — OpenAI /audio/speech with the openai key
+   * 'compat'     — ANY OpenAI-compatible /audio/speech endpoint (Groq PlayAI,
+   *                local Kokoro, LiteLLM proxies, …) with its own URL/key
+   * 'elevenlabs' — ElevenLabs voices with the elevenlabs key
+   */
+  tts: 'openai' | 'system' | 'compat' | 'elevenlabs' | 'none';
   openaiVoice: string;
+  /** System voice: installed voice name + rate (-10 slow … 10 fast). */
+  systemVoice: string;
+  systemRate: number;
+  /** OpenAI-compatible custom endpoint (key: secret "tts-custom", optional). */
+  compatBaseUrl: string;
+  compatModel: string;
+  compatVoice: string;
+  /** ElevenLabs voice + model ids. */
+  elevenVoiceId: string;
+  elevenModel: string;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -83,6 +101,13 @@ export const DEFAULT_CONFIG: AppConfig = {
     whisperModel: '',
     tts: 'system',
     openaiVoice: 'alloy',
+    systemVoice: '',
+    systemRate: 0,
+    compatBaseUrl: '',
+    compatModel: '',
+    compatVoice: '',
+    elevenVoiceId: '',
+    elevenModel: 'eleven_multilingual_v2',
   },
   scaffoldDefaults: {},
   routeMode: 'auto',
