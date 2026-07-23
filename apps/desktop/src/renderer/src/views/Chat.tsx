@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
+import { ModeToggle } from '../components/ModeToggle';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
 
@@ -344,15 +345,20 @@ export function fmtCost(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-/** Per-project token/cost tracker — aggregates every chat in the project. */
+/** Mode switch on top, this project's usage below — the composer's left chip. */
 function ProjectUsage({ projectId }: { projectId: string | undefined }) {
   const usage = useStore((s) => s.usage);
   const totals = projectId ? usage?.perProject[projectId] : undefined;
   const t = totals ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
   return (
-    <div className="usage-chip" title="This project's total usage, across all of its chats">
-      <span className="usage-cost">{fmtCost(t.cost)}</span>
-      <span className="usage-tokens">
+    <div className="usage-chip">
+      <ModeToggle />
+      <span
+        className="usage-tokens"
+        title="This project's total usage, across all of its chats"
+      >
+        <span className="usage-cost">{fmtCost(t.cost)}</span>
+        {'  '}
         {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out
       </span>
     </div>

@@ -238,37 +238,10 @@ function ProjectsPanel() {
 /** All-time usage across every project — the tool shed's meter. */
 function TotalUsage() {
   const usage = useStore((s) => s.usage);
-  const mode = useStore((s) => s.config?.approvalMode ?? 'guided');
-  const saveConfig = useStore((s) => s.saveConfig);
   const t = usage?.allTime ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
   return (
     <div className="sidebar-footer usage-footer" title="All-time usage across all projects">
-      <span className="usage-head">
-        <span className="usage-label">Usage</span>
-        <span
-          className="mode-toggle"
-          title="Auto: autonomous — agents act, no prompts. Plan: read-only — Vodo proposes a plan, changes nothing. Manual: approve every write/run. (Destructive infra tools always require confirmation.)"
-        >
-          <button
-            className={`m-auto ${mode === 'auto' ? 'on' : ''}`}
-            onClick={() => void saveConfig({ approvalMode: 'auto' })}
-          >
-            Auto
-          </button>
-          <button
-            className={`m-plan ${mode === 'plan' ? 'on' : ''}`}
-            onClick={() => void saveConfig({ approvalMode: 'plan' })}
-          >
-            Plan
-          </button>
-          <button
-            className={`m-manual ${mode === 'manual' ? 'on' : ''}`}
-            onClick={() => void saveConfig({ approvalMode: 'manual' })}
-          >
-            Manual
-          </button>
-        </span>
-      </span>
+      <span className="usage-label">Usage</span>
       <span className="usage-cost">{fmtCost(t.cost)}</span>
       <span>
         {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out

@@ -1340,11 +1340,11 @@ select:focus {
   letter-spacing: 0.08em;
   font-size: 10.5px;
 }
-.usage-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+.usage-chip .mode-toggle {
+  align-self: stretch;
+}
+.usage-chip .mode-toggle button {
+  flex: 1;
 }
 .mode-toggle {
   display: inline-flex;
