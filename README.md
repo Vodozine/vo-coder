@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/vodo-mascot.png" alt="Vodo — the Vo-Coder assistant" width="220"/>
+  <img src="docs/img/vodo-full.png" alt="Vodo — the Vo-Coder assistant" width="240"/>
 </p>
 
 <h1 align="center">Vo-Coder</h1>
@@ -7,6 +7,16 @@
 <p align="center">
   <strong>You talk to Vodo. Vodo picks the right man for the job.</strong><br/>
   A provider-agnostic AI agent workbench for the desktop — built to humanize AI coding and stop overpaying for tokens.
+</p>
+
+<p align="center">
+  <a href="https://vodozine.github.io/vo-coder/"><strong>Website</strong></a> ·
+  <a href="https://github.com/Vodozine/vo-coder/releases/latest"><strong>Download</strong></a> ·
+  <a href="#whats-inside">Features</a>
+</p>
+
+<p align="center">
+  <img src="docs/img/chat.png" alt="Vo-Coder — Vodo builds a page with thinking and tool calls" width="760"/>
 </p>
 
 ---
@@ -23,7 +33,23 @@ And because an assistant should not be trapped in one window, Vodo works as one 
 
 Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — you see every file write and command before it happens.
 
+## Screens
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/img/agents-edit.png" alt="Priced model picker"/><br/><sub>Compare models by price and context — pick the right one per agent.</sub></td>
+    <td width="50%"><img src="docs/img/missions.png" alt="Missions"/><br/><sub>Missions run in the background, on a schedule, concurrent with your chats.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/preview.png" alt="Live code view"/><br/><sub>Watch agents build — live code view with change states.</sub></td>
+    <td><img src="docs/img/settings.png" alt="Settings"/><br/><sub>Everything in one full-canvas settings page.</sub></td>
+  </tr>
+</table>
+
+More on the **[website ↗](https://vodozine.github.io/vo-coder/)**.
+
 ## What's inside
+<a id="whats-inside"></a>
 
 **🤖 Six providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed.
 

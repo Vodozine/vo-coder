@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vo-Coder — you talk to Vodo, Vodo picks the right model</title>
+<meta name="description" content="A provider-agnostic AI agent workbench for the desktop. You talk to Vodo; Vodo routes each message to the cheapest model that's actually good enough. Missions, Telegram remote, a real memory, and voice — all local-first." />
+<meta property="og:title" content="Vo-Coder — meet Vodo" />
+<meta property="og:description" content="A provider-agnostic AI agent workbench. Talk to Vodo; Vodo picks the right model for each job." />
+<meta property="og:image" content="img/vodo-portrait.png" />
+<style>
+  :root{
+    --bg:#0b0e14; --raised:#12151d; --line:#232b3a; --line-soft:rgba(255,255,255,.06);
+    --text:#e8ebf2; --dim:#8791a6; --accent:#e8a33d; --cyan:#46d5e0;
+    --radius:16px; --mono:'Cascadia Code',ui-monospace,Consolas,monospace;
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box;margin:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Segoe UI',system-ui,sans-serif;color:var(--text);font-size:16px;line-height:1.6;
+    background:
+      radial-gradient(1100px 620px at 12% -8%, rgba(70,213,224,.06), transparent 60%),
+      radial-gradient(1000px 700px at 104% -4%, rgba(232,163,61,.06), transparent 58%),
+      var(--bg);
+    background-attachment:fixed;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:12px 20px;font-weight:600;
+    border:1px solid var(--accent);background:var(--accent);color:#1a1204;text-decoration:none;transition:.15s;
+  }
+  .btn:hover{box-shadow:0 0 22px rgba(232,163,61,.3);text-decoration:none}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:#33405a;box-shadow:none}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
+      background:rgba(11,14,20,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:14px;height:60px}
+  nav .brand{display:flex;align-items:center;gap:10px;font-weight:700}
+  nav .brand img{width:28px;height:28px;border-radius:7px}
+  nav .spacer{flex:1}
+  nav .links a{color:var(--dim);margin-left:20px;font-size:14px}
+  nav .links a:hover{color:var(--text);text-decoration:none}
+  @media(max-width:640px){nav .links{display:none}}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:20px;align-items:center;padding:64px 0 40px}
+  .hero h1{font-size:44px;line-height:1.1;letter-spacing:-.02em;margin-bottom:16px}
+  .hero h1 .g{background:linear-gradient(90deg,var(--accent),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:19px;color:var(--dim);max-width:38ch;margin-bottom:26px}
+  .hero .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .hero .mascot{position:relative;text-align:center}
+  .hero .mascot img{width:100%;max-width:380px;filter:drop-shadow(0 20px 60px rgba(70,213,224,.14))}
+  .badge{display:inline-block;font-size:12.5px;color:var(--cyan);border:1px solid var(--line);
+         border-radius:999px;padding:4px 12px;margin-bottom:18px;background:rgba(70,213,224,.06)}
+  @media(max-width:820px){.hero{grid-template-columns:1fr;text-align:center;padding-top:40px}
+    .hero p.lead{margin-inline:auto}.hero .cta{justify-content:center}.hero .mascot{order:-1}}
+
+  /* section */
+  section{padding:52px 0;border-top:1px solid var(--line-soft)}
+  .eyebrow{color:var(--accent);font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+  h2{font-size:30px;letter-spacing:-.01em;margin-bottom:12px}
+  .sub{color:var(--dim);max-width:62ch;margin-bottom:30px}
+
+  /* feature row */
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:center;margin:36px 0}
+  .feat.rev .txt{order:2}
+  .feat h3{font-size:22px;margin-bottom:10px}
+  .feat p{color:var(--dim)}
+  .shot{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.45);background:var(--raised)}
+  .shot img{display:block;width:100%}
+  @media(max-width:820px){.feat{grid-template-columns:1fr}.feat.rev .txt{order:0}}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:26px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;
+        background:linear-gradient(180deg,var(--line-soft),transparent 40%),var(--raised)}
+  .card h4{font-size:17px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .card p{color:var(--dim);font-size:14.5px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);flex:0 0 auto}
+
+  /* gallery */
+  .gal{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:26px}
+  .gal figure{margin:0}
+  .gal figcaption{color:var(--dim);font-size:13px;margin-top:8px;font-family:var(--mono)}
+  @media(max-width:640px){.gal{grid-template-columns:1fr}}
+
+  /* download */
+  .dl{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px}
+  .dl a{border:1px solid var(--line);border-radius:var(--radius);padding:20px;text-align:center;color:var(--text);
+        background:var(--raised);transition:.15s}
+  .dl a:hover{border-color:var(--accent);text-decoration:none;box-shadow:0 0 18px rgba(232,163,61,.12)}
+  .dl a b{display:block;font-size:17px;margin-bottom:4px}
+  .dl a span{color:var(--dim);font-size:13px}
+  @media(max-width:640px){.dl{grid-template-columns:1fr}}
+
+  footer{padding:40px 0;border-top:1px solid var(--line);color:var(--dim);font-size:14px;text-align:center}
+  code{font-family:var(--mono);color:var(--accent);font-size:.9em}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="brand"><img src="img/vodo-portrait.png" alt="Vodo"/> Vo-Coder</span>
+  <span class="spacer"></span>
+  <span class="links">
+    <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#shots">Screens</a>
+    <a href="#download">Download</a>
+    <a href="https://github.com/Vodozine/vo-coder">GitHub</a>
+  </span>
+</div></nav>
+
+<header class="wrap hero">
+  <div>
+    <span class="badge">Local-first · provider-agnostic · open source</span>
+    <h1>You talk to <span class="g">Vodo</span>.<br/>Vodo picks the right model.</h1>
+    <p class="lead">A desktop workbench for building with AI agents — without being locked to one vendor, or paying frontier prices for every throwaway question.</p>
+    <div class="cta">
+      <a class="btn" href="#download">Download for Windows, macOS, Linux</a>
+      <a class="btn ghost" href="https://github.com/Vodozine/vo-coder">View source ↗</a>
+    </div>
+  </div>
+  <div class="mascot"><img src="img/vodo-full.png" alt="Vodo, the Vo-Coder assistant, waving"/></div>
+</header>
+
+<main class="wrap">
+
+  <section id="how">
+    <div class="eyebrow">The idea</div>
+    <h2>A tool shed, not a black box</h2>
+    <p class="sub">The harness stays light — it holds the tools (files, terminals, web, MCP servers, infrastructure) and coordinates the work. The model is the engineer who walks in and decides what to pick up. Models are interchangeable; the shed is yours.</p>
+    <p class="sub">You talk to <strong>Vodo</strong>, the coordinator. For each message, Vodo weighs what the task actually needs — code, vision, tools, hard reasoning — and routes it to the <strong>cheapest model that's genuinely adequate</strong>, scored from live pricing and real benchmark data. Casual questions go to cheap or local models. The big brains only wake up when the task earns them. Every routed reply shows its reasoning and estimated cost.</p>
+    <div class="feat">
+      <div class="shot txt"><img src="img/chat.png" alt="Vo-Coder chat: Vodo builds a page with thinking and tool calls"/></div>
+      <div>
+        <h3>Agents with hands</h3>
+        <p>Agents don't hand you instructions — they write the files and run the commands themselves, inside your project folder, behind per-call permission prompts. Web search and page-reading are built into every session. No key, no setup.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="eyebrow">What's inside</div>
+    <h2>An agent OS on your desktop</h2>
+    <p class="sub">Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configure. Local models (Ollama, LM Studio) are first-class.</p>
+
+    <div class="feat rev">
+      <div class="shot"><img src="img/agents-edit.png" alt="Priced model picker comparing context sizes and per-token costs"/></div>
+      <div class="txt">
+        <h3>Routing on your terms</h3>
+        <p>Four modes: cheapest-adequate per message, delegate to your own specialist agents, always use your agents, or pin one model. Build ten agents on ten models and the specialty fields become your routing table — with prices right there to compare.</p>
+      </div>
+    </div>
+
+    <div class="feat">
+      <div class="shot txt"><img src="img/missions.png" alt="Missions running in the background on schedules"/></div>
+      <div>
+        <h3>Missions &amp; Telegram remote</h3>
+        <p>Give Vodo an objective and it runs it in its own agent instance — one-shot or looping on a schedule, concurrent with your chats. Pair a Telegram bot and steer it all from your phone: ask, launch missions, approve tool calls with a tap.</p>
+      </div>
+    </div>
+
+    <div class="feat rev">
+      <div class="shot"><img src="img/chat-context.png" alt="Context-window meter with one-click compaction"/></div>
+      <div class="txt">
+        <h3>A memory that outlives the window</h3>
+        <p>A per-project memory bank keeps every conversation verbatim and distills a structured map of what matters — decisions, files, tasks, facts, and their links. Ask “what was I doing last Monday?” and get a real answer. A context meter shows window usage, one click to compact.</p>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card"><h4><span class="dot"></span>Six providers</h4><p>Anthropic, OpenAI, OpenRouter, xAI (Grok, incl. subscription sign-in), Ollama, LM Studio — one chat.</p></div>
+      <div class="card"><h4><span class="dot"></span>Live code view</h4><p>Watch agents build: change-state tree, per-line diffs, git-aware review, select-to-ask.</p></div>
+      <div class="card"><h4><span class="dot"></span>Voice</h4><p>Push-to-talk &amp; hands-free live chat, offline whisper.cpp, TTS through any engine.</p></div>
+      <div class="card"><h4><span class="dot"></span>Real terminal</h4><p>A true PTY with tabs, plus a live app preview, right in the app.</p></div>
+      <div class="card"><h4><span class="dot"></span>Infrastructure MCP</h4><p>Bundled environment discovery + a Proxmox driver behind read/write/destructive tiers.</p></div>
+      <div class="card"><h4><span class="dot"></span>Cost tracking</h4><p>Per-project and all-time token &amp; spend meters, so every project stays honest.</p></div>
+    </div>
+  </section>
+
+  <section id="shots">
+    <div class="eyebrow">Screens</div>
+    <h2>See it</h2>
+    <div class="gal">
+      <figure><div class="shot"><img src="img/settings.png" alt="Settings"/></div><figcaption>settings — full-canvas, everything in one place</figcaption></figure>
+      <figure><div class="shot"><img src="img/preview.png" alt="Code preview"/></div><figcaption>preview — live code view with change states</figcaption></figure>
+      <figure><div class="shot"><img src="img/terminal.png" alt="Terminal"/></div><figcaption>terminal — a real PTY with tabs</figcaption></figure>
+      <figure><div class="shot"><img src="img/scaffold.png" alt="Scaffold wizard"/></div><figcaption>scaffold — a project's north-star config in 7 questions</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="eyebrow">Get it</div>
+    <h2>Download Vo-Coder</h2>
+    <p class="sub">Free and open source. Add one API key — or start a local Ollama / LM Studio server, no key needed — and say hello to Vodo. From the first install, the app updates itself (you can turn that off).</p>
+    <div class="dl">
+      <a href="https://github.com/Vodozine/vo-coder/releases/latest"><b>Windows</b><span>installer · auto-updates</span></a>
+      <a href="https://github.com/Vodozine/vo-coder/releases/latest"><b>macOS</b><span>Apple silicon · .dmg</span></a>
+      <a href="https://github.com/Vodozine/vo-coder/releases/latest"><b>Linux</b><span>.AppImage</span></a>
+    </div>
+    <p class="sub" style="margin-top:20px">Or build from source — see the <a href="https://github.com/Vodozine/vo-coder#build-from-source">README</a>.</p>
+  </section>
+
+</main>
+
+<footer><div class="wrap">
+  Vo-Coder is open source under an MIT-style license — build on it freely, just show a visible “Based on Vo-Coder” credit.<br/>
+  Made with 🤍 &nbsp;·&nbsp; <a href="https://github.com/Vodozine/vo-coder">github.com/Vodozine/vo-coder</a>
+</div></footer>
+
+</body>
+</html>
