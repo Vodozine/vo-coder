@@ -252,6 +252,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       let routed: { provider: string; model: string; rationale: string } | undefined;
       let specOverride: AgentSpec | undefined;
       const mode = config.get().routeMode;
+      const historyHasImages = sessions
+        .historyOf(sessionId)
+        .some((m) => m.role === 'user' && m.content.some((p) => p.type === 'image'));
       if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
         // "My agents first": hand the whole job (prompt, tools, model) to the
         // user's best-matching specialist; unset agent models still get
@@ -266,7 +269,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             specOverride = match.agent;
             const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;
             if (!match.agent.model) {
-              const pick = await routeForVodo(parts).catch(() => undefined);
+              const pick = await routeForVodo(parts, historyHasImages).catch(() => undefined);
               if (pick) override = { provider: pick.provider, model: pick.model };
               routed = {
                 provider: override?.provider ?? '',
@@ -283,7 +286,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
         if (!specOverride) {
-          const pick = await routeForVodo(parts).catch(() => undefined);
+          const pick = await routeForVodo(parts, historyHasImages).catch(() => undefined);
           if (pick) {
             override = { provider: pick.provider, model: pick.model };
             routed = pick;
@@ -409,13 +412,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    */
   const routeForVodo = async (
     parts: UserPart[],
+    historyHasImages = false,
   ): Promise<{ provider: string; model: string; rationale: string } | undefined> => {
     const text = parts
       .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
       .map((p) => p.text)
       .join(' ');
     const signal = signalFromPrompt(text, {
-      needsVision: parts.some((p) => p.type === 'image'),
+      // The whole conversation replays on every turn — an image anywhere in
+      // history forces a vision-capable model, not just images sent right now.
+      needsVision: historyHasImages || parts.some((p) => p.type === 'image'),
       needsTools: mcp.list().some((s) => s.connected),
       wantsThinking: config.get().thinkingDefault,
     });

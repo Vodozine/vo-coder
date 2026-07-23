@@ -227,9 +227,13 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async suggestFor(text) {
-    const { attachments } = get();
+    const { attachments, sessions, activeSessionId } = get();
+    const history = activeSessionId ? (sessions[activeSessionId]?.messages ?? []) : [];
     const suggestions = await window.vo.registrySuggest(text, {
-      needsVision: attachments.some((a) => a.kind === 'image'),
+      // Images anywhere in the conversation demand vision on every turn.
+      needsVision:
+        attachments.some((a) => a.kind === 'image') ||
+        history.some((m) => m.attachments?.some((a) => a.kind === 'image')),
       needsTools: get().mcpStatus.some((s) => s.connected),
     });
     set({ suggestions });
