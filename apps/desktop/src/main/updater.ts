@@ -1,6 +1,7 @@
 import { app, ipcMain, type BrowserWindow } from 'electron';
 import electronUpdater from 'electron-updater';
 import { IPC, type UpdateEvent } from '../shared/ipc-contract';
+import type { ConfigStore } from './config';
 
 const { autoUpdater } = electronUpdater;
 
@@ -21,8 +22,10 @@ function friendlyUpdateError(err: unknown): string {
  * In-app updates: the installed (NSIS/DMG/AppImage) app checks the publish
  * feed, downloads in the background, and installs over itself on restart —
  * userData survives. Inactive in dev; fail-soft when no releases exist yet.
+ * Automatic checks respect config.autoUpdate (checked at fire time, so the
+ * Settings toggle applies without a restart); the manual button always works.
  */
-export function initUpdater(getWindow: () => BrowserWindow | null): void {
+export function initUpdater(getWindow: () => BrowserWindow | null, config: ConfigStore): void {
   const send = (payload: UpdateEvent) => {
     const win = getWindow();
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
@@ -57,6 +60,10 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
   );
   autoUpdater.on('error', (err) => send({ state: 'error', message: friendlyUpdateError(err) }));
   // First check shortly after launch; then every 4 hours while running.
-  setTimeout(() => void autoUpdater.checkForUpdates().catch(() => {}), 8_000);
-  setInterval(() => void autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000);
+  const autoCheck = () => {
+    if (!config.get().autoUpdate) return;
+    void autoUpdater.checkForUpdates().catch(() => {});
+  };
+  setTimeout(autoCheck, 8_000);
+  setInterval(autoCheck, 4 * 60 * 60 * 1000);
 }

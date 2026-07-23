@@ -458,7 +458,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projectWatcher.readBaseline(relPath),
   );
 
-  initUpdater(getWindow);
+  initUpdater(getWindow, config);
   ipcMain.handle(IPC.permissionRespond, (_e, requestId: string, decision: 'allow' | 'deny') =>
     sessions.respondPermission(requestId, decision),
   );

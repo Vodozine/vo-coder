@@ -689,6 +689,8 @@ function TelegramSection() {
 
 function UpdatesSection() {
   const updateInfo = useStore((s) => s.updateInfo);
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
   const [version, setVersion] = useState('');
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -729,9 +731,21 @@ function UpdatesSection() {
         )}
       </div>
       {result && <p className="hint">{result}</p>}
+      <div className="field-row">
+        <label>automatic</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={config?.autoUpdate ?? true}
+            onChange={(e) => void saveConfig({ autoUpdate: e.target.checked })}
+          />
+          check and download updates in the background
+        </label>
+      </div>
       <p className="hint">
-        The installed app checks automatically and downloads updates in the background — installing
-        keeps all your settings and keys.
+        {config?.autoUpdate ?? true
+          ? 'Updates download in the background and install on restart — settings and keys are kept.'
+          : 'Automatic updates are off — use "Check for updates" whenever you want; installing keeps all your settings and keys.'}
       </p>
     </section>
   );
