@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import {
   OpenAiStt,
   OpenAiTts,
@@ -20,6 +22,21 @@ export class VoiceHost {
     private secrets: SecretStore,
   ) {}
 
+  /**
+   * whisper.cpp's `main(.exe)` became a deprecation stub that exits with
+   * failure — older setups saved that path. Transparently upgrade to the real
+   * whisper-cli sitting next to it, and persist the fix.
+   */
+  private healWhisperPath(path: string): string {
+    const base = basename(path).toLowerCase();
+    if (base !== 'main.exe' && base !== 'main') return path;
+    const cli = join(dirname(path), base === 'main.exe' ? 'whisper-cli.exe' : 'whisper-cli');
+    if (!existsSync(cli)) return path;
+    const v = this.config.get().voice;
+    this.config.set({ voice: { ...v, whisperPath: cli } });
+    return cli;
+  }
+
   private stt(): SttProvider {
     const v = this.config.get().voice;
     if (v.stt === 'whisper-local') {
@@ -28,7 +45,10 @@ export class VoiceHost {
           'whisper-local needs the binary path and model path — set both in Settings → Voice.',
         );
       }
-      return new WhisperLocalStt({ binaryPath: v.whisperPath, modelPath: v.whisperModel });
+      return new WhisperLocalStt({
+        binaryPath: this.healWhisperPath(v.whisperPath),
+        modelPath: v.whisperModel,
+      });
     }
     const apiKey = this.secrets.get('openai');
     if (!apiKey) {

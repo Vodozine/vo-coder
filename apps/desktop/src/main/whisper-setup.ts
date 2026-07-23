@@ -22,15 +22,27 @@ async function download(url: string, dest: string): Promise<void> {
 }
 
 function findWhisperExe(dir: string): string | null {
-  const names = ['whisper-cli.exe', 'main.exe', 'whisper-cli', 'main'];
+  // Priority matters: modern whisper.cpp releases still ship `main(.exe)`,
+  // but only as a deprecation stub that exits with failure — the real CLI is
+  // whisper-cli(.exe). Collect all candidates, then pick by name priority
+  // (a first-traversal-hit return would grab main.exe alphabetically).
+  const priority = ['whisper-cli.exe', 'whisper-cli', 'main.exe', 'main'];
+  const found = new Map<string, string>();
   const stack = [dir];
   while (stack.length) {
     const current = stack.pop()!;
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const path = join(current, entry.name);
       if (entry.isDirectory()) stack.push(path);
-      else if (names.includes(entry.name.toLowerCase())) return path;
+      else {
+        const name = entry.name.toLowerCase();
+        if (priority.includes(name) && !found.has(name)) found.set(name, path);
+      }
     }
+  }
+  for (const name of priority) {
+    const path = found.get(name);
+    if (path) return path;
   }
   return null;
 }
