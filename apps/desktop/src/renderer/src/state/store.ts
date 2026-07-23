@@ -106,6 +106,8 @@ interface AppState {
   applySuggestion(ranked: RankedModel): Promise<void>;
   setView(view: View): void;
   openSession(sessionId: string): Promise<void>;
+  /** Summarize-and-swap the active conversation; returns an error or null. */
+  compactSession(): Promise<string | null>;
   newSession(projectId?: string, agentId?: string): Promise<void>;
   newProject(name: string): Promise<void>;
   /** Create the folder on disk, the project, a first chat — then open the scaffold wizard. */
@@ -295,6 +297,22 @@ export const useStore = create<AppState>((set, get) => ({
 
   setView(view) {
     set({ view });
+  },
+
+  async compactSession() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return 'No active chat.';
+    const result = await window.vo.chatCompact(sessionId);
+    if (!result.ok) return result.error ?? 'Compaction failed.';
+    // Re-pull the rewritten history from main.
+    const { history } = await window.vo.sessionOpen(sessionId);
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: { messages: uiFromHistory(history), streaming: false },
+      },
+    }));
+    return null;
   },
 
   async openSession(sessionId) {

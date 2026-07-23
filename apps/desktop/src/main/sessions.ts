@@ -27,6 +27,10 @@ interface SessionManagerDeps {
   ) => void;
   /** Observer for session events (activity journaling). */
   onEvent?: (sessionId: string, event: import('@vo-coder/core').SessionEvent) => void;
+  /** Cheapest-adequate model pick for internal jobs (context compaction). */
+  pickCheap?: (
+    text: string,
+  ) => Promise<{ provider: string; model: string } | undefined>;
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
@@ -183,6 +187,97 @@ export class SessionManager {
       const result = session.send(parts, override);
       if (result.ok) this.persist(sessionId);
       return result;
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * Context compaction: replace the conversation with a model-written summary
+   * so the next turn replays a fraction of the tokens. The summary is produced
+   * by the cheapest adequate model — compacting should cost less than the
+   * bloat it removes.
+   */
+  async compact(sessionId: string): Promise<{ ok: boolean; summary?: string; error?: string }> {
+    try {
+      const session = this.sessionFor(sessionId);
+      if (session.getStatus() !== 'idle') {
+        return { ok: false, error: 'Wait for the current run to finish first.' };
+      }
+      if (session.history.length < 4) {
+        return { ok: false, error: 'Nothing worth compacting yet.' };
+      }
+
+      // Flatten the transcript (recent tail wins if it's enormous).
+      const lines: string[] = [];
+      for (const msg of session.history) {
+        if (msg.role === 'user') {
+          const text = msg.content
+            .map((p) => (p.type === 'text' ? p.text : `[${p.type}]`))
+            .join(' ');
+          lines.push(`USER: ${text}`);
+        } else if (msg.role === 'assistant') {
+          for (const part of msg.content) {
+            if (part.type === 'text' && part.text) lines.push(`ASSISTANT: ${part.text}`);
+            else if (part.type === 'tool_call') {
+              lines.push(`ASSISTANT ran ${part.name}(${JSON.stringify(part.args ?? {}).slice(0, 120)})`);
+            }
+          }
+        } else {
+          lines.push(`TOOL RESULT: ${msg.content.slice(0, 400)}`);
+        }
+      }
+      let transcript = lines.join('\n');
+      if (transcript.length > 90_000) transcript = `…\n${transcript.slice(-90_000)}`;
+
+      const prompt =
+        'Compact this conversation into a continuation briefing for yourself. Preserve: the goals, ' +
+        'every decision made, current state of any work (files, commands, results), open questions, ' +
+        'and user preferences. Drop pleasantries and dead ends. Write it dense but complete:\n\n' +
+        transcript;
+
+      const pick = await this.deps.pickCheap?.(prompt.slice(0, 2000)).catch(() => undefined);
+      const spec = session.spec;
+      const bound = this.deps.hub
+        .registry()
+        .resolve(pick ? { ...spec, provider: pick.provider, model: pick.model } : spec, {
+          provider: this.deps.config.get().defaultProvider,
+          model: this.deps.config.get().defaultModel,
+        });
+
+      let summary = '';
+      let errorMsg: string | undefined;
+      for await (const event of bound.provider.stream(
+        {
+          model: bound.model,
+          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+        },
+        { signal: new AbortController().signal },
+      )) {
+        if (event.type === 'text_delta') summary += event.text;
+        else if (event.type === 'error') errorMsg = event.error.message;
+      }
+      summary = summary.trim();
+      if (!summary) return { ok: false, error: errorMsg ?? 'The summarizer returned nothing.' };
+
+      session.history.length = 0;
+      session.history.push(
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `[Conversation compacted to save context] Continuation briefing:\n\n${summary}`,
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Got it — continuing from that briefing.' }],
+        },
+      );
+      this.persist(sessionId);
+      return { ok: true, summary };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

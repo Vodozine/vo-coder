@@ -294,6 +294,7 @@ export interface VoApi {
   chatInject(sessionId: string, parts: UserPart[]): Promise<SendResult>;
   chatStop(sessionId: string): Promise<void>;
   chatReset(sessionId: string): Promise<void>;
+  chatCompact(sessionId: string): Promise<{ ok: boolean; summary?: string; error?: string }>;
   onChatEvent(cb: (payload: ChatEventPayload) => void): () => void;
   mcpList(): Promise<McpServerStatus[]>;
   mcpConnect(name: string): Promise<McpServerStatus>;
@@ -409,6 +410,7 @@ export const IPC = {
   chatSend: 'chat:send',
   chatStop: 'chat:stop',
   chatReset: 'chat:reset',
+  chatCompact: 'chat:compact',
   chatEvent: 'chat:event',
   mcpList: 'mcp:list',
   mcpConnect: 'mcp:connect',

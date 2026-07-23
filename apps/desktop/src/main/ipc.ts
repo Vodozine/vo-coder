@@ -143,6 +143,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const meta = projects.meta(sessionId);
       if (meta) recordUsage(bound, ev, meta.projectId);
     },
+    pickCheap: async (text) => {
+      const pick = await routeForVodo([{ type: 'text', text }], false, false).catch(() => undefined);
+      return pick ? { provider: pick.provider, model: pick.model } : undefined;
+    },
     onEvent: (sessionId, event) => {
       // Journal real actions (writes/commands/infra), not read-only lookups.
       if (event.type !== 'tool_started') return;
@@ -393,6 +397,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return routed && result.ok ? { ...result, routed } : result;
     },
   );
+  ipcMain.handle(IPC.chatCompact, async (_e, sessionId: string) => {
+    const result = await sessions.compact(sessionId);
+    if (result.ok) {
+      const meta = projects.meta(sessionId);
+      journal.append({
+        kind: 'chat',
+        text: 'compacted the conversation to free context',
+        ...(projectNameOf(meta?.projectId) ? { project: projectNameOf(meta?.projectId) } : {}),
+      });
+    }
+    return result;
+  });
   ipcMain.handle(IPC.chatInject, (_e, sessionId: string, parts: UserPart[]) => {
     const invalid = validateParts(parts);
     if (invalid) return { ok: false, error: invalid };

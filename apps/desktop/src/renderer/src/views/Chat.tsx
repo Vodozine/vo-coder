@@ -1,7 +1,108 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
+
+/**
+ * Context-window meter: estimates how much of the model's window the next
+ * turn will replay (chars/4 + fixed system/tool overhead), anchored by the
+ * last turn's ACTUAL token usage. The popup offers compaction — a cheap model
+ * rewrites the conversation into a briefing and the history is swapped.
+ */
+function ContextChip({
+  messages,
+  model,
+  streaming,
+}: {
+  messages: UiMessage[];
+  model: string;
+  streaming: boolean;
+}) {
+  const catalog = useStore((s) => s.catalog);
+  const routeMode = useStore((s) => s.config?.routeMode ?? 'off');
+  const compactSession = useStore((s) => s.compactSession);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { estTokens, lastUsage } = useMemo(() => {
+    let chars = 0;
+    let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
+    for (const m of messages) {
+      chars += m.text?.length ?? 0;
+      for (const seg of m.segments ?? []) {
+        if (seg.kind === 'tool') chars += (seg.result?.length ?? 0) + 60;
+        else chars += seg.text.length;
+      }
+      chars += (m.attachments?.length ?? 0) * 6400; // ~1.6k tokens per image
+      if (m.usage) lastUsage = m.usage;
+    }
+    return { estTokens: Math.round(chars / 4) + 1500, lastUsage };
+  }, [messages]);
+
+  const record = catalog?.records.find((r) => r.id === model);
+  const windowTokens = record?.contextLength ?? 128_000;
+  const pct = Math.min(100, Math.round((estTokens / windowTokens) * 100));
+  const level = pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
+
+  const compact = async () => {
+    setBusy(true);
+    setError(null);
+    const err = await compactSession();
+    setBusy(false);
+    if (err) setError(err);
+    else setOpen(false);
+  };
+
+  return (
+    <div className="ctx-wrap">
+      {open && (
+        <div className="ctx-popup">
+          <div className="ctx-row">
+            <span>model window</span>
+            <b>
+              {fmtTokens(windowTokens)}
+              {record?.contextLength ? '' : ' (est.)'}
+            </b>
+          </div>
+          <div className="ctx-row">
+            <span>in context now (est.)</span>
+            <b>
+              {fmtTokens(estTokens)} · {pct}%
+            </b>
+          </div>
+          {lastUsage && (
+            <div className="ctx-row">
+              <span>last turn actual</span>
+              <b>
+                {fmtTokens(lastUsage.inputTokens)} in · {fmtTokens(lastUsage.outputTokens)} out
+              </b>
+            </div>
+          )}
+          <div className="ctx-row">
+            <span>messages</span>
+            <b>{messages.length}</b>
+          </div>
+          <p className="hint">
+            The whole conversation replays every turn{routeMode === 'auto' ? ' (window shown is the selected fallback model)' : ''}.
+            Compacting rewrites it into a short briefing — same chat, fraction of the tokens.
+          </p>
+          {error && <p className="hint error-text">{error}</p>}
+          <button className="send ctx-compact" disabled={busy || streaming} onClick={() => void compact()}>
+            {busy ? 'Compacting…' : 'Compact conversation'}
+          </button>
+        </div>
+      )}
+      <button
+        className={`ghost ctx-chip ${level}`}
+        title="Context window usage — click for details"
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="gauge" size={12} /> {pct}%
+      </button>
+    </div>
+  );
+}
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
 
@@ -572,29 +673,38 @@ export function Chat() {
               }
             }}
           />
-          {streaming ? (
-            <>
-              <button
-                className="send"
-                title="Add this mid-task without resetting the run"
-                onClick={submit}
-                disabled={!input.trim() && attachments.length === 0}
-              >
-                ↷ Inject
-              </button>
-              <button className="stop" onClick={() => void stop()}>
-                ■ Stop
-              </button>
-            </>
-          ) : (
-            <button
-              className="send"
-              onClick={submit}
-              disabled={!input.trim() && attachments.length === 0}
-            >
-              Send
-            </button>
-          )}
+          <div className="send-col">
+            <ContextChip
+              messages={messages}
+              model={activeAgent?.model ?? config.defaultModel}
+              streaming={streaming}
+            />
+            <div className="send-btns">
+              {streaming ? (
+                <>
+                  <button
+                    className="send"
+                    title="Add this mid-task without resetting the run"
+                    onClick={submit}
+                    disabled={!input.trim() && attachments.length === 0}
+                  >
+                    ↷ Inject
+                  </button>
+                  <button className="stop" onClick={() => void stop()}>
+                    ■ Stop
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="send"
+                  onClick={submit}
+                  disabled={!input.trim() && attachments.length === 0}
+                >
+                  Send
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </footer>
       <PermissionModal />

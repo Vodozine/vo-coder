@@ -1461,6 +1461,72 @@ select:focus {
   line-height: 1.5;
 }
 
+/* ---- context meter ---- */
+.send-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.send-btns {
+  display: flex;
+  gap: 6px;
+}
+.ctx-wrap {
+  position: relative;
+  align-self: flex-end;
+}
+.ctx-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+}
+.ctx-chip.warm {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ctx-chip.hot {
+  color: var(--error);
+  border-color: var(--error);
+}
+.ctx-popup {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  z-index: 40;
+}
+.ctx-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  padding: 3px 0;
+  color: var(--text-dim);
+}
+.ctx-row b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ctx-popup .hint {
+  margin: 8px 0;
+}
+.ctx-compact {
+  width: 100%;
+}
+
 /* ---- missions ---- */
 .missions-list {
   display: grid;

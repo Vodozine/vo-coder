@@ -17,7 +17,8 @@ export type IconName =
   | 'pause'
   | 'redo'
   | 'x'
-  | 'folder';
+  | 'folder'
+  | 'gauge';
 
 const PATHS: Record<IconName, JSX.Element> = {
   paperclip: (
@@ -89,6 +90,13 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   folder: (
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  ),
+  gauge: (
+    <>
+      <path d="M5 20a9 9 0 1 1 14 0" />
+      <line x1="12" y1="14" x2="16.5" y2="8.5" />
+      <circle cx="12" cy="14" r="1.6" />
+    </>
   ),
 };
 

@@ -30,6 +30,7 @@ const api: VoApi = {
     ipcRenderer.invoke(IPC.chatSend, sessionId, parts, override),
   chatStop: (sessionId) => ipcRenderer.invoke(IPC.chatStop, sessionId),
   chatReset: (sessionId) => ipcRenderer.invoke(IPC.chatReset, sessionId),
+  chatCompact: (sessionId) => ipcRenderer.invoke(IPC.chatCompact, sessionId),
   onChatEvent: (cb) => {
     const listener = (_event: unknown, payload: ChatEventPayload) => cb(payload);
     ipcRenderer.on(IPC.chatEvent, listener);
