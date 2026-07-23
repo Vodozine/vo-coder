@@ -11,11 +11,17 @@
 
 ---
 
-## The idea
+## What is Vo-Coder?
 
-Most AI tools lock you into one model and bill you for every word. Vo-Coder is a **tool shed**: a lightweight coordination layer where the heavy lifting lives in tools, and the model is chosen per job.
+Vo-Coder is a desktop workbench for working *with* AI agents — chatting, building software, running background jobs, controlling your homelab — without being married to any one AI vendor, and without paying frontier-model prices for every throwaway question.
 
-You talk to **Vodo**, the coordinator. For each message, Vodo weighs what the task actually needs — code? vision? tool use? hard reasoning? — and routes it to the **cheapest model that's genuinely adequate**, using live pricing and real benchmark data (LMArena Elo, coding-weighted). Simple questions go to cheap or local models. The big brains only wake up when the task earns them. A running cost meter keeps every project honest.
+The design follows one metaphor all the way down: the **tool shed**. The harness itself is deliberately lightweight — it holds the tools (file access, terminals, web search, MCP servers, infrastructure drivers) and coordinates requests. The model is the engineer who walks into the shed and decides what to pick up. Models are interchangeable; the shed is yours.
+
+**You talk to Vodo.** Vodo is the coordinator agent — the one face in front of every model. For each message, Vodo reads the task's actual demands — is this casual chat or a build request? does it need vision, tools, hard reasoning? — and routes it to the **cheapest model that's genuinely adequate**, scored from live provider pricing and real benchmark data (LMArena Elo, coding-weighted). "Make this look modern" in a project folder wakes a capable executor; "thanks!" costs a fraction of a cent. Every routed reply shows its reasoning and estimated cost, and per-project meters keep the spending honest. When you'd rather delegate to your own hand-built specialists — or pin one model forever — routing is a setting, not a religion.
+
+And because an assistant should not be trapped in one window, Vodo works as one continuous entity across surfaces: the desktop chat, background **missions** running on schedules, your **Telegram** account when you're away from the machine — all sharing one **memory journal**, so "what was I working on last Monday?" has an answer no matter where you ask it.
+
+Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — you see every file write and command before it happens.
 
 ## What's inside
 
