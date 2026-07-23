@@ -2,7 +2,7 @@
   "name": "@vo-coder/scaffold",
   "version": "0.1.0",
   "description": "Markdown-driven project scaffolding — PROJECT_SETUP.md questionnaire generates a per-project PROJECT_CONFIG.md",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

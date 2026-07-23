@@ -2,7 +2,7 @@
   "name": "@vo-coder/project-config",
   "version": "0.1.0",
   "description": "Shared PROJECT_CONFIG.md contract — types, parse, serialize",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

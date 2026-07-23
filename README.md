@@ -19,6 +19,14 @@ Cross-platform Electron desktop app (Windows / macOS / Linux), Node + TypeScript
 
 `packages/scaffold` and `packages/infra-mcp` are independently publishable and usable outside the harness.
 
+## License
+
+MIT with one extra condition: **if you build on Vo-Coder, say so.** Fork it,
+extend it, ship it commercially, keep your changes closed — all fine. The only
+obligation for derived works is a visible *"Based on Vo-Coder"* credit (README,
+docs, or about screen) linking back here. See [LICENSE](LICENSE). Branch it and
+take it to the next level.
+
 ## Development
 
 ```bash

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Provider-agnostic LLM agent harness — the tool shed. Electron desktop app bundling a markdown scaffolding system and a universal infrastructure MCP.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "workspaces": [
     "apps/*",

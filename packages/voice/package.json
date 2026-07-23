@@ -2,7 +2,7 @@
   "name": "@vo-coder/voice",
   "version": "0.1.0",
   "description": "Pluggable STT / TTS providers and voice-activity detection for push-to-talk and live voice chat",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

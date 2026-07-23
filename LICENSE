@@ -1,0 +1,32 @@
+Vo-Coder License (MIT with attribution)
+
+Copyright (c) 2026 Vodozine and Vo-Coder contributors
+
+This is the MIT License with one additional condition (2) requiring visible
+attribution in derived works.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+2. Any product, application, or project that is based on or substantially
+   derived from the Software must include a clearly visible attribution
+   reading "Based on Vo-Coder", with a link to
+   https://github.com/Vodozine/vo-coder where practical (for example in its
+   README, documentation, or about screen). This is the only obligation for
+   derived works: there is no requirement to publish source code, use this
+   license, or share changes.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

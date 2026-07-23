@@ -2,7 +2,7 @@
   "name": "@vo-coder/providers",
   "version": "0.1.0",
   "description": "Provider-agnostic streaming chat abstraction with Anthropic, OpenAI, OpenRouter, and Ollama adapters",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

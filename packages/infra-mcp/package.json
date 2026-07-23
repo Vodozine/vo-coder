@@ -2,7 +2,7 @@
   "name": "@vo-coder/infra-mcp",
   "version": "0.1.0",
   "description": "Universal infrastructure MCP — environment discovery and hypervisor management. Infrastructure and dev-environment readiness only: no app deployment, no production operations.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
