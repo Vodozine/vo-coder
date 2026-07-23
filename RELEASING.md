@@ -3,6 +3,11 @@
 Releases happen in **two phases**. A build is **never** published to GitHub until
 it has been installed and tested locally and explicitly approved.
 
+> **Current cadence:** we are iterating through `0.9.x` with local test builds
+> only. The next version published to GitHub is **v1.0.0**. Keep bumping the
+> local version for each test installer, but do not run Phase 2 until 1.0 is
+> ready and approved.
+
 ## Phase 1 — Build a test version (local only, nothing on GitHub)
 
 ```powershell
