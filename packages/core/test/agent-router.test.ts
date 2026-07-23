@@ -72,3 +72,50 @@ describe('matchAgentForMessage', () => {
     expect(matchAgentForMessage('hello', [], { always: true })).toBeNull();
   });
 });
+
+describe('vision agents wait for an actual image', () => {
+  const coder: AgentSpec = {
+    id: 'coder',
+    name: 'MrBig',
+    systemPrompt: 'You are a senior software engineer. You write and fix code.',
+    routingHints: 'code, bug, fix, build',
+  };
+  const vision: AgentSpec = {
+    id: 'vision',
+    name: 'The VisionMaster',
+    systemPrompt: 'You describe images and photos. You see pictures and analyze visual content.',
+    routingHints: 'see, look, image, photo, picture, vision',
+  };
+  const staff = [coder, vision];
+
+  it('"i cant see the cards" without an image never summons the vision agent', () => {
+    const text = 'i cant see the cards while dragging them...they get invisible';
+    const match = matchAgentForMessage(text, staff, { hasImage: false });
+    expect(match?.agent.id).not.toBe('vision');
+    // Even in "My agents only" mode the vision agent scores zero here.
+    const always = matchAgentForMessage(text, staff, { always: true, hasImage: false });
+    expect(always?.agent.id).toBe('coder');
+  });
+
+  it('the same vision words DO count once an image is confirmed present', () => {
+    const match = matchAgentForMessage('look at this photo — what mood is it?', staff, {
+      hasImage: true,
+    });
+    expect(match?.agent.id).toBe('vision');
+  });
+
+  it('name-word "The" never counts as being addressed; the real name does', () => {
+    const ranked = rankAgents('they get the cards from the deck', [vision], { hasImage: false });
+    expect(ranked[0]!.score).toBe(0);
+    const byName = matchAgentForMessage('visionmaster, are you there?', staff, { hasImage: false });
+    expect(byName?.agent.id).toBe('vision');
+  });
+
+  it('non-vision hints on a vision agent still work without an image', () => {
+    const cataloger: AgentSpec = { ...vision, routingHints: 'see, look, photo, catalog' };
+    const match = matchAgentForMessage('catalog this folder for me', [coder, cataloger], {
+      hasImage: false,
+    });
+    expect(match?.agent.id).toBe('vision');
+  });
+});

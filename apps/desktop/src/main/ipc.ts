@@ -470,12 +470,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             historyHasImages || parts.some((p) => p.type === 'image');
           let match = matchAgentForMessage(text, agents, {
             always: mode === 'agents-only',
+            hasImage: needsVision,
           });
           // "My agents first" + a WORK request in a project: if no keyword
           // hit, still hand it to the user's best agent — you built staff so
           // project work goes to your staff, not back to the catalog.
           if (!match && mode === 'agents' && builderMode && looksLikeWorkRequest(text) && agents.length > 0) {
-            const top = rankAgents(text, agents)[0];
+            const top = rankAgents(text, agents, { hasImage: needsVision })[0];
             if (top) {
               match = {
                 agent: top.agent,
@@ -491,7 +492,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               const canSee = (modelId?: string) =>
                 !modelId || records.find((r) => r.id === modelId)?.supportsVision === true;
               if (!canSee(match.agent.model)) {
-                const alt = rankAgents(text, agents).find((r) => canSee(r.agent.model));
+                const alt = rankAgents(text, agents, { hasImage: needsVision }).find((r) =>
+                  canSee(r.agent.model),
+                );
                 if (alt) {
                   match = {
                     agent: alt.agent,
