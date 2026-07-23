@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { McpRegistryEntry } from '@vo-coder/core';
+import type { TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
@@ -537,6 +538,82 @@ function VoiceSection() {
   );
 }
 
+/** Remote control: talk to Vodo (and run missions) from your phone. */
+function TelegramSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [info, setInfo] = useState<TelegramInfo | null>(null);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.vo.telegramInfo().then(setInfo);
+    return window.vo.onTelegramChanged(setInfo);
+  }, []);
+
+  if (!config) return null;
+
+  return (
+    <section>
+      <h2>Telegram remote</h2>
+      <p className="hint">
+        Talk to Vodo from your phone: ask anything, start missions, approve tool calls with buttons.
+        Create a bot with Telegram's @BotFather (send it /newbot), paste the token here, then pair
+        your chat with a one-time code.
+      </p>
+      <KeyRow provider="telegram" />
+      <div className="field-row">
+        <label>enabled</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={config.telegramEnabled}
+            onChange={(e) => void saveConfig({ telegramEnabled: e.target.checked })}
+          />
+          poll for messages
+        </label>
+        <span className="meta grow">
+          {info?.polling
+            ? `● connected${info.botUsername ? ` as @${info.botUsername}` : ''}`
+            : info?.lastError
+              ? `⚠ ${info.lastError}`
+              : info?.configured
+                ? 'off'
+                : 'no token yet'}
+        </span>
+      </div>
+      <div className="field-row">
+        <label>pairing</label>
+        {(info?.paired ?? []).length === 0 && <span className="hint">no chats paired</span>}
+        <div className="checkbox-row grow">
+          {(info?.paired ?? []).map((p) => (
+            <span key={p.id} className="attachment-chip">
+              {p.name ?? p.id}
+              <button className="chip-x" title="Unpair" onClick={() => void window.vo.telegramUnpair(p.id)}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        <button
+          disabled={!info?.polling}
+          title={info?.polling ? 'Generate a one-time pairing code' : 'Enable polling first'}
+          onClick={() =>
+            void window.vo.telegramPairCode().then(({ code }) => setPairCode(code))
+          }
+        >
+          Pair a chat
+        </button>
+      </div>
+      {pairCode && (
+        <p className="hint">
+          Send <code className="perm-tool">{pairCode}</code> to your bot within 10 minutes to pair
+          that chat.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function UpdatesSection() {
   const updateInfo = useStore((s) => s.updateInfo);
   const [version, setVersion] = useState('');
@@ -651,6 +728,7 @@ export function Settings() {
       <McpSection />
       <VisionSection />
       <VoiceSection />
+      <TelegramSection />
 
       <UpdatesSection />
 

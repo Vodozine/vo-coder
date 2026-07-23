@@ -3,6 +3,7 @@ import { useStore, type View } from './state/store';
 import { Agents } from './views/Agents';
 import { Chat, fmtCost, fmtTokens } from './views/Chat';
 import { TerminalTabs } from './views/Console';
+import { Missions } from './views/Missions';
 import { Preview } from './views/Preview';
 import { Scaffold } from './views/Scaffold';
 import { Settings } from './views/Settings';
@@ -10,6 +11,7 @@ import { Settings } from './views/Settings';
 const NAV = [
   { id: 'chat', label: 'Chat', enabled: true },
   { id: 'agents', label: 'Agents', enabled: true },
+  { id: 'missions', label: 'Missions', enabled: true },
   { id: 'scaffold', label: 'Scaffold', enabled: true },
   { id: 'preview', label: 'Preview', enabled: true },
   { id: 'console', label: 'Terminal', enabled: true },
@@ -211,6 +213,8 @@ export function App() {
           <Chat />
         ) : view === 'agents' ? (
           <Agents />
+        ) : view === 'missions' ? (
+          <Missions />
         ) : view === 'scaffold' ? (
           <Scaffold />
         ) : view === 'preview' ? (

@@ -49,6 +49,10 @@ export interface AppConfig {
   routeMode: 'auto' | 'agents' | 'off';
   /** OAuth client id for xAI subscription sign-in (public desktop client). */
   xaiOauthClientId: string;
+  /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
+  telegramEnabled: boolean;
+  /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
+  telegramPaired: Array<{ id: number; name?: string }>;
 }
 
 export interface VoiceSettings {
@@ -83,6 +87,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   scaffoldDefaults: {},
   routeMode: 'auto',
   xaiOauthClientId: 'grok-cli',
+  telegramEnabled: false,
+  telegramPaired: [],
 };
 
 /** Attachment limits enforced at the boundary. */
@@ -200,6 +206,52 @@ export interface XaiOauthEvent {
   message?: string;
 }
 
+/**
+ * A mission: a background objective Vodo pursues in its own isolated agent
+ * session — concurrent with every chat, so interactive coding is never blocked.
+ * One-shot ("run once") or looping (every N minutes, context carried between
+ * runs while the app is open).
+ */
+export interface Mission {
+  id: string;
+  title: string;
+  objective: string;
+  /** Optional project whose folder the mission gets workspace tools for. */
+  projectId?: string;
+  /** Repeat every N minutes; absent = run once. */
+  intervalMinutes?: number;
+  /** Headless runs: approve this mission's tool calls without prompting. */
+  autoApprove: boolean;
+  status: 'idle' | 'running' | 'paused' | 'done' | 'failed';
+  createdAt: number;
+  lastRunAt?: number;
+  /** Final assistant text of the most recent run (trimmed). */
+  lastResult?: string;
+  lastError?: string;
+  runCount: number;
+}
+
+export interface MissionCreateInput {
+  title: string;
+  objective: string;
+  projectId?: string;
+  intervalMinutes?: number;
+  autoApprove?: boolean;
+  runNow?: boolean;
+}
+
+export type MissionAction = 'run' | 'pause' | 'resume' | 'delete';
+
+export interface TelegramInfo {
+  /** Bot token saved in the secret store. */
+  configured: boolean;
+  enabled: boolean;
+  botUsername?: string;
+  polling: boolean;
+  paired: Array<{ id: number; name?: string }>;
+  lastError?: string;
+}
+
 export interface VoApi {
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
@@ -305,6 +357,14 @@ export interface VoApi {
     | { ok: false; error: string }
   >;
   voiceStopSpeak(): Promise<void>;
+  missionsList(): Promise<Mission[]>;
+  missionCreate(input: MissionCreateInput): Promise<Mission>;
+  missionControl(id: string, action: MissionAction): Promise<void>;
+  onMissionsChanged(cb: (missions: Mission[]) => void): () => void;
+  telegramInfo(): Promise<TelegramInfo>;
+  telegramPairCode(): Promise<{ code: string; expiresInSec: number }>;
+  telegramUnpair(chatId: number): Promise<void>;
+  onTelegramChanged(cb: (info: TelegramInfo) => void): () => void;
 }
 
 export interface CatalogInfo {
@@ -382,4 +442,12 @@ export const IPC = {
   updateEvent: 'update:event',
   voiceSetupWhisper: 'voice:setupWhisper',
   openExternal: 'shell:openExternal',
+  missionsList: 'missions:list',
+  missionCreate: 'missions:create',
+  missionControl: 'missions:control',
+  missionsChanged: 'missions:changed',
+  telegramInfo: 'telegram:info',
+  telegramPairCode: 'telegram:pairCode',
+  telegramUnpair: 'telegram:unpair',
+  telegramChanged: 'telegram:changed',
 } as const;

@@ -1,5 +1,5 @@
 import { AgentSession, type McpClientManager, type PermissionDecision } from '@vo-coder/core';
-import type { AgentSpec, BoundModel, HarnessMessage, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, BoundModel, HarnessMessage, ToolSpec, UserPart } from '@vo-coder/providers';
 import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
@@ -12,6 +12,11 @@ interface SessionManagerDeps {
   mcp: McpClientManager;
   projects: ProjectStore;
   send: (channel: string, payload: unknown) => void;
+  /** Always-on tools every session gets (web search/fetch, mission control). */
+  builtins?: {
+    specs(): ToolSpec[];
+    execute(name: string, args: unknown): Promise<{ content: string; isError?: boolean }>;
+  };
   /** Fired for every provider usage report, with the model that produced it. */
   onUsage?: (
     sessionId: string,
@@ -21,6 +26,9 @@ interface SessionManagerDeps {
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
+
+/** Read-only built-ins run without a permission prompt — nothing to protect. */
+const AUTO_ALLOWED_TOOLS = new Set(['ws_list', 'ws_read', 'web_search', 'web_fetch', 'mission_list']);
 
 /**
  * One live AgentSession per chat session id, created lazily with its history
@@ -70,7 +78,14 @@ export class SessionManager {
   /** Folder-backed projects: tell the agent it has hands and where they work. */
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
-    if (!dir) return spec;
+    const builtinNote = this.deps.builtins
+      ? '\n\nYou can always search the web (web_search, then web_fetch to read a result) and run ' +
+        'background missions (mission_create / mission_list / mission_control) — use a mission for ' +
+        'long or repeating work instead of doing it inline.'
+      : '';
+    if (!dir) {
+      return builtinNote ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}` } : spec;
+    }
     return {
       ...spec,
       systemPrompt:
@@ -80,7 +95,7 @@ export class SessionManager {
         `ws_run (run shell commands like npm install, npm run build, tests). ` +
         `DO THE WORK YOURSELF with these tools — write the files and run the commands instead of ` +
         `giving the user manual instructions. Verify your work by running builds/tests. ` +
-        `Ask before anything destructive.`,
+        `Ask before anything destructive.${builtinNote}`,
     };
   }
 
@@ -116,6 +131,7 @@ export class SessionManager {
           const dir = this.projectDirFor(sessionId);
           return [
             ...(dir ? workspaceToolSpecs(dir) : []),
+            ...(this.deps.builtins?.specs() ?? []),
             ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
           ];
         },
@@ -129,6 +145,9 @@ export class SessionManager {
               });
             }
             return executeWorkspaceTool(dir, name, args);
+          }
+          if (this.deps.builtins && (name.startsWith('web_') || name.startsWith('mission_'))) {
+            return this.deps.builtins.execute(name, args);
           }
           return this.deps.mcp.call(name, args);
         },
@@ -226,6 +245,7 @@ export class SessionManager {
     name: string,
     args: unknown,
   ): Promise<PermissionDecision> {
+    if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
     return new Promise((resolve) => {
       const requestId = `perm_${++this.permSeq}`;
       this.pendingPermissions.set(requestId, resolve);

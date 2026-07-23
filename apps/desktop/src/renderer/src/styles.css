@@ -1422,6 +1422,80 @@ select:focus {
   line-height: 1.5;
 }
 
+/* ---- missions ---- */
+.missions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.mission-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 13px 15px;
+  background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+.mission-card.st-running {
+  border-color: var(--accent2);
+  box-shadow: 0 0 16px rgba(70, 213, 224, 0.12);
+}
+.mission-card.st-failed {
+  border-color: var(--error);
+}
+.mission-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mission-head .chip-x,
+.mission-head .ghost {
+  padding: 2px 8px;
+}
+.mission-status {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.mission-status.running {
+  color: var(--accent2);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.mission-status.failed {
+  color: var(--error);
+}
+.mission-status.done {
+  color: var(--ok);
+}
+.mission-status.paused {
+  color: var(--accent);
+}
+.mission-log-toggle {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.mission-log {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
 /* ---- voice ---- */
 .attach.recording {
   background: var(--error);

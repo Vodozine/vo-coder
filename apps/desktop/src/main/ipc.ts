@@ -28,11 +28,17 @@ import {
   isAllowedMediaType,
   MAX_ATTACHMENT_BYTES,
   type AppConfig,
+  type MissionAction,
+  type MissionCreateInput,
 } from '../shared/ipc-contract';
 import { ConfigStore } from './config';
+import { MissionManager } from './missions';
 import { ProjectStore } from './projects';
+import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { UsageTracker } from './usage';
+import { executeWebTool, webToolSpecs } from './web-tools';
+import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
 import { PreviewManager, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
@@ -76,33 +82,58 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const projects = new ProjectStore();
   projects.ensureDefault();
   const usage = new UsageTracker(join(app.getPath('userData'), 'usage.json'), sendToWindow);
+
+  /** Price a usage event from the catalog and record it (any session kind). */
+  const recordUsage = (
+    bound: { model: string } | undefined,
+    ev: { inputTokens: number; outputTokens: number },
+    projectId?: string,
+  ): void => {
+    if (!bound) return;
+    void (async () => {
+      let inPerM = 0;
+      let outPerM = 0;
+      try {
+        const { records } = await getCatalog();
+        const rec = records.find((r) => r.id === bound.model);
+        inPerM = Math.max(0, rec?.pricing?.inputPerMTok ?? 0);
+        outPerM = Math.max(0, rec?.pricing?.outputPerMTok ?? 0);
+      } catch {
+        /* unpriced — tokens still count */
+      }
+      usage.record(
+        projectId ?? 'remote',
+        ev.inputTokens,
+        ev.outputTokens,
+        (ev.inputTokens * inPerM + ev.outputTokens * outPerM) / 1e6,
+      );
+    })();
+  };
+
+  // Built-in tools every agent session carries: web access + mission control.
+  // Mission tools resolve through a late ref — MissionManager needs routing,
+  // which is defined further down.
+  let missionsRef: MissionManager | null = null;
+  let telegramRef: TelegramBridge | null = null;
+  const builtins = {
+    specs: () => [...webToolSpecs(), ...(missionsRef?.toolSpecs() ?? [])],
+    execute: (name: string, args: unknown) => {
+      if (name.startsWith('web_')) return executeWebTool(name, args);
+      if (missionsRef) return missionsRef.executeTool(name, args);
+      return Promise.resolve({ content: 'Missions are not ready yet.', isError: true });
+    },
+  };
+
   const sessions = new SessionManager({
     config,
     hub,
     mcp,
     projects,
     send: sendToWindow,
+    builtins,
     onUsage: (sessionId, bound, ev) => {
       const meta = projects.meta(sessionId);
-      if (!meta || !bound) return;
-      void (async () => {
-        let inPerM = 0;
-        let outPerM = 0;
-        try {
-          const { records } = await getCatalog();
-          const rec = records.find((r) => r.id === bound.model);
-          inPerM = Math.max(0, rec?.pricing?.inputPerMTok ?? 0);
-          outPerM = Math.max(0, rec?.pricing?.outputPerMTok ?? 0);
-        } catch {
-          /* unpriced — tokens still count */
-        }
-        usage.record(
-          meta.projectId,
-          ev.inputTokens,
-          ev.outputTokens,
-          (ev.inputTokens * inPerM + ev.outputTokens * outPerM) / 1e6,
-        );
-      })();
+      if (meta) recordUsage(bound, ev, meta.projectId);
     },
   });
 
@@ -184,9 +215,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   }
 
   ipcMain.handle(IPC.getConfig, () => config.get());
-  ipcMain.handle(IPC.setConfig, (_e, patch: Partial<AppConfig>) => config.set(patch));
+  ipcMain.handle(IPC.setConfig, (_e, patch: Partial<AppConfig>) => {
+    const next = config.set(patch);
+    if ('telegramEnabled' in patch || 'telegramPaired' in patch) telegramRef?.sync();
+    return next;
+  });
   ipcMain.handle(IPC.setSecret, (_e, provider: string, value: string) => {
     secrets.set(provider, value);
+    if (provider === 'telegram') telegramRef?.sync();
     return secrets.status();
   });
   ipcMain.handle(IPC.secretStatus, () => secrets.status());
@@ -437,11 +473,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // The whole conversation replays on every turn — an image anywhere in
       // history forces a vision-capable model, not just images sent right now.
       needsVision: historyHasImages || parts.some((p) => p.type === 'image'),
-      // A folder-backed project always ships ws_ tools in the request, so the
-      // model MUST be able to call them. But only demand the capable-executor
-      // quality floor when the message actually asks for work — a plain "hello"
-      // in a build project should still route cheap.
-      needsTools: builderMode || mcp.list().some((s) => s.connected),
+      // Every session now carries built-in tools (web search, missions), so the
+      // model must be able to call tools — but only demand the capable-executor
+      // quality floor when the message actually asks for work; a plain "hello"
+      // still routes cheap among tool-capable models.
+      needsTools: true,
       agentic: builderMode && looksLikeWorkRequest(text),
       wantsThinking: config.get().thinkingDefault,
     });
@@ -475,6 +511,86 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!top?.model.provider) return undefined;
     return { provider: top.model.provider, model: top.model.id, rationale: top.rationale };
   };
+
+  // ---- agent OS: missions + telegram remote ----
+  // Both run Vodo in their OWN AgentSession instances — fully concurrent with
+  // chat sessions, so a mission never blocks interactive coding.
+  const vodoSpec = (): AgentSpec => {
+    const cfg = config.get();
+    return {
+      id: 'default',
+      name: 'Vodo',
+      systemPrompt: cfg.systemPrompt,
+      ...(cfg.thinkingDefault ? { thinking: { enabled: true } } : {}),
+    };
+  };
+  const resolveSpec = (spec: AgentSpec) => {
+    const { defaultProvider, defaultModel } = config.get();
+    return hub.registry().resolve(spec, { provider: defaultProvider, model: defaultModel });
+  };
+  const remoteTools = (dir?: string) => [
+    ...(dir ? workspaceToolSpecs(dir) : []),
+    ...builtins.specs(),
+    ...mcp.toolsFor(undefined),
+  ];
+  const remoteExecute = (name: string, args: unknown, dir?: string) => {
+    if (name.startsWith('ws_')) {
+      return dir
+        ? executeWorkspaceTool(dir, name, args)
+        : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
+    }
+    if (name.startsWith('web_') || name.startsWith('mission_')) return builtins.execute(name, args);
+    return mcp.call(name, args);
+  };
+
+  const missions = new MissionManager(join(app.getPath('userData'), 'missions.json'), {
+    vodoSpec,
+    projectDir: (projectId) => projects.list().projects.find((p) => p.id === projectId)?.dir,
+    resolveProject: (nameOrId) => {
+      const all = projects.list().projects;
+      return (
+        all.find((p) => p.id === nameOrId)?.id ??
+        all.find((p) => p.name.toLowerCase() === nameOrId.toLowerCase())?.id
+      );
+    },
+    resolve: resolveSpec,
+    route: (text, builderMode) =>
+      routeForVodo([{ type: 'text', text }], false, builderMode),
+    tools: remoteTools,
+    execute: remoteExecute,
+    askPermission: (missionTitle, tool, args) =>
+      telegramRef?.askPermissionFromUser(missionTitle, tool, args) ?? Promise.resolve('deny'),
+    onUsage: (bound, ev, projectId) => recordUsage(bound, ev, projectId),
+    notify: (text) => telegramRef?.notify(text),
+    onChanged: (list) => sendToWindow(IPC.missionsChanged, list),
+  });
+  missionsRef = missions;
+
+  const telegram = new TelegramBridge(config, secrets, {
+    vodoSpec,
+    resolve: resolveSpec,
+    route: (text) => routeForVodo([{ type: 'text', text }], false, false),
+    tools: () => remoteTools(),
+    execute: (name, args) => remoteExecute(name, args),
+    missionsSummary: () => missions.describeAll(),
+    onUsage: (bound, ev) => recordUsage(bound, ev),
+    onChanged: (info) => sendToWindow(IPC.telegramChanged, info),
+  });
+  telegramRef = telegram;
+  telegram.sync();
+  app.on('before-quit', () => {
+    missions.stopAll();
+    telegram.stop();
+  });
+
+  ipcMain.handle(IPC.missionsList, () => missions.list());
+  ipcMain.handle(IPC.missionCreate, (_e, input: MissionCreateInput) => missions.create(input));
+  ipcMain.handle(IPC.missionControl, (_e, id: string, action: MissionAction) =>
+    missions.control(id, action),
+  );
+  ipcMain.handle(IPC.telegramInfo, () => telegram.info());
+  ipcMain.handle(IPC.telegramPairCode, () => telegram.generatePairCode());
+  ipcMain.handle(IPC.telegramUnpair, (_e, chatId: number) => telegram.unpair(chatId));
 
   ipcMain.handle(IPC.registryCatalog, async () => {
     const hardware = profileHardware();

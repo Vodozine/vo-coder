@@ -106,6 +106,14 @@ const api: VoApi = {
   voiceTranscribe: (wav) => ipcRenderer.invoke(IPC.voiceTranscribe, wav),
   voiceSpeak: (text) => ipcRenderer.invoke(IPC.voiceSpeak, text),
   voiceStopSpeak: () => ipcRenderer.invoke(IPC.voiceStopSpeak),
+  missionsList: () => ipcRenderer.invoke(IPC.missionsList),
+  missionCreate: (input) => ipcRenderer.invoke(IPC.missionCreate, input),
+  missionControl: (id, action) => ipcRenderer.invoke(IPC.missionControl, id, action),
+  onMissionsChanged: subscribe(IPC.missionsChanged),
+  telegramInfo: () => ipcRenderer.invoke(IPC.telegramInfo),
+  telegramPairCode: () => ipcRenderer.invoke(IPC.telegramPairCode),
+  telegramUnpair: (chatId) => ipcRenderer.invoke(IPC.telegramUnpair, chatId),
+  onTelegramChanged: subscribe(IPC.telegramChanged),
 };
 
 contextBridge.exposeInMainWorld('vo', api);

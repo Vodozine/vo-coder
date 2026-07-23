@@ -8,6 +8,7 @@ import type {
   CatalogInfo,
   ChatEventPayload,
   CheckinPayload,
+  Mission,
   PermissionPrompt,
   UpdateEvent,
   WatchEvent,
@@ -56,7 +57,7 @@ interface SessionUi {
   streaming: boolean;
 }
 
-export type View = 'chat' | 'settings' | 'agents' | 'scaffold' | 'preview' | 'console';
+export type View = 'chat' | 'settings' | 'agents' | 'scaffold' | 'preview' | 'console' | 'missions';
 
 const emptySession = (): SessionUi => ({ messages: [], streaming: false });
 
@@ -91,6 +92,7 @@ interface AppState {
   gitStates: Record<string, 'added' | 'modified' | 'deleted'>;
   updateInfo: UpdateEvent | null;
   usage: UsageData | null;
+  missions: Mission[];
 
   startWatch(dir: string): Promise<string | null>;
   stopWatch(): Promise<void>;
@@ -170,6 +172,7 @@ export const useStore = create<AppState>((set, get) => ({
   gitStates: {},
   updateInfo: null,
   usage: null,
+  missions: [],
 
   async startWatch(dir) {
     const result = await window.vo.watchStart(dir);
@@ -264,6 +267,7 @@ export const useStore = create<AppState>((set, get) => ({
       window.vo.onWatchGit((status) => set({ watchGit: status.git, gitStates: status.states }));
       window.vo.onUpdateEvent((event) => set({ updateInfo: event }));
       window.vo.onUsageChanged((data) => set({ usage: data }));
+      window.vo.onMissionsChanged((missions) => set({ missions }));
     }
     const [config, secretStatus, mcpStatus] = await Promise.all([
       window.vo.getConfig(),
@@ -274,6 +278,7 @@ export const useStore = create<AppState>((set, get) => ({
     void get().loadModels(config.defaultProvider);
     void get().loadCatalog();
     void window.vo.usageGet().then((usage) => set({ usage }));
+    void window.vo.missionsList().then((missions) => set({ missions }));
 
     window.vo.onProjectsChanged((data) =>
       set({ projects: data.projects, sessionMetas: data.sessions }),
