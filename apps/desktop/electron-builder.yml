@@ -34,6 +34,9 @@ mac:
     - dmg
   category: public.app-category.developer-tools
 linux:
+  # Default derives from the npm package name (@vo-coder/desktop) — the "@"
+  # is illegal in AppImage paths.
+  executableName: vo-coder
   target:
     - AppImage
   category: Development
