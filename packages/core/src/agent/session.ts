@@ -18,11 +18,22 @@ export type SessionEvent =
   | ProviderEvent
   | { type: 'status'; status: SessionStatus }
   | { type: 'tool_started'; callId: string; name: string; args: unknown }
-  | { type: 'tool_result'; callId: string; name: string; result: string; isError: boolean };
+  | {
+      type: 'tool_result';
+      callId: string;
+      name: string;
+      result: string;
+      isError: boolean;
+      /** Generated image on disk — UI-only; never enters token-bearing history. */
+      imagePath?: string;
+    };
 
 export interface ToolExecutor {
   tools(): ToolSpec[];
-  execute(name: string, args: unknown): Promise<{ content: string; isError?: boolean }>;
+  execute(
+    name: string,
+    args: unknown,
+  ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
 }
 
 export type PermissionDecision = 'allow' | 'deny';
@@ -283,7 +294,7 @@ export class AgentSession {
             name: tc.name,
             args: tc.args,
           });
-          let result: { content: string; isError?: boolean };
+          let result: { content: string; isError?: boolean; imagePath?: string };
           try {
             result = this.opts.toolExecutor
               ? await this.opts.toolExecutor.execute(tc.name, tc.args)
@@ -306,6 +317,7 @@ export class AgentSession {
             name: tc.name,
             result: result.content,
             isError: !!result.isError,
+            ...(result.imagePath ? { imagePath: result.imagePath } : {}),
           });
         }
         if (this.cancelled) return;

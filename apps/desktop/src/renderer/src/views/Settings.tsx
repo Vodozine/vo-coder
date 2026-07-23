@@ -433,6 +433,63 @@ function VisionSection() {
   );
 }
 
+/** The image_generate tool's model — an image-OUTPUT model. */
+function ImageModelSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const catalog = useStore((s) => s.catalog);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+
+  if (!config) return null;
+  const effProvider = provider ?? config.imageModel?.provider ?? 'openrouter';
+  const effModel = model ?? config.imageModel?.model ?? '';
+  const imageModels = (catalog?.records ?? [])
+    .filter((r) => r.outputsImage === true)
+    .map((r) => r.id)
+    .sort();
+
+  return (
+    <section>
+      <h2>Image model</h2>
+      <p className="hint">
+        Powers the image_generate tool — agents render mockups, icons, and art straight into the
+        project's designs/ folder and the chat. Pick an image-output model.
+      </p>
+      <div className="field-row">
+        <label>provider</label>
+        <select value={effProvider} onChange={(e) => setProvider(e.target.value)}>
+          <option value="openrouter">openrouter</option>
+          <option value="openai">openai</option>
+        </select>
+        <input
+          className="grow"
+          placeholder="model id"
+          list="image-model-ids"
+          value={effModel}
+          onChange={(e) => setModel(e.target.value)}
+        />
+        <datalist id="image-model-ids">
+          {imageModels.map((id) => (
+            <option key={id} value={id} />
+          ))}
+        </datalist>
+        <button
+          onClick={() =>
+            void saveConfig({
+              imageModel: effModel
+                ? { provider: effProvider as 'openrouter' | 'openai', model: effModel }
+                : null,
+            })
+          }
+        >
+          Save
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function WhisperSetupButton() {
   const saveConfig = useStore((s) => s.saveConfig);
   const [busy, setBusy] = useState(false);
@@ -887,6 +944,7 @@ export function Settings() {
 
       <McpSection />
       <VisionSection />
+      <ImageModelSection />
       <VoiceSection />
       <TelegramSection />
 

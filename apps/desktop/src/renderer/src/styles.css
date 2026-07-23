@@ -590,6 +590,14 @@ select:focus {
 .tool-chip.error .tool-icon {
   color: var(--error);
 }
+.gen-image {
+  display: block;
+  max-width: min(480px, 100%);
+  max-height: 360px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  cursor: zoom-in;
+}
 .tool-result {
   border-top: 1px solid var(--border);
   padding: 8px 10px;

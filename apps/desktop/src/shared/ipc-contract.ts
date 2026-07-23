@@ -34,6 +34,8 @@ export interface AppConfig {
   agents: AgentSpec[];
   mcpServers: McpServerConfig[];
   visionModel: VisionPointer | null;
+  /** Model used by the image_generate tool (an image-OUTPUT model). */
+  imageModel: VisionPointer | null;
   /** Extended thinking for the Default agent (per-agent specs set their own). */
   thinkingDefault: boolean;
   voice: VoiceSettings;
@@ -116,6 +118,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   agents: [],
   mcpServers: [],
   visionModel: null,
+  imageModel: null,
   thinkingDefault: false,
   voice: {
     stt: 'openai',
@@ -449,6 +452,8 @@ export interface VoApi {
   ): Promise<MapNodeDto[]>;
   memMapSetStatus(projectId: string, nodeId: number, status: string): Promise<void>;
   memMapDelete(projectId: string, nodeId: number): Promise<void>;
+  /** Read a generated/project image as a data URL for inline display. */
+  imageRead(path: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
 }
 
 export interface CatalogInfo {
@@ -541,4 +546,5 @@ export const IPC = {
   memMapList: 'mem:mapList',
   memMapSetStatus: 'mem:mapSetStatus',
   memMapDelete: 'mem:mapDelete',
+  imageRead: 'image:read',
 } as const;

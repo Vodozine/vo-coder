@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
   EmotionalMiddleware,
   matchAgentForMessage,
@@ -41,6 +41,7 @@ import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { UsageTracker } from './usage';
+import { executeImageTool, imageToolSpecs } from './image-gen';
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
@@ -152,12 +153,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const builtins = {
     specs: () => [
       ...webToolSpecs(),
+      ...imageToolSpecs(),
       ...journal.toolSpecs(),
       ...(bank?.toolSpecs() ?? []),
       ...(missionsRef?.toolSpecs() ?? []),
     ],
     execute: (name: string, args: unknown, ctx?: { projectId?: string }) => {
       if (name.startsWith('web_')) return executeWebTool(name, args);
+      if (name === 'image_generate') {
+        const dir = ctx?.projectId
+          ? projects.list().projects.find((p) => p.id === ctx.projectId)?.dir
+          : undefined;
+        return executeImageTool(args, config, secrets, dir);
+      }
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
       if (name.startsWith('archive_') || name.startsWith('map_')) {
         return bank
@@ -769,7 +777,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (/^(web_|mission_|memory_|archive_|map_)/.test(name)) {
+    if (/^(web_|mission_|memory_|archive_|map_|image_)/.test(name)) {
       return builtins.execute(name, args, { projectId });
     }
     return mcp.call(name, args);
@@ -857,6 +865,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
   ipcMain.handle(IPC.memMapDelete, (_e, projectId: string, nodeId: number) => {
     bank?.deleteNode(projectId, nodeId);
+  });
+  // Inline display of generated/project images — reads are fenced to project
+  // folders and the app's own generated dir.
+  ipcMain.handle(IPC.imageRead, (_e, path: string) => {
+    try {
+      const allowedRoots = [
+        join(app.getPath('userData'), 'generated'),
+        ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
+      ];
+      const target = resolve(path);
+      const inside = (root: string) => {
+        const rel = relative(root, target);
+        return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+      };
+      if (!allowedRoots.some(inside)) {
+        return { ok: false, error: 'Path outside allowed folders.' };
+      }
+      const data = readFileSync(target);
+      if (data.length > 24 * 1024 * 1024) return { ok: false, error: 'Image too large to preview.' };
+      const ext = target.split('.').pop()?.toLowerCase() ?? 'png';
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+      return { ok: true, dataUrl: `data:${mime};base64,${data.toString('base64')}` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   ipcMain.handle(IPC.registryCatalog, async () => {

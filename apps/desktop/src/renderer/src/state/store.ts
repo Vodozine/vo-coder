@@ -25,6 +25,8 @@ export type Segment =
       name: string;
       status: 'pending' | 'running' | 'done' | 'error';
       result?: string;
+      /** Generated image on disk — rendered inline via imageRead. */
+      imagePath?: string;
     };
 
 export interface UiMessage {
@@ -800,6 +802,7 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         ...t,
         status: event.isError ? 'error' : 'done',
         result: event.result.length > 600 ? `${event.result.slice(0, 600)}…` : event.result,
+        ...(event.imagePath ? { imagePath: event.imagePath } : {}),
       }));
       break;
     case 'usage':

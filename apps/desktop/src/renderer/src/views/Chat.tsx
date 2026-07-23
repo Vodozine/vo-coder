@@ -132,6 +132,34 @@ function ContextChip({
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
 
+/** Inline render of a generated image — pixels come over IPC, never tokens. */
+function GeneratedImage({ path }: { path: string }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void window.vo.imageRead(path).then((r) => {
+      if (!alive) return;
+      if (r.ok && r.dataUrl) setDataUrl(r.dataUrl);
+      else setError(r.error ?? 'Could not load the image.');
+    });
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+  if (error) return <div className="meta">🖼 {error}</div>;
+  if (!dataUrl) return <div className="meta">loading image…</div>;
+  return (
+    <img
+      className="gen-image"
+      src={dataUrl}
+      alt="Generated image"
+      title={`${path} — click to open`}
+      onClick={() => void window.vo.openExternal(`file:///${path.replace(/\\/g, '/')}`)}
+    />
+  );
+}
+
 function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
   const icon =
@@ -142,6 +170,7 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
         <span className="tool-icon">{icon}</span> {seg.name}
       </button>
       {open && seg.result && <pre className="tool-result">{seg.result}</pre>}
+      {seg.imagePath && <GeneratedImage path={seg.imagePath} />}
     </div>
   );
 }

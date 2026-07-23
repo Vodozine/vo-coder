@@ -172,7 +172,8 @@ export class SessionManager {
         'For what was actually SAID, archive_search full-text-searches the lossless verbatim ' +
         'archive of all conversations, and archive_read pulls the exact surrounding turns. ' +
         "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
-        'links); map_update corrects it.'
+        'links); map_update corrects it. image_generate renders images with the configured image ' +
+        "model into the project's designs/ folder — use it for mockups, icons, art."
       : '';
     const assembly = this.assemblyNote(sessionId);
     const planNote =
@@ -296,7 +297,8 @@ export class SessionManager {
               name.startsWith('mission_') ||
               name.startsWith('memory_') ||
               name.startsWith('archive_') ||
-              name.startsWith('map_'))
+              name.startsWith('map_') ||
+              name.startsWith('image_'))
           ) {
             // The session knows its own project — tools default to it instead
             // of making the model guess a name.
