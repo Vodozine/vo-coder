@@ -13,7 +13,7 @@ import type { SecretStore } from './secrets';
 
 const DEVICE_CODE_URL = 'https://auth.x.ai/oauth2/device/code';
 const TOKEN_URL = 'https://auth.x.ai/oauth2/token';
-const SCOPE = 'openid profile offline_access api:access grok-cli:access';
+const SCOPE = 'openid profile email offline_access grok-cli:access api:access';
 const STORE_KEY = 'xai-oauth';
 /** Refresh when less than this remains. */
 const REFRESH_MARGIN_MS = 20 * 60_000;

@@ -111,7 +111,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   scaffoldDefaults: {},
   routeMode: 'auto',
-  xaiOauthClientId: 'grok-cli',
+  // Public client id of xAI's own CLI device flow (verified from shipping
+  // open-source integrations; editable in Settings if xAI rotates it).
+  xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
   telegramEnabled: false,
   telegramPaired: [],
 };

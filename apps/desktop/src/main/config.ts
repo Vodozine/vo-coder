@@ -20,6 +20,11 @@ export class ConfigStore {
         this.cache.voice = { ...DEFAULT_CONFIG.voice, ...(raw.voice ?? {}) };
         // Migration: the pre-routeMode boolean.
         if (!raw.routeMode && raw.autoRoute === false) this.cache.routeMode = 'off';
+        // Migration: 'grok-cli' was a placeholder guess before the real
+        // public client id was verified — auth.x.ai 400s on it.
+        if (raw.xaiOauthClientId === 'grok-cli') {
+          this.cache.xaiOauthClientId = DEFAULT_CONFIG.xaiOauthClientId;
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }

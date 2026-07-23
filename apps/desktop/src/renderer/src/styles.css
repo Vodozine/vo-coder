@@ -159,12 +159,20 @@ select:focus {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   font-size: 16px;
   padding: 4px 8px;
 }
 .logo-mark {
   color: var(--accent);
+}
+.vodo-mark {
+  flex-shrink: 0;
+  border-radius: 7px;
+  filter: drop-shadow(0 0 6px rgba(70, 213, 224, 0.3));
 }
 
 .sidebar nav {

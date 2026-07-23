@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './components/Icon';
+import { VodoMark } from './components/VodoMark';
 import { useStore, type View } from './state/store';
 import { Agents } from './views/Agents';
 import { Chat, fmtCost, fmtTokens } from './views/Chat';
@@ -261,7 +262,7 @@ export function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="logo">
-          <span className="logo-mark">▞</span> Vo-Coder
+          <VodoMark /> Vo-Coder
         </div>
         <nav>
           {NAV.map((item) => (
