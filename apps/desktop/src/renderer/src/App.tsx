@@ -250,6 +250,9 @@ function TotalUsage() {
   );
 }
 
+/** Windows runs with a hidden title bar + overlaid native buttons. */
+const CUSTOM_TITLEBAR = navigator.platform.toLowerCase().includes('win');
+
 export function App() {
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
@@ -258,10 +261,12 @@ export function App() {
 
   useEffect(() => {
     void init();
+    if (CUSTOM_TITLEBAR) document.body.classList.add('custom-titlebar');
   }, [init]);
 
   return (
     <div className="app">
+      {CUSTOM_TITLEBAR && <div className="drag-strip" />}
       <aside className="sidebar">
         <div className="logo">
           <VodoMark /> Vo-Coder

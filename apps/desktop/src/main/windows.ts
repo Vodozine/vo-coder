@@ -7,8 +7,17 @@ export function createMainWindow(): BrowserWindow {
     height: 800,
     minWidth: 800,
     minHeight: 560,
-    backgroundColor: '#0f1115',
+    backgroundColor: '#0b0e14',
     autoHideMenuBar: true,
+    // Frameless feel: hide the OS title bar but keep native window buttons
+    // overlaid on the app's own chrome (Windows). The renderer provides drag
+    // regions (.drag-strip / header bars).
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: { color: '#0b0e14', symbolColor: '#8791a6', height: 40 },
+        }
+      : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
       contextIsolation: true,

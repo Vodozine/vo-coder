@@ -147,6 +147,33 @@ select:focus {
   height: 100%;
 }
 
+/* ---- frameless title bar (Windows overlay) ---- */
+/* A slim always-there grab strip along the very top… */
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  -webkit-app-region: drag;
+  z-index: 100;
+}
+/* …plus the natural bars double as drag surfaces. */
+.custom-titlebar .logo,
+.custom-titlebar .chat-header {
+  -webkit-app-region: drag;
+}
+.custom-titlebar .chat-header button,
+.custom-titlebar .chat-header select,
+.custom-titlebar .chat-header input,
+.custom-titlebar .chat-header .model-picker {
+  -webkit-app-region: no-drag;
+}
+/* Clear the native min/max/close overlay in the top-right corner. */
+.custom-titlebar .chat-header {
+  padding-right: 156px;
+}
+
 .sidebar {
   width: 200px;
   flex-shrink: 0;
