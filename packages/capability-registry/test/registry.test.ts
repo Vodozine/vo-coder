@@ -83,7 +83,9 @@ describe('catalog merge + cache', () => {
     dirs.push(dir);
     let calls = 0;
     const countingFetch = (async (...args: Parameters<typeof fetch>) => {
-      calls++;
+      // Only count the OpenRouter fetch — the arena benchmark fetch has its
+      // own (weekly) cache and is covered by its own tests.
+      if (String(args[0]).includes('openrouter')) calls++;
       return (fixtureFetch as (...a: Parameters<typeof fetch>) => Promise<Response>)(...args);
     }) as unknown as typeof fetch;
 
@@ -113,6 +115,95 @@ describe('catalog merge + cache', () => {
     }) as unknown as typeof fetch;
     const catalog = await buildCatalog({ fetchFn: failing });
     expect(catalog.some((m) => m.id === 'claude-sonnet-5')).toBe(true);
+  });
+});
+
+describe('lmarena benchmark ingestion', async () => {
+  const { applyArenaQuality, arenaRatingFor, eloToQuality, fetchArenaRatings } = await import(
+    '../src/sources/lmarena.ts'
+  );
+
+  it('converts Elo to calibrated 1-10 quality', () => {
+    expect(eloToQuality(1525)).toBe(10);
+    expect(eloToQuality(1475)).toBe(9);
+    expect(eloToQuality(1385)).toBe(7);
+    expect(eloToQuality(1250)).toBe(4);
+    expect(eloToQuality(700)).toBe(3); // clamped floor
+  });
+
+  it('parses the category file with coding weighted double', async () => {
+    const file = {
+      coding: { 'model-x': { rating: 1500 } },
+      creative_writing: { 'model-x': { rating: 1200 }, 'model-y': { rating: 1400 } },
+    };
+    const fetchFn = (async () =>
+      new Response(JSON.stringify(file), { status: 200 })) as unknown as typeof fetch;
+    const ratings = await fetchArenaRatings(fetchFn);
+    expect(ratings.get('model-x')).toBe(1400); // (1500*2 + 1200) / 3
+    expect(ratings.get('model-y')).toBe(1400);
+  });
+
+  it('matches catalog ids to arena names across prefixes, dates, and variants', () => {
+    const ratings = new Map<string, number>([
+      ['gemini-3-pro', 1520],
+      ['gpt-5.1-high', 1496],
+      ['gpt-5.1', 1480],
+      ['grok-4.1-thinking', 1475],
+      ['grok-4.1', 1470],
+    ]);
+    expect(arenaRatingFor('google/gemini-3-pro-preview', ratings)).toBe(1520);
+    // An exact arena entry always wins over better-rated siblings — the
+    // -thinking/-high variants are different serving modes, not this model.
+    expect(arenaRatingFor('openai/gpt-5.1', ratings)).toBe(1480);
+    expect(arenaRatingFor('x-ai/grok-4.1', ratings)).toBe(1470);
+    // Without an exact entry, the longest prefix relative is used — the base
+    // model, not an unrelated -thinking sibling.
+    expect(arenaRatingFor('x-ai/grok-4.1-fast', ratings)).toBe(1470);
+    // Version guard: a newer model never inherits an older sibling's rating.
+    expect(
+      arenaRatingFor('anthropic/claude-opus-4.8', new Map([['claude-opus-4-20250514', 1370]])),
+    ).toBeUndefined();
+    expect(arenaRatingFor('some/unrelated-model', ratings)).toBeUndefined();
+  });
+
+  it('never overwrites existing ratings and tags its source', () => {
+    const ratings = new Map([['mystery-model-9000', 1475]]);
+    const out = applyArenaQuality(
+      [
+        { id: 'x/mystery-model-9000', tags: [], quality: 5, qualitySource: 'curated' },
+        { id: 'y/mystery-model-9000-pro', tags: [] },
+      ],
+      ratings,
+    );
+    expect(out[0]!.quality).toBe(5);
+    expect(out[1]!.quality).toBe(9);
+    expect(out[1]!.qualitySource).toBe('arena');
+  });
+});
+
+describe('quality pattern annotation', async () => {
+  const { annotateQuality, qualityFor } = await import('../src/quality.ts');
+
+  it('rates live-market families sensibly, specific before generic', () => {
+    expect(qualityFor('anthropic/claude-opus-4.8')).toBe(10);
+    expect(qualityFor('anthropic/claude-sonnet-5')).toBe(9);
+    expect(qualityFor('openai/gpt-5.2')).toBe(9);
+    expect(qualityFor('openai/gpt-5.2-mini')).toBe(7);
+    expect(qualityFor('x-ai/grok-4.5')).toBe(9);
+    expect(qualityFor('google/gemini-3-flash-preview')).toBe(8);
+    expect(qualityFor('google/gemini-3.5-flash-lite')).toBe(5);
+    expect(qualityFor('mistralai/mistral-large-3-2512')).toBe(8);
+    expect(qualityFor('minimax/minimax-m2.1')).toBe(7);
+    expect(qualityFor('totally/unknown-model')).toBeUndefined();
+  });
+
+  it('never overwrites curated ratings', () => {
+    const annotated = annotateQuality([
+      { id: 'x/claude-sonnet-9000', tags: [], quality: 3 },
+      { id: 'mistralai/mistral-large-3', tags: [] },
+    ]);
+    expect(annotated[0]!.quality).toBe(3);
+    expect(annotated[1]!.quality).toBe(8);
   });
 });
 

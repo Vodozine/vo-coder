@@ -18,6 +18,12 @@ export interface QuestionDef {
   optional?: boolean;
 }
 
+/**
+ * Environment-level questions describe the machine, not the project — hosts
+ * remember these across projects and pre-seed the questionnaire with them.
+ */
+export const ENV_QUESTION_IDS = ['virtualization', 'hypervisorKind', 'devOs'] as const;
+
 export const QUESTIONS: QuestionDef[] = [
   {
     id: 'description',

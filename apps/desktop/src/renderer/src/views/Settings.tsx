@@ -231,6 +231,79 @@ function McpFinder() {
   );
 }
 
+/** xAI subscription sign-in (SuperGrok / X Premium) — no API key needed. */
+function XaiSignIn() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [connected, setConnected] = useState(false);
+  const [userCode, setUserCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void window.vo.xaiOauthStatus().then((s) => setConnected(s.connected));
+    return window.vo.onXaiOauth((event) => {
+      setConnected(event.state === 'connected');
+      if (event.state === 'connected') setUserCode(null);
+      if (event.state === 'error') setError(event.message ?? 'Sign-in failed');
+      if (event.state === 'signed_out' && event.message) setError(event.message);
+    });
+  }, []);
+
+  const signIn = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await window.vo.xaiOauthBegin();
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? 'Could not start sign-in.');
+      return;
+    }
+    setUserCode(result.userCode ?? null);
+  };
+
+  return (
+    <div className="xai-signin">
+      <div className="field-row">
+        <label>grok login</label>
+        {connected ? (
+          <>
+            <span className="hint grow">✓ Signed in with your X / SuperGrok subscription</span>
+            <button className="ghost" onClick={() => void window.vo.xaiOauthSignOut()}>
+              Sign out
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="hint grow">
+              Have SuperGrok or X Premium? Sign in instead of using an API key.
+            </span>
+            <button disabled={busy} onClick={() => void signIn()}>
+              {busy ? 'Starting…' : 'Sign in with X'}
+            </button>
+          </>
+        )}
+      </div>
+      {userCode && (
+        <p className="hint">
+          Browser opened — approve the login there. If asked for a code:{' '}
+          <code className="perm-tool">{userCode}</code>
+        </p>
+      )}
+      {error && (
+        <div className="field-row">
+          <span className="hint error-text grow">{error}</span>
+          <input
+            title="OAuth client id (from xAI's public desktop client; editable if it changes)"
+            value={config?.xaiOauthClientId ?? ''}
+            onChange={(e) => void saveConfig({ xaiOauthClientId: e.target.value })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function McpSection() {
   const config = useStore((s) => s.config);
   const mcpStatus = useStore((s) => s.mcpStatus);
@@ -524,9 +597,9 @@ export function Settings() {
   if (!config) return <div className="empty-state">Loading…</div>;
 
   return (
-    <div className="settings">
+    <div className="settings settings-full">
       <h1>Settings</h1>
-
+      <div className="settings-grid">
       <section>
         <h2>API keys</h2>
         <p className="hint">
@@ -537,6 +610,7 @@ export function Settings() {
         <KeyRow provider="openai" />
         <KeyRow provider="openrouter" />
         <KeyRow provider="xai" />
+        <XaiSignIn />
       </section>
 
       <section>
@@ -581,7 +655,31 @@ export function Settings() {
       <UpdatesSection />
 
       <section>
-        <h2>System prompt (Default agent)</h2>
+        <h2>Vodo (default agent)</h2>
+        <p className="hint">
+          You talk to Vodo; Vodo picks the right model for each job — cheap and local for simple
+          work, the big brains only when the task earns them.
+        </p>
+        <div className="route-modes">
+          {(
+            [
+              ['auto', 'Auto', 'cheapest adequate model per message'],
+              ['agents', 'My agents first', 'hand the job to your best-matching agent; Auto as fallback'],
+              ['off', 'Off', 'always use the selected model'],
+            ] as const
+          ).map(([mode, label, hint]) => (
+            <label key={mode} className={`route-mode ${config.routeMode === mode ? 'active' : ''}`}>
+              <input
+                type="radio"
+                name="routeMode"
+                checked={config.routeMode === mode}
+                onChange={() => void saveConfig({ routeMode: mode })}
+              />
+              <strong>{label}</strong>
+              <span className="hint">{hint}</span>
+            </label>
+          ))}
+        </div>
         <textarea
           className="system-prompt"
           rows={4}
@@ -595,6 +693,7 @@ export function Settings() {
           Save prompt
         </button>
       </section>
+      </div>
     </div>
   );
 }

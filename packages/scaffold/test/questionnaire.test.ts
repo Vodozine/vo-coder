@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { ENV_QUESTION_IDS } from '../src/questions.ts';
 import {
   answer,
   back,
   current,
   isComplete,
   progress,
+  seedAnswers,
   start,
   toAnswers,
 } from '../src/questionnaire.ts';
@@ -66,6 +68,33 @@ describe('questionnaire state machine', () => {
     expect(progress(s)).toEqual({ done: 4, total: 7 });
     s = answer(s, 'hypervisor'); // adds the hypervisorKind follow-up
     expect(progress(s)).toEqual({ done: 5, total: 8 });
+  });
+
+  it('seeded environment answers skip those questions and honor dependsOn', () => {
+    const seeds = { virtualization: 'hypervisor', hypervisorKind: 'proxmox', devOs: 'windows' };
+    let s = seedAnswers(start(), seeds, ENV_QUESTION_IDS);
+    // The wizard still starts at the project question…
+    expect(current(s)!.id).toBe('description');
+    for (const v of ['My app', 'advanced', 'backend-service', 'python']) s = answer(s, v);
+    // …and jumps straight past virtualization/hypervisor/devOs to philosophy.
+    expect(current(s)!.id).toBe('philosophy');
+    s = answer(s, '');
+    expect(toAnswers(s)).toMatchObject({
+      virtualization: 'hypervisor',
+      hypervisorKind: 'proxmox',
+      devOs: 'windows',
+    });
+  });
+
+  it('seeds ignore hypervisorKind when virtualization is not hypervisor, and invalid values', () => {
+    const s = seedAnswers(
+      start(),
+      { virtualization: 'docker', hypervisorKind: 'proxmox', devOs: 'commodore64' },
+      ENV_QUESTION_IDS,
+    );
+    expect(s.answers.virtualization).toBe('docker');
+    expect(s.answers.hypervisorKind).toBeUndefined(); // dependsOn not satisfied
+    expect(s.answers.devOs).toBeUndefined(); // not a valid option
   });
 
   it('toAnswers produces a complete typed record', () => {

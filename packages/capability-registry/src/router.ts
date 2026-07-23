@@ -26,7 +26,9 @@ export function complexityOf(signal: TaskSignal): number {
   return c;
 }
 
-const MIN_QUALITY = [2, 4, 6, 8] as const;
+// Adequacy bars per complexity tier: trivial work goes to free/small models,
+// but "moderate" already demands solid mid-tier — being cheap is not enough.
+const MIN_QUALITY = [4, 6, 8, 9] as const;
 
 export function estCostPerExchange(m: ModelRecord): number {
   if (!m.pricing) return 0; // local
@@ -81,7 +83,8 @@ export function suggest(
         (cost === 0
           ? ' (local, est. $0)'
           : ` (est. $${cost.toFixed(cost < 0.01 ? 4 : 2)}/exchange)`) +
-        `, quality ${model.quality}/10` +
+        `, quality ${Number.isInteger(model.quality) ? model.quality : model.quality?.toFixed(1)}/10` +
+        (model.qualitySource === 'arena' ? ' (arena elo)' : '') +
         (adequate.length === 0 ? ' — best available below the ideal quality bar' : ''),
     }));
 }

@@ -21,6 +21,7 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
 function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
+      {m.routedNote && <div className="meta routed">🧭 Vodo: {m.routedNote}</div>}
       {(m.segments ?? []).map((seg, i) => {
         if (seg.kind === 'thinking') {
           if (hideThinking) return null;
@@ -104,8 +105,11 @@ function StatusCard({
   const modelsError = useStore((s) => s.modelsError);
   const mcpStatus = useStore((s) => s.mcpStatus);
 
+  const config = useStore((s) => s.config);
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
   const keyOk = !!secretStatus[provider];
+  const routeMode = config?.routeMode ?? 'off';
+  const autoRouting = routeMode !== 'off' && usingDefaults;
   // The loaded model list belongs to the header provider; only trust it when
   // this agent actually uses the app defaults.
   const listUsable = usingDefaults && models.length > 0;
@@ -124,7 +128,13 @@ function StatusCard({
 
   let modelState: RowState;
   let modelDetail: string;
-  if (!model) {
+  if (autoRouting) {
+    modelState = 'ok';
+    modelDetail =
+      routeMode === 'agents'
+        ? `Vodo delegates to your agents, Auto as fallback (manual fallback: ${model || 'none'})`
+        : `Vodo auto-routes each message (fallback: ${model || 'none'})`;
+  } else if (!model) {
     modelState = 'bad';
     modelDetail = 'no model selected';
   } else if (listUsable) {
@@ -159,6 +169,33 @@ function StatusCard({
         />
       </div>
       <p>Drop files or images anywhere to attach them. Hold Ctrl+Space to talk.</p>
+    </div>
+  );
+}
+
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+export function fmtCost(n: number): string {
+  if (n === 0) return '$0';
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+/** Per-project token/cost tracker — aggregates every chat in the project. */
+function ProjectUsage({ projectId }: { projectId: string | undefined }) {
+  const usage = useStore((s) => s.usage);
+  const totals = projectId ? usage?.perProject[projectId] : undefined;
+  const t = totals ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
+  return (
+    <div className="usage-chip" title="This project's total usage, across all of its chats">
+      <span className="usage-cost">{fmtCost(t.cost)}</span>
+      <span className="usage-tokens">
+        {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out
+      </span>
     </div>
   );
 }
@@ -235,15 +272,18 @@ export function Chat() {
   const modelsError = useStore((s) => s.modelsError);
   const catalog = useStore((s) => s.catalog);
   const suggestFor = useStore((s) => s.suggestFor);
-  const activeAgentId = useStore((s) => s.activeAgentId);
-  const session = useStore((s) => s.sessions[s.activeAgentId]);
+  const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
+  const activeAgentId = activeMeta?.agentId ?? 'default';
+  const session = useStore((s) =>
+    s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
+  );
   const attachments = useStore((s) => s.attachments);
   const send = useStore((s) => s.send);
   const stop = useStore((s) => s.stop);
-  const resetChat = useStore((s) => s.resetChat);
   const saveConfig = useStore((s) => s.saveConfig);
   const loadModels = useStore((s) => s.loadModels);
-  const setActiveAgent = useStore((s) => s.setActiveAgent);
+  const setSessionAgent = useStore((s) => s.setSessionAgent);
+  const newSession = useStore((s) => s.newSession);
   const addAttachment = useStore((s) => s.addAttachment);
   const removeAttachment = useStore((s) => s.removeAttachment);
 
@@ -331,8 +371,8 @@ export function Chat() {
       }}
     >
       <header className="chat-header">
-        <select value={activeAgentId} onChange={(e) => setActiveAgent(e.target.value)}>
-          <option value="default">Default agent</option>
+        <select value={activeAgentId} onChange={(e) => void setSessionAgent(e.target.value)}>
+          <option value="default">Vodo</option>
           {config.agents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -404,7 +444,11 @@ export function Chat() {
             🧠 {config.thinkingDefault ? 'on' : 'off'}
           </button>
         )}
-        <button className="ghost" onClick={() => void resetChat()}>
+        <button
+          className="ghost"
+          title="Start a new chat in this project"
+          onClick={() => void newSession(activeMeta?.projectId)}
+        >
           New chat
         </button>
       </header>
@@ -461,6 +505,7 @@ export function Chat() {
           </div>
         )}
         <div className="composer">
+          <ProjectUsage projectId={activeMeta?.projectId} />
           <input
             ref={fileRef}
             type="file"

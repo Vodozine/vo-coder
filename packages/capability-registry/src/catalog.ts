@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { annotateQuality } from './quality.js';
+import { applyArenaQuality, fetchArenaRatings } from './sources/lmarena.js';
 import { fetchOpenRouterModels } from './sources/openrouter.js';
 import type { ModelRecord } from './types.js';
 
@@ -14,7 +16,8 @@ export function loadSeed(): ModelRecord[] {
   ];
   for (const candidate of candidates) {
     try {
-      const raw = readFileSync(candidate, 'utf8');
+      // BOM-tolerant: user-edited seed files often arrive BOM'd on Windows.
+      const raw = readFileSync(candidate, 'utf8').replace(/^﻿/, '');
       return (JSON.parse(raw) as { models: ModelRecord[] }).models;
     } catch {
       /* try next */
@@ -39,6 +42,38 @@ interface CacheFile {
 }
 
 const DEFAULT_TTL = 24 * 60 * 60 * 1000;
+/** Benchmark scores are near-static; weekly refresh is plenty. */
+const BENCHMARK_TTL = 7 * 24 * 60 * 60 * 1000;
+
+async function arenaRatings(opts: CatalogOptions, now: () => number): Promise<Map<string, number>> {
+  const cachePath = opts.cacheDir ? join(opts.cacheDir, 'benchmarks-cache.json') : null;
+  if (cachePath) {
+    try {
+      const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as {
+        at: number;
+        ratings: Record<string, number>;
+      };
+      if (now() - cached.at < BENCHMARK_TTL) return new Map(Object.entries(cached.ratings));
+    } catch {
+      /* cache miss */
+    }
+  }
+  try {
+    const ratings = await fetchArenaRatings(opts.fetchFn);
+    if (cachePath) {
+      mkdirSync(dirname(cachePath), { recursive: true });
+      writeFileSync(
+        cachePath,
+        JSON.stringify({ at: now(), ratings: Object.fromEntries(ratings) }),
+        'utf8',
+      );
+    }
+    return ratings;
+  } catch {
+    // Offline or source moved — family patterns cover the gap.
+    return new Map();
+  }
+}
 
 /**
  * Merge order (later wins on id conflicts EXCEPT curated fields): live sources
@@ -82,5 +117,14 @@ export async function buildCatalog(opts: CatalogOptions = {}): Promise<ModelReco
     }
   }
 
-  return mergeRecords(seed, [...live, ...(opts.extra ?? [])]);
+  // Quality layering: curated seed > measured arena Elo > family patterns.
+  const merged = mergeRecords(seed, [...live, ...(opts.extra ?? [])]).map((r) =>
+    r.quality !== undefined && !r.qualitySource
+      ? { ...r, qualitySource: 'curated' as const }
+      : r,
+  );
+  const withArena = applyArenaQuality(merged, await arenaRatings(opts, now));
+  return annotateQuality(withArena).map((r) =>
+    r.quality !== undefined && !r.qualitySource ? { ...r, qualitySource: 'family' as const } : r,
+  );
 }

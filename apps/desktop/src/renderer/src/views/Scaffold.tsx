@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   answer,
   back,
   current,
+  ENV_QUESTION_IDS,
   progress,
+  seedAnswers,
   start,
   toAnswers,
   type QuestionnaireState,
 } from '@vo-coder/scaffold/core';
 import type { Detection, InjectResult } from '@vo-coder/scaffold';
+import { useStore } from '../state/store';
 
 const STATE_LABEL: Record<Detection['state'], string> = {
   new: 'New folder — full scaffold will be injected.',
@@ -17,23 +20,44 @@ const STATE_LABEL: Record<Detection['state'], string> = {
 };
 
 export function Scaffold() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const consumeScaffoldTarget = useStore((s) => s.consumeScaffoldTarget);
+
   const [dir, setDir] = useState<string | null>(null);
   const [detection, setDetection] = useState<Detection | null>(null);
   const [qState, setQState] = useState<QuestionnaireState>(start());
+  const [seeded, setSeeded] = useState<string[]>([]);
   const [textValue, setTextValue] = useState('');
   const [force, setForce] = useState(false);
   const [result, setResult] = useState<InjectResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pick = async () => {
-    const picked = await window.vo.scaffoldPickDir();
-    if (!picked) return;
+  const startQuestionnaire = (defaults: Record<string, string>) => {
+    const state = seedAnswers(start(), defaults, ENV_QUESTION_IDS);
+    setQState(state);
+    setSeeded(ENV_QUESTION_IDS.filter((id) => id in state.answers));
+  };
+
+  const target = async (picked: string) => {
     setDir(picked);
     setDetection(await window.vo.scaffoldDetect(picked));
-    setQState(start());
+    startQuestionnaire(useStore.getState().config?.scaffoldDefaults ?? {});
     setResult(null);
     setError(null);
   };
+
+  const pick = async () => {
+    const picked = await window.vo.scaffoldPickDir();
+    if (picked) await target(picked);
+  };
+
+  // A freshly created project hands its folder straight to the wizard.
+  useEffect(() => {
+    const handoff = consumeScaffoldTarget();
+    if (handoff) void target(handoff);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const giveAnswer = (value: string) => {
     try {
@@ -47,7 +71,18 @@ export function Scaffold() {
 
   const generate = async () => {
     if (!dir) return;
-    setResult(await window.vo.scaffoldGenerate(dir, toAnswers(qState), force));
+    const answers = toAnswers(qState);
+    setResult(await window.vo.scaffoldGenerate(dir, answers, force));
+    // Remember the environment answers so the next project skips those questions.
+    if (config) {
+      await saveConfig({
+        scaffoldDefaults: {
+          virtualization: answers.virtualization,
+          ...(answers.hypervisorKind ? { hypervisorKind: answers.hypervisorKind } : {}),
+          devOs: answers.devOs,
+        },
+      });
+    }
   };
 
   const q = current(qState);
@@ -89,6 +124,24 @@ export function Scaffold() {
               {Math.min(done + 1, total)}/{total}
             </span>
           </h2>
+          {seeded.length > 0 && (
+            <div className="field-row seeded-note">
+              <span className="hint grow">
+                Using your usual environment —{' '}
+                {seeded.map((id) => qState.answers[id]).filter(Boolean).join(', ')} — those
+                questions are skipped.
+              </span>
+              <button
+                className="ghost"
+                onClick={() => {
+                  setQState(start());
+                  setSeeded([]);
+                }}
+              >
+                Answer them again
+              </button>
+            </div>
+          )}
           {q ? (
             <div className="wizard-question">
               <p className="wizard-prompt">{q.prompt}</p>

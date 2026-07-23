@@ -18,11 +18,10 @@ extraResources:
     to: scaffold-templates
 asar: true
 npmRebuild: false
-# In-app updates read this feed. Set owner/repo to the real GitHub repository
-# before publishing releases (electron-builder --publish always uploads there).
+# In-app updates read this feed (public GitHub releases).
 publish:
   provider: github
-  owner: vo-coder
+  owner: Vodozine
   repo: vo-coder
 win:
   target:

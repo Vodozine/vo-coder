@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore, type View } from './state/store';
 import { Agents } from './views/Agents';
-import { Chat } from './views/Chat';
+import { Chat, fmtCost, fmtTokens } from './views/Chat';
 import { TerminalTabs } from './views/Console';
 import { Preview } from './views/Preview';
 import { Scaffold } from './views/Scaffold';
@@ -15,6 +15,160 @@ const NAV = [
   { id: 'console', label: 'Terminal', enabled: true },
   { id: 'settings', label: 'Settings', enabled: true },
 ] as const;
+
+/** Projects stack up in the sidebar; each expands into its chat sessions. */
+function ProjectsPanel() {
+  const projects = useStore((s) => s.projects);
+  const sessionMetas = useStore((s) => s.sessionMetas);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  const openSession = useStore((s) => s.openSession);
+  const newSession = useStore((s) => s.newSession);
+  const newProjectIn = useStore((s) => s.newProjectIn);
+  const removeSession = useStore((s) => s.removeSession);
+  const removeProject = useStore((s) => s.removeProject);
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const [parent, setParent] = useState(() => localStorage.getItem('vo-projects-parent') ?? '');
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const pickParent = async () => {
+    const dir = await window.vo.scaffoldPickDir();
+    if (dir) {
+      setParent(dir);
+      localStorage.setItem('vo-projects-parent', dir);
+    }
+  };
+
+  const createProject = async () => {
+    if (!name.trim() || !parent) return;
+    setCreateError(null);
+    const error = await newProjectIn(name.trim(), parent);
+    if (error) {
+      setCreateError(error);
+      return;
+    }
+    setName('');
+    setNaming(false);
+  };
+
+  return (
+    <div className="projects-panel">
+      <div className="projects-head">
+        <span>Projects</span>
+        <button className="chip-x" title="New project" onClick={() => setNaming(!naming)}>
+          +
+        </button>
+      </div>
+      {naming && (
+        <div className="project-name-form">
+          <input
+            autoFocus
+            value={name}
+            placeholder="Project name"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void createProject();
+              if (e.key === 'Escape') setNaming(false);
+            }}
+          />
+          <button className="project-loc" title="Where the project folder is created" onClick={() => void pickParent()}>
+            📁 {parent ? `…\\${parent.split(/[\\/]/).pop()}` : 'Choose location…'}
+          </button>
+          {name.trim() && parent && (
+            <div className="project-loc-hint">creates {parent.split(/[\\/]/).pop()}\{name.trim()} and starts setup</div>
+          )}
+          <button className="send project-create" disabled={!name.trim() || !parent} onClick={() => void createProject()}>
+            Create project
+          </button>
+          {createError && <div className="project-loc-hint error-text">{createError}</div>}
+        </div>
+      )}
+      <div className="projects-list">
+        {projects.map((project) => {
+          const sessions = sessionMetas.filter((m) => m.projectId === project.id);
+          const isOpen = !collapsed.has(project.id);
+          return (
+            <div key={project.id} className="project-block">
+              <div
+                className={`project-row ${project.id === activeProjectId ? 'active' : ''}`}
+              >
+                <button className="project-toggle" onClick={() => toggle(project.id)}>
+                  <span className="tree-arrow">{isOpen ? '▾' : '▸'}</span> {project.name}
+                </button>
+                <button
+                  className="chip-x"
+                  title="New chat in this project"
+                  onClick={() => void newSession(project.id)}
+                >
+                  +
+                </button>
+                {projects.length > 1 && (
+                  <button
+                    className="chip-x"
+                    title="Delete project and its chats"
+                    onClick={() => {
+                      if (window.confirm(`Delete "${project.name}" and its ${sessions.length} chat(s)?`))
+                        void removeProject(project.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              {isOpen &&
+                sessions.map((meta) => (
+                  <div
+                    key={meta.id}
+                    className={`session-row ${meta.id === activeSessionId ? 'active' : ''}`}
+                  >
+                    <button className="session-title" onClick={() => void openSession(meta.id)}>
+                      {meta.title}
+                    </button>
+                    <button
+                      className="chip-x session-x"
+                      title="Delete chat"
+                      onClick={() => void removeSession(meta.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              {isOpen && sessions.length === 0 && (
+                <div className="session-row empty">no chats yet</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** All-time usage across every project — the tool shed's meter. */
+function TotalUsage() {
+  const usage = useStore((s) => s.usage);
+  const t = usage?.allTime ?? { inputTokens: 0, outputTokens: 0, cost: 0 };
+  return (
+    <div className="sidebar-footer usage-footer" title="All-time usage across all projects">
+      <span className="usage-label">Usage</span>
+      <span className="usage-cost">{fmtCost(t.cost)}</span>
+      <span>
+        {fmtTokens(t.inputTokens)} in · {fmtTokens(t.outputTokens)} out
+      </span>
+    </div>
+  );
+}
 
 export function App() {
   const view = useStore((s) => s.view);
@@ -38,19 +192,19 @@ export function App() {
               key={item.id}
               className={`nav-item ${view === item.id ? 'active' : ''}`}
               disabled={!item.enabled}
-              title={item.enabled ? undefined : 'Coming in a later phase'}
               onClick={() => item.enabled && setView(item.id as View)}
             >
               {item.label}
             </button>
           ))}
         </nav>
+        <ProjectsPanel />
         {updateInfo?.state === 'downloaded' && (
           <button className="update-chip" onClick={() => void window.vo.updateInstall()}>
             ⬆ Update ready — restart
           </button>
         )}
-        <div className="sidebar-footer">the tool shed</div>
+        <TotalUsage />
       </aside>
       <main className="content">
         {view === 'chat' ? (

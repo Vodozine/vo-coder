@@ -145,7 +145,9 @@ export function useVoice(appendToInput: (text: string) => void) {
   }, [liveStart, liveStop]);
 
   // Speak each finished assistant reply while live mode is on.
-  const activeSession = useStore((s) => s.sessions[s.activeAgentId]);
+  const activeSession = useStore((s) =>
+    s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
+  );
   useEffect(() => {
     if (liveStateRef.current === 'off' || !activeSession) return;
     const last = activeSession.messages[activeSession.messages.length - 1];

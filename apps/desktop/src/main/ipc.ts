@@ -1,16 +1,17 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import {
   EmotionalMiddleware,
+  matchAgentForMessage,
   McpAdvisor,
   McpClientManager,
   searchMcpRegistry,
   type McpServerConfig,
   type RequestLogEntry,
 } from '@vo-coder/core';
-import type { UserPart } from '@vo-coder/providers';
+import type { AgentSpec, UserPart } from '@vo-coder/providers';
 import type { ProjectAnswers } from '@vo-coder/project-config';
 import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
@@ -28,7 +29,10 @@ import {
   type AppConfig,
 } from '../shared/ipc-contract';
 import { ConfigStore } from './config';
+import { ProjectStore } from './projects';
 import { TerminalManager } from './terminal';
+import { UsageTracker } from './usage';
+import { XaiOAuth } from './xai-oauth';
 import { PreviewManager, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
@@ -56,13 +60,99 @@ function validateParts(parts: UserPart[]): string | null {
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const config = new ConfigStore();
   const secrets = new SecretStore();
-  const hub = new ProviderHub(config, secrets);
+  // Safe against shutdown races: PTYs, watchers, and streams keep emitting
+  // after the window is gone — sending to a destroyed webContents throws.
+  const sendToWindow = (channel: string, payload: unknown): void => {
+    const win = getWindow();
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send(channel, payload);
+  };
+  const xaiOauth = new XaiOAuth(config, secrets, sendToWindow);
+  setInterval(() => void xaiOauth.refreshIfNeeded(), 10 * 60_000);
+  void xaiOauth.refreshIfNeeded();
+  const hub = new ProviderHub(config, secrets, () => xaiOauth.token());
   const mcp = new McpClientManager();
+  const projects = new ProjectStore();
+  projects.ensureDefault();
+  const usage = new UsageTracker(join(app.getPath('userData'), 'usage.json'), sendToWindow);
   const sessions = new SessionManager({
     config,
     hub,
     mcp,
-    send: (channel, payload) => getWindow()?.webContents.send(channel, payload),
+    projects,
+    send: sendToWindow,
+    onUsage: (sessionId, bound, ev) => {
+      const meta = projects.meta(sessionId);
+      if (!meta || !bound) return;
+      void (async () => {
+        let inPerM = 0;
+        let outPerM = 0;
+        try {
+          const { records } = await getCatalog();
+          const rec = records.find((r) => r.id === bound.model);
+          inPerM = Math.max(0, rec?.pricing?.inputPerMTok ?? 0);
+          outPerM = Math.max(0, rec?.pricing?.outputPerMTok ?? 0);
+        } catch {
+          /* unpriced — tokens still count */
+        }
+        usage.record(
+          meta.projectId,
+          ev.inputTokens,
+          ev.outputTokens,
+          (ev.inputTokens * inPerM + ev.outputTokens * outPerM) / 1e6,
+        );
+      })();
+    },
+  });
+
+  ipcMain.handle(IPC.usageGet, () => usage.get());
+  ipcMain.handle(IPC.xaiOauthStatus, () => xaiOauth.status());
+  ipcMain.handle(IPC.xaiOauthBegin, () => xaiOauth.begin());
+  ipcMain.handle(IPC.xaiOauthSignOut, () => xaiOauth.signOut());
+
+  // ---- projects & chat sessions ----
+  const broadcastProjects = () => sendToWindow(IPC.projectsChanged, projects.list());
+  ipcMain.handle(IPC.projectsList, () => projects.list());
+  ipcMain.handle(IPC.projectCreate, (_e, name: string, dir?: string) => {
+    const project = projects.createProject(name, dir);
+    broadcastProjects();
+    return project;
+  });
+  ipcMain.handle(IPC.projectCreateIn, (_e, parentDir: string, name: string) => {
+    try {
+      const safe = name.trim().replace(/[<>:"/\\|?*]+/g, '-').replace(/\s+/g, ' ').trim();
+      if (!safe) return { ok: false, error: 'Give the project a name.' };
+      const dir = join(parentDir, safe);
+      mkdirSync(dir, { recursive: true });
+      const project = projects.createProject(name.trim(), dir);
+      broadcastProjects();
+      return { ok: true, project };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle(IPC.projectDelete, (_e, id: string) => {
+    for (const sessionId of projects.deleteProject(id)) sessions.dropLive(sessionId);
+    broadcastProjects();
+  });
+  ipcMain.handle(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
+    const meta = projects.createSession(projectId, agentId);
+    broadcastProjects();
+    return meta;
+  });
+  ipcMain.handle(IPC.sessionOpen, (_e, sessionId: string) => {
+    const meta = projects.meta(sessionId);
+    if (!meta) throw new Error(`Unknown chat session "${sessionId}".`);
+    return { meta, history: sessions.historyOf(sessionId) };
+  });
+  ipcMain.handle(IPC.sessionDelete, (_e, sessionId: string) => {
+    sessions.dropLive(sessionId);
+    projects.deleteSession(sessionId);
+    broadcastProjects();
+  });
+  ipcMain.handle(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
+    sessions.setAgent(sessionId, agentId);
+    broadcastProjects();
   });
 
   // The bundled infra MCP registers itself as a first-class default server.
@@ -134,7 +224,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       /* log persistence is best-effort */
     }
     if (checkin.triggered) {
-      getWindow()?.webContents.send(IPC.checkin, {
+      sendToWindow(IPC.checkin, {
         sessionId,
         prompt: checkin.prompt,
         reasons: checkin.reasons,
@@ -145,12 +235,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       .filter((s) => s.connected)
       .map((s) => s.name);
     const suggestion = advisor.observe(text, connected);
-    if (suggestion) getWindow()?.webContents.send(IPC.advisorSuggest, suggestion);
+    if (suggestion) sendToWindow(IPC.advisorSuggest, suggestion);
   };
 
   ipcMain.handle(
     IPC.chatSend,
-    (
+    async (
       _e,
       sessionId: string,
       parts: UserPart[],
@@ -159,7 +249,49 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const invalid = validateParts(parts);
       if (invalid) return { ok: false, error: invalid };
       observeMessage(sessionId, parts);
-      return sessions.send(sessionId, parts, override);
+      let routed: { provider: string; model: string; rationale: string } | undefined;
+      let specOverride: AgentSpec | undefined;
+      const mode = config.get().routeMode;
+      if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
+        // "My agents first": hand the whole job (prompt, tools, model) to the
+        // user's best-matching specialist; unset agent models still get
+        // cheapest-adequate model routing underneath.
+        if (mode === 'agents') {
+          const text = parts
+            .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+            .map((p) => p.text)
+            .join(' ');
+          const match = matchAgentForMessage(text, config.get().agents);
+          if (match) {
+            specOverride = match.agent;
+            const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;
+            if (!match.agent.model) {
+              const pick = await routeForVodo(parts).catch(() => undefined);
+              if (pick) override = { provider: pick.provider, model: pick.model };
+              routed = {
+                provider: override?.provider ?? '',
+                model: override?.model ?? '',
+                rationale: pick ? `${handoff} — ${pick.rationale}` : handoff,
+              };
+            } else {
+              routed = {
+                provider: match.agent.provider ?? '',
+                model: match.agent.model,
+                rationale: `${handoff} — ${match.agent.model}`,
+              };
+            }
+          }
+        }
+        if (!specOverride) {
+          const pick = await routeForVodo(parts).catch(() => undefined);
+          if (pick) {
+            override = { provider: pick.provider, model: pick.model };
+            routed = pick;
+          }
+        }
+      }
+      const result = sessions.send(sessionId, parts, override, specOverride);
+      return routed && result.ok ? { ...result, routed } : result;
     },
   );
   ipcMain.handle(IPC.chatInject, (_e, sessionId: string, parts: UserPart[]) => {
@@ -191,9 +323,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
 
   // ---- integrated terminal (real PTY) ----
-  const terminals = new TerminalManager((channel, payload) =>
-    getWindow()?.webContents.send(channel, payload),
-  );
+  const terminals = new TerminalManager(sendToWindow);
   ipcMain.handle(IPC.termCreate, (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
     terminals.create(opts ?? {}),
   );
@@ -205,9 +335,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   app.on('will-quit', () => terminals.killAll());
 
   // ---- code preview watcher ----
-  const projectWatcher = new ProjectWatcher((channel, payload) =>
-    getWindow()?.webContents.send(channel, payload),
-  );
+  const projectWatcher = new ProjectWatcher(sendToWindow);
   ipcMain.handle(IPC.watchStart, (_e, dir: string) => projectWatcher.start(dir));
   ipcMain.handle(IPC.watchStop, () => projectWatcher.stop());
   ipcMain.handle(IPC.watchReadFile, (_e, relPath: string) => projectWatcher.read(relPath));
@@ -234,13 +362,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     injectScaffold(dir, answers, { force, generatedAt: new Date().toISOString() }),
   );
 
-  // ---- capability registry (advisory-only in v1) ----
-  let catalogPromise: Promise<ModelRecord[]> | null = null;
-  const getCatalog = (): Promise<ModelRecord[]> =>
+  // ---- capability registry + Vodo routing ----
+  interface CatalogCache {
+    records: ModelRecord[];
+    /** Models actually present on local servers (ollama/lmstudio). */
+    installed: Record<string, string[]>;
+  }
+  let catalogPromise: Promise<CatalogCache> | null = null;
+  const getCatalog = (): Promise<CatalogCache> =>
     (catalogPromise ??= (async () => {
-      // Locally installed Ollama models join the catalog; seed entries with
-      // matching ids keep their curated quality/footprint data on merge.
+      // Locally installed models join the catalog; seed entries with matching
+      // ids keep their curated quality/footprint data on merge.
       const extra: ModelRecord[] = [];
+      const installed: Record<string, string[]> = {};
       for (const providerId of ['ollama', 'lmstudio'] as const) {
         try {
           const provider = hub.registry().get(providerId);
@@ -251,6 +385,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               setTimeout(() => reject(new Error(`${providerId} timeout`)), 2500),
             ),
           ]);
+          installed[providerId] = models.map((m) => m.id);
           extra.push(
             ...models.map((m) => ({
               id: m.id,
@@ -263,12 +398,61 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           /* local server not running — catalog still works */
         }
       }
-      return buildCatalog({ cacheDir: app.getPath('userData'), extra });
+      return { records: await buildCatalog({ cacheDir: app.getPath('userData'), extra }), installed };
     })());
+
+  /**
+   * The economic core: the user talks to Vodo, Vodo picks the right man for
+   * the job. Candidates are filtered to providers that are actually usable
+   * right now (configured keys; local models actually installed), then ranked
+   * cheapest-adequate by the capability router.
+   */
+  const routeForVodo = async (
+    parts: UserPart[],
+  ): Promise<{ provider: string; model: string; rationale: string } | undefined> => {
+    const text = parts
+      .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+      .map((p) => p.text)
+      .join(' ');
+    const signal = signalFromPrompt(text, {
+      needsVision: parts.some((p) => p.type === 'image'),
+      needsTools: mcp.list().some((s) => s.connected),
+      wantsThinking: config.get().thinkingDefault,
+    });
+    const { records, installed } = await getCatalog();
+    const registered = new Set(hub.registry().ids());
+    const liveOpenRouter = new Set(
+      records.filter((r) => r.provider === 'openrouter').map((r) => r.id),
+    );
+    const eligible: ModelRecord[] = [];
+    for (const m of records) {
+      if (m.provider && registered.has(m.provider)) {
+        if (m.provider === 'ollama' || m.provider === 'lmstudio') {
+          if (installed[m.provider]?.includes(m.id)) eligible.push(m);
+        } else if (m.provider === 'openrouter') {
+          // Only route to ids that exist on OpenRouter right now.
+          if (liveOpenRouter.size === 0 || liveOpenRouter.has(m.id)) eligible.push(m);
+        } else {
+          eligible.push(m);
+        }
+      } else if (
+        // Native provider not configured, but the same model is reachable
+        // through the user's OpenRouter key (verified against the live list).
+        m.openrouterId &&
+        registered.has('openrouter') &&
+        liveOpenRouter.has(m.openrouterId)
+      ) {
+        eligible.push({ ...m, provider: 'openrouter', id: m.openrouterId });
+      }
+    }
+    const top = suggest(signal, eligible, profileHardware(), 1)[0];
+    if (!top?.model.provider) return undefined;
+    return { provider: top.model.provider, model: top.model.id, rationale: top.rationale };
+  };
 
   ipcMain.handle(IPC.registryCatalog, async () => {
     const hardware = profileHardware();
-    const records = (await getCatalog()).map((m) => ({ ...m, fit: checkFit(m, hardware) }));
+    const records = (await getCatalog()).records.map((m) => ({ ...m, fit: checkFit(m, hardware) }));
     return { hardware, records };
   });
   ipcMain.handle(
@@ -277,7 +461,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       _e,
       text: string,
       opts?: { needsTools?: boolean; needsVision?: boolean; wantsThinking?: boolean },
-    ) => suggest(signalFromPrompt(text, opts), await getCatalog(), profileHardware()),
+    ) => suggest(signalFromPrompt(text, opts), (await getCatalog()).records, profileHardware()),
   );
 
   // ---- voice (PTT + live chat) ----
@@ -332,6 +516,34 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // ---- live preview pane ----
   const preview = new PreviewManager(getWindow);
   ipcMain.handle(IPC.previewOpen, (_e, url: string) => preview.open(url));
+  ipcMain.handle(IPC.previewOpenFile, (_e, path: string) => preview.openFile(path));
+  ipcMain.handle(IPC.previewDetect, async (_e, dir: string) => {
+    // 1) A dev server already running on a well-known port? (Skip our own.)
+    const devUrl = process.env['ELECTRON_RENDERER_URL'];
+    const ownPort = devUrl ? Number(new URL(devUrl).port) : -1;
+    const ports = [5173, 3000, 3001, 4200, 4321, 8080, 8000, 5000].filter((p) => p !== ownPort);
+    const hits = await Promise.all(
+      ports.map(async (port) => {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 400);
+          const res = await fetch(`http://127.0.0.1:${port}/`, { signal: controller.signal });
+          clearTimeout(timer);
+          return res.status < 500 ? port : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const port = hits.find((p) => p !== null);
+    if (port) return { kind: 'url', url: `http://127.0.0.1:${port}/` };
+    // 2) A static entry page in the project.
+    for (const rel of ['index.html', 'dist/index.html', 'build/index.html', 'public/index.html', 'src/index.html']) {
+      const candidate = join(dir, rel);
+      if (existsSync(candidate)) return { kind: 'file', path: candidate };
+    }
+    return { kind: 'none' };
+  });
   ipcMain.handle(IPC.previewClose, () => preview.close());
   ipcMain.handle(IPC.previewHide, () => preview.hide());
   ipcMain.handle(IPC.previewReload, () => preview.reload());

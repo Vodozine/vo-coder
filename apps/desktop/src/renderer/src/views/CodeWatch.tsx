@@ -219,6 +219,7 @@ export function CodeWatch() {
   const stopWatch = useStore((s) => s.stopWatch);
   const send = useStore((s) => s.send);
   const setView = useStore((s) => s.setView);
+  const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
 
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -244,6 +245,18 @@ export function CodeWatch() {
   }, [watchGit, watchFiles, gitStates]);
 
   const tree = useMemo(() => buildTree(effectiveFiles), [effectiveFiles]);
+
+  // Folder-backed projects connect automatically: the code view always follows
+  // the active project. Manual picking remains for projects without a folder.
+  useEffect(() => {
+    if (activeProject?.dir && watchRoot !== activeProject.dir) {
+      setError(null);
+      void startWatch(activeProject.dir).then((err) => {
+        if (err) setError(err);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id, activeProject?.dir]);
 
   const toggle = (path: string) =>
     setExpanded((prev) => {
@@ -358,19 +371,21 @@ export function CodeWatch() {
       <div className="empty-state">
         <h2>Live code view</h2>
         <p>
-          Point this at a project folder and watch the work happen: files open as they're written,
-          with added / modified / deleted marked in color. Select any code to ask the AI about that
-          exact spot.
+          {activeProject?.dir
+            ? `Connecting to ${activeProject.name}…`
+            : `"${activeProject?.name ?? 'This project'}" has no folder, so there's nothing to watch automatically — new projects created with + connect on their own. You can still point this anywhere:`}
         </p>
-        <button
-          className="send"
-          onClick={async () => {
-            const dir = await window.vo.scaffoldPickDir();
-            if (dir) setError(await startWatch(dir));
-          }}
-        >
-          Choose project folder…
-        </button>
+        {!activeProject?.dir && (
+          <button
+            className="send"
+            onClick={async () => {
+              const dir = await window.vo.scaffoldPickDir();
+              if (dir) setError(await startWatch(dir));
+            }}
+          >
+            Choose a folder…
+          </button>
+        )}
         {error && <p className="hint error-text">{error}</p>}
       </div>
     );
@@ -380,6 +395,9 @@ export function CodeWatch() {
     <div className="codewatch">
       <div className="preview-controls">
         <span className="meta grow">
+          {activeProject?.dir === watchRoot && activeProject ? (
+            <strong className="cw-project">{activeProject.name} · </strong>
+          ) : null}
           {watchRoot}
           {watchReady ? '' : ' — scanning…'}
           {watchGit === true ? ' · git: changes vs last commit' : ''}

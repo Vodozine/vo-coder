@@ -11,8 +11,12 @@ export class ConfigStore {
   get(): AppConfig {
     if (!this.cache) {
       try {
-        const raw = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<AppConfig>;
+        const raw = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<AppConfig> & {
+          autoRoute?: boolean;
+        };
         this.cache = { ...DEFAULT_CONFIG, ...raw };
+        // Migration: the pre-routeMode boolean.
+        if (!raw.routeMode && raw.autoRoute === false) this.cache.routeMode = 'off';
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }

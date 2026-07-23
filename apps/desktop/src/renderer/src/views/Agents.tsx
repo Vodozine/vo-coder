@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { AgentSpec, ModelInfo } from '@vo-coder/providers';
+import { useState } from 'react';
+import type { AgentSpec } from '@vo-coder/providers';
+import { ModelPicker } from '../components/ModelPicker';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
@@ -27,29 +28,8 @@ function AgentForm({
     initial?.thinkingVisibility ?? 'visible',
   );
   const [injectionMode, setInjectionMode] = useState(initial?.injectionMode ?? 'queue');
-  const [models, setModels] = useState<ModelInfo[]>([]);
-
-  // Same dropdown experience as the chat header: list the models of whichever
-  // provider this agent will actually use; free-text fallback when the list
-  // can't load (e.g. missing key).
+  const [routingHints, setRoutingHints] = useState(initial?.routingHints ?? '');
   const effectiveProvider = provider || defaultProvider;
-  useEffect(() => {
-    let cancelled = false;
-    setModels([]);
-    window.vo
-      .listModels(effectiveProvider)
-      .then((list) => {
-        if (!cancelled) setModels(list);
-      })
-      .catch(() => {
-        /* fall back to the text input */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveProvider]);
-
-  const knownModel = models.some((m) => m.id === model);
 
   const toggleServer = (s: string) =>
     setServers((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -72,24 +52,12 @@ function AgentForm({
       </div>
       <div className="field-row">
         <label>model</label>
-        {models.length > 0 ? (
-          <select value={knownModel ? model : ''} onChange={(e) => setModel(e.target.value)}>
-            <option value="">
-              {provider ? 'pick a model (required)' : model || '(app default)'}
-            </option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.displayName ?? m.id}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={provider ? 'required for a provider override' : '(app default)'}
-          />
-        )}
+        <ModelPicker
+          provider={effectiveProvider}
+          value={model}
+          onChange={setModel}
+          placeholder={provider ? 'pick a model (required)' : '(app default)'}
+        />
       </div>
       <div className="field-row">
         <label>system prompt</label>
@@ -98,6 +66,16 @@ function AgentForm({
           value={systemPrompt}
           onChange={(e) => setSystemPrompt(e.target.value)}
           placeholder="What is this agent for?"
+        />
+      </div>
+      <div className="field-row">
+        <label>specialty</label>
+        <input
+          className="grow"
+          value={routingHints}
+          onChange={(e) => setRoutingHints(e.target.value)}
+          placeholder="keywords Vodo routes by, e.g. proxmox, vm, docker"
+          title='With routing set to "My agents first", Vodo hands messages matching these to this agent'
         />
       </div>
       {mcpServerNames.length > 0 && (
@@ -161,6 +139,7 @@ function AgentForm({
               thinking: thinking ? { enabled: true } : undefined,
               thinkingVisibility,
               injectionMode,
+              routingHints: routingHints.trim() || undefined,
             })
           }
         >
@@ -174,8 +153,7 @@ function AgentForm({
 export function Agents() {
   const config = useStore((s) => s.config);
   const saveAgents = useStore((s) => s.saveAgents);
-  const setActiveAgent = useStore((s) => s.setActiveAgent);
-  const setView = useStore((s) => s.setView);
+  const newSession = useStore((s) => s.newSession);
   const [editing, setEditing] = useState<AgentSpec | null | 'new'>(null);
 
   if (!config) return <div className="empty-state">Loading…</div>;
@@ -216,10 +194,8 @@ export function Agents() {
           </div>
           <div className="agent-actions">
             <button
-              onClick={() => {
-                setActiveAgent(a.id);
-                setView('chat');
-              }}
+              title="Start a new chat with this agent in the current project"
+              onClick={() => void newSession(undefined, a.id)}
             >
               Chat
             </button>

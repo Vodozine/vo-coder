@@ -18,9 +18,20 @@ export class PreviewManager {
 
   constructor(private getWindow: () => BrowserWindow | null) {}
 
-  open(url: string): { ok: boolean; error?: string } {
+  private ensureView(): WebContentsView | null {
     const win = this.getWindow();
-    if (!win) return { ok: false, error: 'No window' };
+    if (!win) return null;
+    if (!this.view) {
+      this.view = new WebContentsView({
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      win.contentView.addChildView(this.view);
+      this.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+    return this.view;
+  }
+
+  open(url: string): { ok: boolean; error?: string } {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -29,15 +40,21 @@ export class PreviewManager {
     } catch {
       return { ok: false, error: `Not a valid URL: ${url}` };
     }
-    if (!this.view) {
-      this.view = new WebContentsView({
-        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-      });
-      win.contentView.addChildView(this.view);
-      this.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-    }
+    const view = this.ensureView();
+    if (!view) return { ok: false, error: 'No window' };
     this.currentUrl = url;
-    void this.view.webContents.loadURL(url).catch(() => {
+    void view.webContents.loadURL(url).catch(() => {
+      /* load errors show inside the pane */
+    });
+    return { ok: true };
+  }
+
+  /** Static preview: load a project HTML file straight into the pane. */
+  openFile(path: string): { ok: boolean; error?: string } {
+    const view = this.ensureView();
+    if (!view) return { ok: false, error: 'No window' };
+    this.currentUrl = `file:///${path.replace(/\\/g, '/')}`;
+    void view.webContents.loadFile(path).catch(() => {
       /* load errors show inside the pane */
     });
     return { ok: true };

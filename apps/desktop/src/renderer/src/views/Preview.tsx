@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useStore } from '../state/store';
 import { CodeWatch } from './CodeWatch';
 
 /**
@@ -7,9 +8,11 @@ import { CodeWatch } from './CodeWatch';
  */
 
 function BrowserPreview() {
+  const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
   const [url, setUrl] = useState('http://localhost:5173');
   const [active, setActive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
   const regionRef = useRef<HTMLDivElement>(null);
 
   const sendBounds = () => {
@@ -24,14 +27,37 @@ function BrowserPreview() {
     }
   };
 
+  // Auto-connect: resume whatever was showing; otherwise find the project's
+  // running dev server, or fall back to its built/static index.html.
   useEffect(() => {
-    void window.vo.previewState().then((s) => {
-      if (s.url) {
-        setActive(s.url);
-        setUrl(s.url);
+    void (async () => {
+      const state = await window.vo.previewState();
+      if (state.url) {
+        setActive(state.url);
+        if (!state.url.startsWith('file:')) setUrl(state.url);
+        return;
       }
-    });
-  }, []);
+      if (!activeProject?.dir) return;
+      setDetecting(true);
+      const found = await window.vo.previewDetect(activeProject.dir);
+      setDetecting(false);
+      if (found.kind === 'url') {
+        const result = await window.vo.previewOpen(found.url);
+        if (result.ok) {
+          setActive(found.url);
+          setUrl(found.url);
+          requestAnimationFrame(sendBounds);
+        }
+      } else if (found.kind === 'file') {
+        const result = await window.vo.previewOpenFile(found.path);
+        if (result.ok) {
+          setActive(`file • ${found.path}`);
+          requestAnimationFrame(sendBounds);
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id]);
 
   useEffect(() => {
     if (!active) return;
@@ -88,12 +114,21 @@ function BrowserPreview() {
         )}
       </div>
       {error && <p className="hint error-text preview-hint">{error}</p>}
+      {active?.startsWith('file • ') && (
+        <p className="hint preview-hint">
+          Showing the project's page directly: {active.slice(7)} — reload after changes, or start a
+          dev server for hot reload.
+        </p>
+      )}
       {!active && (
         <div className="empty-state">
           <h2>Live app preview</h2>
           <p>
-            Point this at your project's dev server (Vite, Next, anything with hot reload) and
-            watch the build render as the agents work on it.
+            {detecting
+              ? `Looking for something to show in ${activeProject?.name ?? 'this project'}…`
+              : activeProject?.dir
+                ? `Nothing to show in ${activeProject.name} yet — no dev server running and no index.html built. As soon as the agents produce a page, this connects on its own; or point it at a URL above.`
+                : "Point this at your project's dev server (Vite, Next, anything with hot reload) and watch the build render as the agents work on it."}
           </p>
         </div>
       )}

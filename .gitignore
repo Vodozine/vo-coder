@@ -3,6 +3,7 @@ dist/
 dist-bundle/
 out/
 release/
+release-*/
 coverage/
 *.tsbuildinfo
 .DS_Store

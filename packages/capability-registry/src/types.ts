@@ -16,8 +16,12 @@ export interface ModelRecord {
   supportsThinking?: boolean;
   /** Estimated resident memory for local models at typical quantization. */
   estMemGb?: number;
-  /** Coarse capability rank 1–10 (curated seed is ground truth). */
+  /** Capability rank 1–10. Sources layer: curated > arena benchmark > family pattern. */
   quality?: number;
+  qualitySource?: 'curated' | 'arena' | 'family';
+  /** This model's id on OpenRouter — lets routing reach it through an
+   *  OpenRouter key when the native provider isn't configured. */
+  openrouterId?: string;
 }
 
 export interface HardwareProfile {

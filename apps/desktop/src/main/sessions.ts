@@ -1,27 +1,38 @@
 import { AgentSession, type McpClientManager, type PermissionDecision } from '@vo-coder/core';
-import type { AgentSpec, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, BoundModel, HarnessMessage, UserPart } from '@vo-coder/providers';
 import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
+import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
+import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
 interface SessionManagerDeps {
   config: ConfigStore;
   hub: ProviderHub;
   mcp: McpClientManager;
+  projects: ProjectStore;
   send: (channel: string, payload: unknown) => void;
+  /** Fired for every provider usage report, with the model that produced it. */
+  onUsage?: (
+    sessionId: string,
+    bound: BoundModel | undefined,
+    usage: { inputTokens: number; outputTokens: number },
+  ) => void;
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
 
 /**
- * One AgentSession per agent id, created lazily. The implicit "default" agent
- * uses the app-level system prompt and defaults; user-defined agents come from
- * config and may override provider/model/servers.
+ * One live AgentSession per chat session id, created lazily with its history
+ * restored from disk. Every session belongs to a project and points at an
+ * agent spec; transcripts persist on every send and on run completion.
  */
 export class SessionManager {
   private sessions = new Map<string, AgentSession>();
   private pendingPermissions = new Map<string, (d: PermissionDecision) => void>();
   private permSeq = 0;
+  /** Last resolved provider/model per session — attributes usage to a model. */
+  private lastBound = new Map<string, BoundModel>();
 
   constructor(private deps: SessionManagerDeps) {}
 
@@ -30,7 +41,7 @@ export class SessionManager {
       const cfg = this.deps.config.get();
       return {
         id: 'default',
-        name: 'Default',
+        name: 'Vodo',
         systemPrompt: cfg.systemPrompt,
         ...(cfg.thinkingDefault ? { thinking: { enabled: true } } : {}),
       };
@@ -40,71 +51,178 @@ export class SessionManager {
     return spec;
   }
 
-  private sessionFor(agentId: string): AgentSession {
-    let session = this.sessions.get(agentId);
-    if (session) {
-      // Pick up any edits made in the Agents view since the last send.
-      session.spec = this.specFor(agentId);
-      return session;
-    }
-    session = new AgentSession({
-      id: agentId,
-      spec: this.specFor(agentId),
-      resolve: (spec) => {
-        const { defaultProvider, defaultModel } = this.deps.config.get();
-        return this.deps.hub
-          .registry()
-          .resolve(spec, { provider: defaultProvider, model: defaultModel });
-      },
-      emit: (sessionId, event) => this.deps.send(IPC.chatEvent, { sessionId, event }),
-      toolExecutor: {
-        tools: () => this.deps.mcp.toolsFor(this.trySpec(agentId)?.mcpServers),
-        execute: (name, args) => this.deps.mcp.call(name, args),
-      },
-      permission: (req) => this.requestPermission(agentId, req.name, req.args),
-    });
-    this.sessions.set(agentId, session);
-    return session;
-  }
-
-  private trySpec(agentId: string): AgentSpec | undefined {
+  private agentSpecSafe(sessionId: string): AgentSpec | undefined {
+    const meta = this.deps.projects.meta(sessionId);
+    if (!meta) return undefined;
     try {
-      return this.specFor(agentId);
+      return this.specFor(meta.agentId);
     } catch {
       return undefined;
     }
   }
 
+  private projectDirFor(sessionId: string): string | undefined {
+    const meta = this.deps.projects.meta(sessionId);
+    if (!meta) return undefined;
+    return this.deps.projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
+  }
+
+  /** Folder-backed projects: tell the agent it has hands and where they work. */
+  private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
+    const dir = this.projectDirFor(sessionId);
+    if (!dir) return spec;
+    return {
+      ...spec,
+      systemPrompt:
+        `${spec.systemPrompt ?? ''}\n\n` +
+        `You are working in the project folder "${dir}". You have direct workspace tools: ` +
+        `ws_list (see files), ws_read (read a file), ws_write (create/overwrite a file), and ` +
+        `ws_run (run shell commands like npm install, npm run build, tests). ` +
+        `DO THE WORK YOURSELF with these tools — write the files and run the commands instead of ` +
+        `giving the user manual instructions. Verify your work by running builds/tests. ` +
+        `Ask before anything destructive.`,
+    };
+  }
+
+  private sessionFor(sessionId: string): AgentSession {
+    const meta = this.deps.projects.meta(sessionId);
+    if (!meta) throw new Error(`Unknown chat session "${sessionId}".`);
+    let session = this.sessions.get(sessionId);
+    if (session) {
+      // Pick up agent edits (or a switched agent) since the last send.
+      session.spec = this.projectized(this.specFor(meta.agentId), sessionId);
+      return session;
+    }
+    session = new AgentSession({
+      id: sessionId,
+      spec: this.projectized(this.specFor(meta.agentId), sessionId),
+      resolve: (spec) => {
+        const { defaultProvider, defaultModel } = this.deps.config.get();
+        const bound = this.deps.hub
+          .registry()
+          .resolve(spec, { provider: defaultProvider, model: defaultModel });
+        this.lastBound.set(sessionId, bound);
+        return bound;
+      },
+      emit: (sid, event) => {
+        this.deps.send(IPC.chatEvent, { sessionId: sid, event });
+        if (event.type === 'usage') {
+          this.deps.onUsage?.(sid, this.lastBound.get(sid), event);
+        }
+        if (event.type === 'status' && event.status === 'idle') this.persist(sid);
+      },
+      toolExecutor: {
+        tools: () => {
+          const dir = this.projectDirFor(sessionId);
+          return [
+            ...(dir ? workspaceToolSpecs(dir) : []),
+            ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
+          ];
+        },
+        execute: (name, args) => {
+          if (name.startsWith('ws_')) {
+            const dir = this.projectDirFor(sessionId);
+            if (!dir) {
+              return Promise.resolve({
+                content: 'This chat belongs to a project without a folder.',
+                isError: true,
+              });
+            }
+            return executeWorkspaceTool(dir, name, args);
+          }
+          return this.deps.mcp.call(name, args);
+        },
+      },
+      permission: (req) => this.requestPermission(sessionId, req.name, req.args),
+    });
+    session.history.push(...this.deps.projects.loadTranscript(sessionId));
+    this.sessions.set(sessionId, session);
+    return session;
+  }
+
+  historyOf(sessionId: string): HarnessMessage[] {
+    return this.sessions.get(sessionId)?.history ?? this.deps.projects.loadTranscript(sessionId);
+  }
+
   send(
-    agentId: string,
+    sessionId: string,
     parts: UserPart[],
     override?: { provider?: string; model?: string },
+    specOverride?: AgentSpec,
   ): SendResult {
     try {
-      return this.sessionFor(agentId).send(parts, override);
+      const session = this.sessionFor(sessionId);
+      // Vodo delegation: this turn runs with the specialist's full spec
+      // (prompt, tools, model); the next send re-resolves from the meta.
+      if (specOverride) session.spec = this.projectized(specOverride, sessionId);
+      const result = session.send(parts, override);
+      if (result.ok) this.persist(sessionId);
+      return result;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
-  inject(agentId: string, parts: UserPart[]): SendResult {
+  inject(sessionId: string, parts: UserPart[]): SendResult {
     try {
-      return this.sessionFor(agentId).inject(parts);
+      const result = this.sessionFor(sessionId).inject(parts);
+      if (result.ok) this.persist(sessionId);
+      return result;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
-  stop(agentId: string): void {
-    this.sessions.get(agentId)?.stop();
+  stop(sessionId: string): void {
+    this.sessions.get(sessionId)?.stop();
   }
 
-  reset(agentId: string): void {
-    this.sessions.get(agentId)?.reset();
+  reset(sessionId: string): void {
+    this.sessions.get(sessionId)?.reset();
+    this.deps.projects.saveTranscript(sessionId, []);
+    this.deps.projects.touch(sessionId);
+    this.deps.send(IPC.projectsChanged, this.deps.projects.list());
+  }
+
+  setAgent(sessionId: string, agentId: string): void {
+    this.deps.projects.setAgent(sessionId, agentId);
+    const live = this.sessions.get(sessionId);
+    if (live) {
+      try {
+        live.spec = this.specFor(agentId);
+      } catch {
+        /* unknown agent — next send reports it */
+      }
+    }
+  }
+
+  dropLive(sessionId: string): void {
+    const live = this.sessions.get(sessionId);
+    if (live) {
+      live.stop();
+      this.sessions.delete(sessionId);
+    }
+  }
+
+  private persist(sessionId: string): void {
+    const live = this.sessions.get(sessionId);
+    if (!live) return;
+    this.deps.projects.saveTranscript(sessionId, live.history);
+    const firstUser = live.history.find((m) => m.role === 'user');
+    const firstText =
+      firstUser && firstUser.role === 'user'
+        ? firstUser.content
+            .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+            .map((p) => p.text)
+            .join(' ')
+            .trim()
+        : '';
+    this.deps.projects.touch(sessionId, firstText || undefined);
+    this.deps.send(IPC.projectsChanged, this.deps.projects.list());
   }
 
   private requestPermission(
-    agentId: string,
+    sessionId: string,
     name: string,
     args: unknown,
   ): Promise<PermissionDecision> {
@@ -113,8 +231,8 @@ export class SessionManager {
       this.pendingPermissions.set(requestId, resolve);
       const prompt: PermissionPrompt = {
         requestId,
-        sessionId: agentId,
-        agentName: this.trySpec(agentId)?.name ?? agentId,
+        sessionId,
+        agentName: this.agentSpecSafe(sessionId)?.name ?? 'Agent',
         name,
         args,
       };

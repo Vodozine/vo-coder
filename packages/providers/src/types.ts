@@ -136,6 +136,8 @@ export interface AgentSpec {
   mcpServers?: string[];
   /** How a mid-stream user message is handled. Default: 'queue'. */
   injectionMode?: 'abort-and-resend' | 'queue';
+  /** Comma-separated specialty keywords used when Vodo delegates work. */
+  routingHints?: string;
   thinkingVisibility?: 'visible' | 'hidden';
   /** Request extended thinking/reasoning from providers that support it. */
   thinking?: ChatRequest['thinking'];

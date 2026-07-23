@@ -19,6 +19,8 @@ export class ProviderHub {
   constructor(
     private config: ConfigStore,
     private secrets: SecretStore,
+    /** Subscription OAuth bearer (SuperGrok / X Premium) — preferred over the key. */
+    private getXaiOAuthToken?: () => string | null,
   ) {}
 
   registry(): ProviderRegistry {
@@ -29,8 +31,8 @@ export class ProviderHub {
     if (openaiKey) reg.register(new OpenAIProvider({ apiKey: openaiKey }));
     const openrouterKey = this.secrets.get('openrouter');
     if (openrouterKey) reg.register(new OpenRouterProvider({ apiKey: openrouterKey }));
-    const xaiKey = this.secrets.get('xai');
-    if (xaiKey) reg.register(new XaiProvider({ apiKey: xaiKey }));
+    const xaiAuth = this.getXaiOAuthToken?.() ?? this.secrets.get('xai');
+    if (xaiAuth) reg.register(new XaiProvider({ apiKey: xaiAuth }));
     // Local servers need no key; always registered (they error helpfully if not running).
     reg.register(new OllamaProvider({ baseUrl: this.config.get().ollamaBaseUrl }));
     reg.register(new LmStudioProvider({ baseURL: this.config.get().lmstudioBaseUrl }));

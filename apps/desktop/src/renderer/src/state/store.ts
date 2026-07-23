@@ -1,6 +1,7 @@
-import { create } from 'zustand';
-import type { AgentSpec, ModelInfo, UserPart } from '@vo-coder/providers';
+﻿import { create } from 'zustand';
+import type { AgentSpec, HarnessMessage, ModelInfo, UserPart } from '@vo-coder/providers';
 import type { McpServerStatus, McpSuggestion } from '@vo-coder/core';
+import type { ChatSessionMeta, ProjectInfo, UsageData } from '../../../shared/ipc-contract';
 import type { RankedModel } from '@vo-coder/capability-registry';
 import type {
   AppConfig,
@@ -33,6 +34,8 @@ export interface UiMessage {
   attachments?: Array<{ name: string; kind: 'image' | 'file' }>;
   /** injected while the agent was busy; delivered on the next turn */
   queuedNote?: boolean;
+  /** Vodo's routing decision for this reply. */
+  routedNote?: string;
   /** assistant messages */
   segments?: Segment[];
   error?: string;
@@ -61,8 +64,12 @@ interface AppState {
   view: View;
   config: AppConfig | null;
   secretStatus: Record<string, string | null>;
+  /** Keyed by chat session id. */
   sessions: Record<string, SessionUi>;
-  activeAgentId: string;
+  projects: ProjectInfo[];
+  sessionMetas: ChatSessionMeta[];
+  activeProjectId: string | null;
+  activeSessionId: string | null;
   models: ModelInfo[];
   modelsError: string | null;
   mcpStatus: McpServerStatus[];
@@ -83,6 +90,7 @@ interface AppState {
   /** Uncommitted changes vs HEAD when watchGit is true. */
   gitStates: Record<string, 'added' | 'modified' | 'deleted'>;
   updateInfo: UpdateEvent | null;
+  usage: UsageData | null;
 
   startWatch(dir: string): Promise<string | null>;
   stopWatch(): Promise<void>;
@@ -95,10 +103,19 @@ interface AppState {
   clearSuggestions(): void;
   applySuggestion(ranked: RankedModel): Promise<void>;
   setView(view: View): void;
-  setActiveAgent(agentId: string): void;
+  openSession(sessionId: string): Promise<void>;
+  newSession(projectId?: string, agentId?: string): Promise<void>;
+  newProject(name: string): Promise<void>;
+  /** Create the folder on disk, the project, a first chat — then open the scaffold wizard. */
+  newProjectIn(name: string, parentDir: string): Promise<string | null>;
+  /** One-shot handoff to the Scaffold view: the folder to set up. */
+  scaffoldTarget: string | null;
+  consumeScaffoldTarget(): string | null;
+  removeSession(sessionId: string): Promise<void>;
+  removeProject(projectId: string): Promise<void>;
+  setSessionAgent(agentId: string): Promise<void>;
   send(text: string): Promise<void>;
   stop(): Promise<void>;
-  resetChat(): Promise<void>;
   saveConfig(patch: Partial<AppConfig>): Promise<void>;
   saveAgents(agents: AgentSpec[]): Promise<void>;
   saveSecret(provider: string, value: string): Promise<void>;
@@ -130,8 +147,11 @@ export const useStore = create<AppState>((set, get) => ({
   view: 'chat',
   config: null,
   secretStatus: {},
-  sessions: { default: emptySession() },
-  activeAgentId: 'default',
+  sessions: {},
+  projects: [],
+  sessionMetas: [],
+  activeProjectId: null,
+  activeSessionId: null,
   models: [],
   modelsError: null,
   mcpStatus: [],
@@ -149,6 +169,7 @@ export const useStore = create<AppState>((set, get) => ({
   watchGit: null,
   gitStates: {},
   updateInfo: null,
+  usage: null,
 
   async startWatch(dir) {
     const result = await window.vo.watchStart(dir);
@@ -238,6 +259,7 @@ export const useStore = create<AppState>((set, get) => ({
       window.vo.onWatchEvent((event) => handleWatchEvent(event, set));
       window.vo.onWatchGit((status) => set({ watchGit: status.git, gitStates: status.states }));
       window.vo.onUpdateEvent((event) => set({ updateInfo: event }));
+      window.vo.onUsageChanged((data) => set({ usage: data }));
     }
     const [config, secretStatus, mcpStatus] = await Promise.all([
       window.vo.getConfig(),
@@ -247,26 +269,141 @@ export const useStore = create<AppState>((set, get) => ({
     set({ config, secretStatus, mcpStatus });
     void get().loadModels(config.defaultProvider);
     void get().loadCatalog();
+    void window.vo.usageGet().then((usage) => set({ usage }));
+
+    window.vo.onProjectsChanged((data) =>
+      set({ projects: data.projects, sessionMetas: data.sessions }),
+    );
+    const data = await window.vo.projectsList();
+    set({ projects: data.projects, sessionMetas: data.sessions });
+    // Resume the most recent thread, or start the first one.
+    if (!get().activeSessionId) {
+      const latest = data.sessions[0];
+      if (latest) await get().openSession(latest.id);
+      else if (data.projects[0]) await get().newSession(data.projects[0].id);
+    }
   },
 
   setView(view) {
     set({ view });
   },
 
-  setActiveAgent(agentId) {
+  async openSession(sessionId) {
+    const meta = get().sessionMetas.find((m) => m.id === sessionId);
+    if (!get().sessions[sessionId]) {
+      try {
+        const { history } = await window.vo.sessionOpen(sessionId);
+        set((s) => ({
+          sessions: {
+            ...s.sessions,
+            [sessionId]: { messages: uiFromHistory(history), streaming: false },
+          },
+        }));
+      } catch {
+        set((s) => ({ sessions: { ...s.sessions, [sessionId]: emptySession() } }));
+      }
+    }
+    set({
+      activeSessionId: sessionId,
+      activeProjectId: meta?.projectId ?? get().activeProjectId,
+      view: 'chat',
+    });
+  },
+
+  async newSession(projectId, agentId) {
+    const targetProject =
+      projectId ?? get().activeProjectId ?? get().projects[0]?.id ?? 'general';
+    const meta = await window.vo.sessionCreate(targetProject, agentId);
     set((s) => ({
-      activeAgentId: agentId,
-      sessions: s.sessions[agentId] ? s.sessions : { ...s.sessions, [agentId]: emptySession() },
+      sessionMetas: [meta, ...s.sessionMetas],
+      sessions: { ...s.sessions, [meta.id]: emptySession() },
+      activeSessionId: meta.id,
+      activeProjectId: targetProject,
+      view: 'chat',
+    }));
+  },
+
+  async newProject(name) {
+    const project = await window.vo.projectCreate(name);
+    set((s) => ({ projects: [...s.projects, project], activeProjectId: project.id }));
+    await get().newSession(project.id);
+  },
+
+  scaffoldTarget: null,
+
+  consumeScaffoldTarget() {
+    const target = get().scaffoldTarget;
+    if (target) set({ scaffoldTarget: null });
+    return target;
+  },
+
+  async newProjectIn(name, parentDir) {
+    const result = await window.vo.projectCreateIn(parentDir, name);
+    if (!result.ok || !result.project) return result.error ?? 'Could not create the project.';
+    const project = result.project;
+    set((s) => ({
+      projects: s.projects.some((p) => p.id === project.id) ? s.projects : [...s.projects, project],
+      activeProjectId: project.id,
+    }));
+    await get().newSession(project.id);
+    // Straight into the 7-question setup for the new folder.
+    set({ scaffoldTarget: project.dir ?? null, view: 'scaffold' });
+    return null;
+  },
+
+  async removeSession(sessionId) {
+    await window.vo.sessionDelete(sessionId);
+    set((s) => {
+      const sessions = { ...s.sessions };
+      delete sessions[sessionId];
+      return {
+        sessions,
+        sessionMetas: s.sessionMetas.filter((m) => m.id !== sessionId),
+        activeSessionId: s.activeSessionId === sessionId ? null : s.activeSessionId,
+      };
+    });
+    if (!get().activeSessionId) {
+      const next = get().sessionMetas[0];
+      if (next) await get().openSession(next.id);
+      else await get().newSession();
+    }
+  },
+
+  async removeProject(projectId) {
+    await window.vo.projectDelete(projectId);
+    const data = await window.vo.projectsList();
+    set((s) => ({
+      projects: data.projects,
+      sessionMetas: data.sessions,
+      activeProjectId: s.activeProjectId === projectId ? null : s.activeProjectId,
+      activeSessionId: s.sessionMetas.find((m) => m.id === s.activeSessionId)?.projectId === projectId
+        ? null
+        : s.activeSessionId,
+    }));
+    if (!get().activeSessionId) {
+      const next = get().sessionMetas[0];
+      if (next) await get().openSession(next.id);
+      else await get().newSession();
+    }
+  },
+
+  async setSessionAgent(agentId) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    await window.vo.sessionSetAgent(sessionId, agentId);
+    set((s) => ({
+      sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, agentId } : m)),
     }));
   },
 
   async send(text) {
-    const { activeAgentId, attachments, config, models, sessions } = get();
+    const { activeSessionId, attachments, config, models, sessions, sessionMetas } = get();
+    if (!activeSessionId) return;
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
 
     // Mid-stream: graceful injection instead of a blocked send.
-    if (sessions[activeAgentId]?.streaming) {
+    if (sessions[activeSessionId]?.streaming) {
       const injectParts: UserPart[] = [];
       for (const att of attachments) {
         injectParts.push(
@@ -287,20 +424,20 @@ export const useStore = create<AppState>((set, get) => ({
         attachments: [],
         sessions: {
           ...s.sessions,
-          [activeAgentId]: {
-            ...s.sessions[activeAgentId]!,
-            messages: [...s.sessions[activeAgentId]!.messages, userMsg],
+          [activeSessionId]: {
+            ...s.sessions[activeSessionId]!,
+            messages: [...s.sessions[activeSessionId]!.messages, userMsg],
           },
         },
       }));
-      const result = await window.vo.chatInject(activeAgentId, injectParts);
+      const result = await window.vo.chatInject(activeSessionId, injectParts);
       if (result.queued) {
         set((s) => ({
           sessions: {
             ...s.sessions,
-            [activeAgentId]: {
-              ...s.sessions[activeAgentId]!,
-              messages: s.sessions[activeAgentId]!.messages.map((m) =>
+            [activeSessionId]: {
+              ...s.sessions[activeSessionId]!,
+              messages: s.sessions[activeSessionId]!.messages.map((m) =>
                 m.id === userMsg.id ? { ...m, queuedNote: true } : m,
               ),
             },
@@ -323,7 +460,8 @@ export const useStore = create<AppState>((set, get) => ({
     // Vision-pointer reroute: only when we positively know the model lacks vision.
     let override: { provider?: string; model?: string } | undefined;
     if (config && attachments.some((a) => a.kind === 'image')) {
-      const agent = config.agents.find((a) => a.id === activeAgentId);
+      const meta = sessionMetas.find((m) => m.id === activeSessionId);
+      const agent = config.agents.find((a) => a.id === meta?.agentId);
       const modelId = agent?.model ?? config.defaultModel;
       const info = models.find((m) => m.id === modelId);
       if (info?.supportsVision === false) {
@@ -357,22 +495,40 @@ export const useStore = create<AppState>((set, get) => ({
       attachments: [],
       sessions: {
         ...s.sessions,
-        [activeAgentId]: {
-          messages: [...(s.sessions[activeAgentId]?.messages ?? []), userMsg, draft],
+        [activeSessionId]: {
+          messages: [...(s.sessions[activeSessionId]?.messages ?? []), userMsg, draft],
           streaming: true,
         },
       },
     }));
 
-    const result = await window.vo.chatSend(activeAgentId, parts, override);
-    if (!result.ok) {
+    const result = await window.vo.chatSend(activeSessionId, parts, override);
+    if (result.ok && result.routed) {
+      const note = result.routed.rationale;
       set((s) => {
-        const session = s.sessions[activeAgentId];
+        const session = s.sessions[activeSessionId];
         if (!session) return s;
         return {
           sessions: {
             ...s.sessions,
-            [activeAgentId]: {
+            [activeSessionId]: {
+              ...session,
+              messages: session.messages.map((m) =>
+                m.id === draft.id ? { ...m, routedNote: note } : m,
+              ),
+            },
+          },
+        };
+      });
+    }
+    if (!result.ok) {
+      set((s) => {
+        const session = s.sessions[activeSessionId];
+        if (!session) return s;
+        return {
+          sessions: {
+            ...s.sessions,
+            [activeSessionId]: {
               streaming: false,
               messages: session.messages.map((m) =>
                 m.id === draft.id ? { ...m, streaming: false, error: result.error } : m,
@@ -385,15 +541,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async stop() {
-    await window.vo.chatStop(get().activeAgentId);
-  },
-
-  async resetChat() {
-    const { activeAgentId } = get();
-    await window.vo.chatReset(activeAgentId);
-    set((s) => ({
-      sessions: { ...s.sessions, [activeAgentId]: emptySession() },
-    }));
+    const sessionId = get().activeSessionId;
+    if (sessionId) await window.vo.chatStop(sessionId);
   },
 
   async saveConfig(patch) {
@@ -454,6 +603,63 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshMcp();
   },
 }));
+
+/** Rebuild display messages from a persisted harness transcript. */
+function uiFromHistory(history: HarnessMessage[]): UiMessage[] {
+  const toolResults = new Map<string, { content: string; isError?: boolean }>();
+  for (const msg of history) {
+    if (msg.role === 'tool') {
+      toolResults.set(msg.toolCallId, { content: msg.content, isError: msg.isError });
+    }
+  }
+  const out: UiMessage[] = [];
+  for (const msg of history) {
+    if (msg.role === 'user') {
+      const text = msg.content
+        .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.text)
+        .join('\n');
+      const attachments = msg.content
+        .filter((p) => p.type !== 'text')
+        .map((p) => ({
+          name: p.type === 'file' ? p.name : 'image',
+          kind: (p.type === 'image' ? 'image' : 'file') as 'image' | 'file',
+        }));
+      out.push({
+        id: nextId++,
+        role: 'user',
+        text,
+        ...(attachments.length ? { attachments } : {}),
+        streaming: false,
+      });
+    } else if (msg.role === 'assistant') {
+      const segments: Segment[] = [];
+      for (const part of msg.content) {
+        if (part.type === 'text') segments.push({ kind: 'text', text: part.text });
+        else if (part.type === 'thinking') segments.push({ kind: 'thinking', text: part.text });
+        else {
+          const result = toolResults.get(part.id);
+          segments.push({
+            kind: 'tool',
+            callId: part.id,
+            name: part.name,
+            status: result?.isError ? 'error' : 'done',
+            ...(result
+              ? {
+                  result:
+                    result.content.length > 600
+                      ? `${result.content.slice(0, 600)}…`
+                      : result.content,
+                }
+              : {}),
+          });
+        }
+      }
+      out.push({ id: nextId++, role: 'assistant', segments, streaming: false });
+    }
+  }
+  return out;
+}
 
 type SetFn = (fn: (s: AppState) => Partial<AppState>) => void;
 

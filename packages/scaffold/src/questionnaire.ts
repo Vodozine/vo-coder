@@ -16,6 +16,32 @@ export function start(): QuestionnaireState {
   return { answers: {}, answered: [] };
 }
 
+/**
+ * Pre-apply remembered answers (e.g. environment questions from an earlier
+ * project) so those questions are skipped. Walks in question order so
+ * dependsOn chains resolve; invalid or non-applicable seeds are ignored.
+ * Seeded ids land in `answered`, so back() can still unwind into them.
+ */
+export function seedAnswers(
+  state: QuestionnaireState,
+  seeds: Record<string, string>,
+  onlyIds?: readonly string[],
+): QuestionnaireState {
+  let next = state;
+  for (const q of QUESTIONS) {
+    if (onlyIds && !onlyIds.includes(q.id)) continue;
+    const value = seeds[q.id];
+    if (value === undefined || q.id in next.answers) continue;
+    if (q.dependsOn && next.answers[q.dependsOn.key] !== q.dependsOn.equals) continue;
+    if (q.kind === 'select' && !q.options!.some((o) => o.value === value)) continue;
+    next = {
+      answers: { ...next.answers, [q.id]: value },
+      answered: [...next.answered, q.id],
+    };
+  }
+  return next;
+}
+
 function isVisible(q: QuestionDef, answers: Record<string, string>): boolean {
   return !q.dependsOn || answers[q.dependsOn.key] === q.dependsOn.equals;
 }

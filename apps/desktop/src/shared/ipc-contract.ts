@@ -3,7 +3,7 @@
  * pure view: it only ever talks to main through `window.vo` (VoApi), and main
  * pushes `SessionEvent`s back verbatim — one event vocabulary end to end.
  */
-import type { AgentSpec, ModelInfo, ProviderId, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, HarnessMessage, ModelInfo, ProviderId, UserPart } from '@vo-coder/providers';
 import type {
   McpRegistryEntry,
   McpServerConfig,
@@ -37,6 +37,18 @@ export interface AppConfig {
   /** Extended thinking for the Default agent (per-agent specs set their own). */
   thinkingDefault: boolean;
   voice: VoiceSettings;
+  /** Remembered environment answers (virtualization/hypervisorKind/devOs) that
+   *  pre-seed the scaffold questionnaire in new projects. */
+  scaffoldDefaults: Record<string, string>;
+  /**
+   * How Vodo assigns work:
+   * 'auto'   — cheapest adequate model per message (default)
+   * 'agents' — hand the job to the user's best-matching agent, Auto as fallback
+   * 'off'    — always use the selected model
+   */
+  routeMode: 'auto' | 'agents' | 'off';
+  /** OAuth client id for xAI subscription sign-in (public desktop client). */
+  xaiOauthClientId: string;
 }
 
 export interface VoiceSettings {
@@ -55,7 +67,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   lmstudioBaseUrl: 'http://127.0.0.1:1234/v1',
   systemPrompt:
-    'You are Vo-Coder, a capable engineering assistant. Be direct, concrete, and honest about uncertainty.',
+    "You are Vodo, Vo-Coder's coordinator agent. Be direct, concrete, and honest about uncertainty. It's fine to say you don't understand and ask — that's faster than confident-but-wrong.",
   agents: [],
   mcpServers: [],
   visionModel: null,
@@ -68,6 +80,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     tts: 'system',
     openaiVoice: 'alloy',
   },
+  scaffoldDefaults: {},
+  routeMode: 'auto',
+  xaiOauthClientId: 'grok-cli',
 };
 
 /** Attachment limits enforced at the boundary. */
@@ -92,6 +107,8 @@ export interface SendResult {
   ok: boolean;
   error?: string;
   queued?: boolean;
+  /** Present when Vodo auto-routed this message to a model. */
+  routed?: { provider: string; model: string; rationale: string };
 }
 
 export interface PreviewBoundsDto {
@@ -145,6 +162,44 @@ export interface UpdateEvent {
   message?: string;
 }
 
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  /** Optional project folder (ties into scaffold/preview). */
+  dir?: string;
+  createdAt: number;
+}
+
+export interface ChatSessionMeta {
+  id: string;
+  projectId: string;
+  agentId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectsData {
+  projects: ProjectInfo[];
+  sessions: ChatSessionMeta[];
+}
+
+export interface UsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
+export interface UsageData {
+  allTime: UsageTotals;
+  perProject: Record<string, UsageTotals>;
+}
+
+export interface XaiOauthEvent {
+  state: 'connected' | 'signed_out' | 'error';
+  message?: string;
+}
+
 export interface VoApi {
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
@@ -174,6 +229,10 @@ export interface VoApi {
     opts?: { needsTools?: boolean; needsVision?: boolean; wantsThinking?: boolean },
   ): Promise<RankedModel[]>;
   previewOpen(url: string): Promise<{ ok: boolean; error?: string }>;
+  previewOpenFile(path: string): Promise<{ ok: boolean; error?: string }>;
+  previewDetect(dir: string): Promise<
+    { kind: 'url'; url: string } | { kind: 'file'; path: string } | { kind: 'none' }
+  >;
   previewClose(): Promise<void>;
   previewHide(): Promise<void>;
   previewReload(): Promise<void>;
@@ -204,6 +263,29 @@ export interface VoApi {
     error?: string;
   }>;
   watchReadBaseline(relPath: string): Promise<{ ok: boolean; content?: string }>;
+  projectsList(): Promise<ProjectsData>;
+  projectCreate(name: string, dir?: string): Promise<ProjectInfo>;
+  projectCreateIn(
+    parentDir: string,
+    name: string,
+  ): Promise<{ ok: boolean; project?: ProjectInfo; error?: string }>;
+  projectDelete(id: string): Promise<void>;
+  sessionCreate(projectId: string, agentId?: string): Promise<ChatSessionMeta>;
+  sessionOpen(sessionId: string): Promise<{ meta: ChatSessionMeta; history: HarnessMessage[] }>;
+  sessionDelete(sessionId: string): Promise<void>;
+  sessionSetAgent(sessionId: string, agentId: string): Promise<void>;
+  onProjectsChanged(cb: (data: ProjectsData) => void): () => void;
+  usageGet(): Promise<UsageData>;
+  onUsageChanged(cb: (data: UsageData) => void): () => void;
+  xaiOauthStatus(): Promise<{ connected: boolean; expiresAt?: number }>;
+  xaiOauthBegin(): Promise<{
+    ok: boolean;
+    userCode?: string;
+    verificationUri?: string;
+    error?: string;
+  }>;
+  xaiOauthSignOut(): Promise<void>;
+  onXaiOauth(cb: (event: XaiOauthEvent) => void): () => void;
   appVersion(): Promise<string>;
   updateCheck(): Promise<UpdateEvent>;
   updateInstall(): Promise<void>;
@@ -252,6 +334,8 @@ export const IPC = {
   registrySuggest: 'registry:suggest',
   chatInject: 'chat:inject',
   previewOpen: 'preview:open',
+  previewOpenFile: 'preview:openFile',
+  previewDetect: 'preview:detect',
   previewClose: 'preview:close',
   previewHide: 'preview:hide',
   previewReload: 'preview:reload',
@@ -277,6 +361,21 @@ export const IPC = {
   watchGit: 'watch:git',
   watchReadFile: 'watch:readFile',
   watchReadBaseline: 'watch:readBaseline',
+  projectsList: 'projects:list',
+  projectCreate: 'projects:create',
+  projectCreateIn: 'projects:createIn',
+  projectDelete: 'projects:delete',
+  sessionCreate: 'sessions:create',
+  sessionOpen: 'sessions:open',
+  sessionDelete: 'sessions:delete',
+  sessionSetAgent: 'sessions:setAgent',
+  projectsChanged: 'projects:changed',
+  usageGet: 'usage:get',
+  usageChanged: 'usage:changed',
+  xaiOauthStatus: 'xaiOauth:status',
+  xaiOauthBegin: 'xaiOauth:begin',
+  xaiOauthSignOut: 'xaiOauth:signOut',
+  xaiOauthEvent: 'xaiOauth:event',
   appVersion: 'app:version',
   updateCheck: 'update:check',
   updateInstall: 'update:install',

@@ -4,13 +4,22 @@ import { createMainWindow } from './windows';
 
 let mainWindow: BrowserWindow | null = null;
 
+function openWindow(): void {
+  mainWindow = createMainWindow();
+  // Drop the reference the moment the window dies so late events from PTYs,
+  // watchers, and streams have nowhere destroyed to land.
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
 void app.whenReady().then(() => {
   registerIpc(() => mainWindow);
-  mainWindow = createMainWindow();
+  openWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createMainWindow();
+      openWindow();
     }
   });
 });
