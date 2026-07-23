@@ -5,13 +5,17 @@ import type { AgentSpec } from '@vo-coder/providers';
  * agents. Pure keyword heuristics — no tokens spent on the decision itself.
  * Scoring: routing hints are the strong signal (3 each), the agent's name
  * counts (2), and overlap with its system prompt adds up to 3. A match needs
- * score ≥ 3 so casual word collisions don't hijack the conversation.
+ * score ≥ 3 so casual word collisions don't hijack the conversation — unless
+ * `always` is set ("My agents only" mode), where the best-scoring agent wins
+ * regardless so the turn always lands on one of the user's agents.
  */
 export function matchAgentForMessage(
   text: string,
   agents: AgentSpec[],
+  opts: { always?: boolean } = {},
 ): { agent: AgentSpec; matched: string[] } | null {
   const haystack = ` ${text.toLowerCase()} `;
+  const minScore = opts.always ? 0 : 3;
   let best: { agent: AgentSpec; matched: string[]; score: number } | null = null;
 
   for (const agent of agents) {
@@ -48,10 +52,14 @@ export function matchAgentForMessage(
     score += promptHits;
     if (promptHits > 0 && matched.length === 0) matched.push(`${promptHits} specialty terms`);
 
-    if (score >= 3 && (!best || score > best.score)) {
+    if (score >= minScore && (!best || score > best.score)) {
       best = { agent, matched, score };
     }
   }
 
-  return best ? { agent: best.agent, matched: [...new Set(best.matched)] } : null;
+  if (!best) return null;
+  return {
+    agent: best.agent,
+    matched: best.matched.length ? [...new Set(best.matched)] : ['best available'],
+  };
 }

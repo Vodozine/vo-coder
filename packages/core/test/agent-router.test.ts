@@ -48,4 +48,16 @@ describe('matchAgentForMessage', () => {
     // One prompt word ("documentation") alone scores below the threshold.
     expect(matchAgentForMessage('add some documentation', agents)).toBeNull();
   });
+
+  it('always mode ("My agents only") lands on some agent regardless of score', () => {
+    // Weak signal still beats the threshold rule…
+    const weak = matchAgentForMessage('add some documentation', agents, { always: true });
+    expect(weak?.agent.id).toBe('a3');
+    // …and pure chatter falls back to the best available (first on total tie).
+    const none = matchAgentForMessage('what is the weather like today', agents, { always: true });
+    expect(none?.agent.id).toBe('a1');
+    expect(none?.matched).toEqual(['best available']);
+    // No agents defined → still null.
+    expect(matchAgentForMessage('hello', [], { always: true })).toBeNull();
+  });
 });

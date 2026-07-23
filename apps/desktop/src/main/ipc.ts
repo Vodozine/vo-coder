@@ -330,15 +330,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       })();
       const builderMode = !!projectDir;
       if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
-        // "My agents first": hand the whole job (prompt, tools, model) to the
-        // user's best-matching specialist; unset agent models still get
-        // cheapest-adequate model routing underneath.
-        if (mode === 'agents') {
+        // "My agents first" / "My agents only": hand the whole job (prompt,
+        // tools, model) to the user's best-matching specialist; unset agent
+        // models still get cheapest-adequate model routing underneath.
+        // agents-only always lands on SOME agent (best fit when no hint hits).
+        if (mode === 'agents' || mode === 'agents-only') {
           const text = parts
             .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
             .map((p) => p.text)
             .join(' ');
-          const match = matchAgentForMessage(text, config.get().agents);
+          const match = matchAgentForMessage(text, config.get().agents, {
+            always: mode === 'agents-only',
+          });
           if (match) {
             specOverride = match.agent;
             const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;
@@ -361,7 +364,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             }
           }
         }
-        if (!specOverride) {
+        // agents-only never falls back to catalog routing — with no agents
+        // defined it simply runs the selected model.
+        if (!specOverride && mode !== 'agents-only') {
           const pick = await routeForVodo(parts, historyHasImages, builderMode).catch(
             () => undefined,
           );

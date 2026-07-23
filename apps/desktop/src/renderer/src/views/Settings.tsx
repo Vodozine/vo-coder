@@ -816,6 +816,7 @@ export function Settings() {
             [
               ['auto', 'Auto', 'cheapest adequate model per message'],
               ['agents', 'My agents first', 'hand the job to your best-matching agent; Auto as fallback'],
+              ['agents-only', 'My agents only', 'always one of your agents — hints pick first, best fit otherwise'],
               ['off', 'Off', 'always use the selected model'],
             ] as const
           ).map(([mode, label, hint]) => (

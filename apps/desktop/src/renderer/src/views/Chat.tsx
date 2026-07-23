@@ -138,7 +138,9 @@ function StatusCard({
     modelDetail =
       routeMode === 'agents'
         ? `Vodo delegates to your agents, Auto as fallback (manual fallback: ${model || 'none'})`
-        : `Vodo auto-routes each message (fallback: ${model || 'none'})`;
+        : routeMode === 'agents-only'
+          ? `Vodo always hands work to one of your agents (no agents → ${model || 'none'})`
+          : `Vodo auto-routes each message (fallback: ${model || 'none'})`;
   } else if (!model) {
     modelState = 'bad';
     modelDetail = 'no model selected';

@@ -42,11 +42,12 @@ export interface AppConfig {
   scaffoldDefaults: Record<string, string>;
   /**
    * How Vodo assigns work:
-   * 'auto'   — cheapest adequate model per message (default)
-   * 'agents' — hand the job to the user's best-matching agent, Auto as fallback
-   * 'off'    — always use the selected model
+   * 'auto'        — cheapest adequate model per message (default)
+   * 'agents'      — hand the job to the user's best-matching agent, Auto as fallback
+   * 'agents-only' — ALWAYS one of the user's agents (hints first, best fit otherwise)
+   * 'off'         — always use the selected model
    */
-  routeMode: 'auto' | 'agents' | 'off';
+  routeMode: 'auto' | 'agents' | 'agents-only' | 'off';
   /** OAuth client id for xAI subscription sign-in (public desktop client). */
   xaiOauthClientId: string;
   /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
