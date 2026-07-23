@@ -96,7 +96,9 @@ export class SessionManager {
         'project, missions, Telegram, file writes, commands) — use it for questions about what the ' +
         'user was doing at some time or in some project. memory_note pins a durable fact there. ' +
         'For what was actually SAID, archive_search full-text-searches the lossless verbatim ' +
-        'archive of all conversations, and archive_read pulls the exact surrounding turns.'
+        'archive of all conversations, and archive_read pulls the exact surrounding turns. ' +
+        "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
+        'links); map_update corrects it.'
       : '';
     if (!dir) {
       return builtinNote ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}` } : spec;

@@ -11,7 +11,7 @@ import {
   type McpServerConfig,
   type RequestLogEntry,
 } from '@vo-coder/core';
-import type { AgentSpec, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, HarnessMessage, UserPart } from '@vo-coder/providers';
 import type { ProjectAnswers } from '@vo-coder/project-config';
 import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
@@ -149,10 +149,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     execute: (name: string, args: unknown) => {
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
-      if (name.startsWith('archive_')) {
+      if (name.startsWith('archive_') || name.startsWith('map_')) {
         return bank
           ? bank.executeTool(name, args, resolveProjectId)
-          : Promise.resolve({ content: 'The archive is unavailable.', isError: true });
+          : Promise.resolve({ content: 'The memory bank is unavailable.', isError: true });
       }
       if (missionsRef) return missionsRef.executeTool(name, args);
       return Promise.resolve({ content: 'Missions are not ready yet.', isError: true });
@@ -166,7 +166,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projects,
     send: sendToWindow,
     builtins,
-    ...(bank ? { bank } : {}),
+    ...(bank
+      ? {
+          bank: {
+            syncSession: (projectId: string, sessionId: string, history: HarnessMessage[]) => {
+              bank.syncSession(projectId, sessionId, history);
+              // Distill new turns into the map in the background — fail-soft,
+              // watermark advances only on success.
+              void bank.distillPending(projectId, sessionId, completeCheap);
+            },
+          },
+        }
+      : {}),
     onUsage: (sessionId, bound, ev) => {
       const meta = projects.meta(sessionId);
       if (meta) recordUsage(bound, ev, meta.projectId);
@@ -640,6 +651,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const resolveSpec = (spec: AgentSpec) => {
     const { defaultProvider, defaultModel } = config.get();
     return hub.registry().resolve(spec, { provider: defaultProvider, model: defaultModel });
+  };
+  /** One-shot completion on the cheapest adequate model (distiller etc.). */
+  const completeCheap = async (prompt: string): Promise<string> => {
+    const pick = await routeForVodo([{ type: 'text', text: prompt.slice(0, 2000) }], false, false)
+      .catch(() => undefined);
+    const spec = vodoSpec();
+    const bound = resolveSpec(
+      pick ? { ...spec, provider: pick.provider as AgentSpec['provider'], model: pick.model } : spec,
+    );
+    let out = '';
+    let errMsg: string | undefined;
+    for await (const event of bound.provider.stream(
+      { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
+      { signal: new AbortController().signal },
+    )) {
+      if (event.type === 'text_delta') out += event.text;
+      else if (event.type === 'error') errMsg = event.error.message;
+    }
+    if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
+    return out;
   };
   const remoteTools = (dir?: string) => [
     ...(dir ? workspaceToolSpecs(dir) : []),

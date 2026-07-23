@@ -13,4 +13,6 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   'memory_note',
   'archive_search',
   'archive_read',
+  'map_query',
+  'map_update',
 ]);
