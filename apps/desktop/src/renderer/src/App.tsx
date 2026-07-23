@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Icon } from './components/Icon';
 import { useStore, type View } from './state/store';
 import { Agents } from './views/Agents';
 import { Chat, fmtCost, fmtTokens } from './views/Chat';
@@ -85,7 +86,7 @@ function ProjectsPanel() {
             }}
           />
           <button className="project-loc" title="Where the project folder is created" onClick={() => void pickParent()}>
-            📁 {parent ? `…\\${parent.split(/[\\/]/).pop()}` : 'Choose location…'}
+            <Icon name="folder" size={12} /> {parent ? `…\\${parent.split(/[\\/]/).pop()}` : 'Choose location…'}
           </button>
           {name.trim() && parent && (
             <div className="project-loc-hint">creates {parent.split(/[\\/]/).pop()}\{name.trim()} and starts setup</div>

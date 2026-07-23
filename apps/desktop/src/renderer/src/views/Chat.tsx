@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../components/Icon';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
 
@@ -21,7 +22,11 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
 function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
-      {m.routedNote && <div className="meta routed">🧭 Vodo: {m.routedNote}</div>}
+      {m.routedNote && (
+        <div className="meta routed">
+          <Icon name="compass" size={12} /> Vodo: {m.routedNote}
+        </div>
+      )}
       {(m.segments ?? []).map((seg, i) => {
         if (seg.kind === 'thinking') {
           if (hideThinking) return null;
@@ -421,30 +426,6 @@ export function Chat() {
         )}
         <div className="spacer" />
         <button
-          className={`ghost ${live !== 'off' ? 'live-on' : ''}`}
-          title={
-            live === 'off'
-              ? 'Start live voice chat (hands-free)'
-              : `Live chat: ${live} — click to stop`
-          }
-          onClick={liveToggle}
-        >
-          {live === 'off' ? '🎧 Live' : live === 'listening' ? '🎧 listening…' : `🎧 ${live}`}
-        </button>
-        {activeAgentId === 'default' && (
-          <button
-            className={`ghost ${config.thinkingDefault ? 'thinking-on' : ''}`}
-            title={
-              config.thinkingDefault
-                ? 'Extended thinking ON — click to disable'
-                : 'Extended thinking OFF — click to enable'
-            }
-            onClick={() => void saveConfig({ thinkingDefault: !config.thinkingDefault })}
-          >
-            🧠 {config.thinkingDefault ? 'on' : 'off'}
-          </button>
-        )}
-        <button
           className="ghost"
           title="Start a new chat in this project"
           onClick={() => void newSession(activeMeta?.projectId)}
@@ -469,7 +450,7 @@ export function Chat() {
                   <div className="attachment-row">
                     {m.attachments.map((a, i) => (
                       <span key={i} className="attachment-chip">
-                        {a.kind === 'image' ? '🖼' : '📄'} {a.name}
+                        <Icon name={a.kind === 'image' ? 'image' : 'file'} size={12} /> {a.name}
                       </span>
                     ))}
                   </div>
@@ -491,12 +472,16 @@ export function Chat() {
         <CheckinBanner />
         <AdvisorBanner />
         <SuggestPanel onApply={() => undefined} />
-        {voiceError && <div className="hint error-text preview-hint">🎤 {voiceError}</div>}
+        {voiceError && (
+          <div className="hint error-text preview-hint">
+            <Icon name="mic" size={12} /> {voiceError}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="attachment-row staged">
             {attachments.map((a, i) => (
               <span key={i} className="attachment-chip">
-                {a.kind === 'image' ? '🖼' : '📄'} {a.name}
+                <Icon name={a.kind === 'image' ? 'image' : 'file'} size={12} /> {a.name}
                 <button className="chip-x" onClick={() => removeAttachment(i)}>
                   ×
                 </button>
@@ -516,26 +501,56 @@ export function Chat() {
               e.target.value = '';
             }}
           />
-          <button className="ghost attach" title="Attach files" onClick={() => fileRef.current?.click()}>
-            📎
-          </button>
-          <button
-            className="ghost attach"
-            title="Suggest the cheapest adequate model for this message"
-            disabled={!input.trim()}
-            onClick={() => void suggestFor(input)}
-          >
-            ✨
-          </button>
-          <button
-            className={`ghost attach ${recording ? 'recording' : ''}`}
-            title="Hold to talk (or hold Ctrl+Space) — release to transcribe into the input"
-            onPointerDown={() => void pttStart()}
-            onPointerUp={() => void pttStop()}
-            onPointerLeave={() => void pttStop()}
-          >
-            🎤
-          </button>
+          <div className="composer-tools">
+            <div className="composer-tools-row">
+              <button
+                className={`ghost attach mini ${live !== 'off' ? 'live-on' : ''}`}
+                title={
+                  live === 'off'
+                    ? 'Start live voice chat (hands-free)'
+                    : `Live chat: ${live} — click to stop`
+                }
+                onClick={liveToggle}
+              >
+                <Icon name="headset" size={14} /> {live === 'off' ? 'Live' : live}
+              </button>
+              {activeAgentId === 'default' && (
+                <button
+                  className={`ghost attach mini ${config.thinkingDefault ? 'thinking-on' : ''}`}
+                  title={
+                    config.thinkingDefault
+                      ? 'Extended thinking ON — click to disable'
+                      : 'Extended thinking OFF — click to enable'
+                  }
+                  onClick={() => void saveConfig({ thinkingDefault: !config.thinkingDefault })}
+                >
+                  <Icon name="brain" size={14} /> Think
+                </button>
+              )}
+            </div>
+            <div className="composer-tools-row">
+              <button className="ghost attach" title="Attach files" onClick={() => fileRef.current?.click()}>
+                <Icon name="paperclip" />
+              </button>
+              <button
+                className="ghost attach"
+                title="Suggest the cheapest adequate model for this message"
+                disabled={!input.trim()}
+                onClick={() => void suggestFor(input)}
+              >
+                <Icon name="sparkles" />
+              </button>
+              <button
+                className={`ghost attach ${recording ? 'recording' : ''}`}
+                title="Hold to talk (or hold Ctrl+Space) — release to transcribe into the input"
+                onPointerDown={() => void pttStart()}
+                onPointerUp={() => void pttStop()}
+                onPointerLeave={() => void pttStop()}
+              >
+                <Icon name="mic" />
+              </button>
+            </div>
+          </div>
           <textarea
             value={input}
             placeholder="Ask anything… (Enter to send, Shift+Enter for a new line)"

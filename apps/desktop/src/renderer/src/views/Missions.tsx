@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Mission } from '../../../shared/ipc-contract';
+import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
 
 const INTERVALS: Array<[label: string, minutes: number | undefined]> = [
@@ -33,23 +34,20 @@ function MissionCard({ mission }: { mission: Mission }) {
   return (
     <div className={`mission-card st-${mission.status}`}>
       <div className="mission-head">
-        <span className={`mission-status ${mission.status}`}>
-          {mission.status === 'running' ? '◉' : mission.status === 'paused' ? '⏸' : mission.status === 'failed' ? '✕' : mission.status === 'done' ? '✓' : '○'}{' '}
-          {mission.status}
-        </span>
+        <span className={`mission-status ${mission.status}`}>{mission.status}</span>
         <strong className="grow">{mission.title}</strong>
         {mission.status === 'running' ? null : (
           <button className="ghost" title="Run now" onClick={() => control('run')}>
-            ▶
+            <Icon name="play" size={13} />
           </button>
         )}
         {mission.status === 'paused' || mission.status === 'done' || mission.status === 'failed' ? (
           <button className="ghost" title="Resume schedule" onClick={() => control('resume')}>
-            ↻
+            <Icon name="redo" size={13} />
           </button>
         ) : (
           <button className="ghost" title="Pause" onClick={() => control('pause')}>
-            ⏸
+            <Icon name="pause" size={13} />
           </button>
         )}
         <button
@@ -59,7 +57,7 @@ function MissionCard({ mission }: { mission: Mission }) {
             if (window.confirm(`Delete mission "${mission.title}"?`)) control('delete');
           }}
         >
-          ×
+          <Icon name="x" size={13} />
         </button>
       </div>
       <div className="meta">

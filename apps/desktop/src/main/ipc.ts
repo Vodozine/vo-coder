@@ -32,6 +32,7 @@ import {
   type MissionCreateInput,
 } from '../shared/ipc-contract';
 import { ConfigStore } from './config';
+import { Journal } from './journal';
 import { MissionManager } from './missions';
 import { ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
@@ -110,15 +111,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })();
   };
 
-  // Built-in tools every agent session carries: web access + mission control.
-  // Mission tools resolve through a late ref — MissionManager needs routing,
-  // which is defined further down.
+  // Vodo's cross-everything memory: every chat, mission, tool run, and note
+  // lands in one timestamped journal that memory_recall can search.
+  const journal = new Journal(join(app.getPath('userData'), 'journal.jsonl'));
+  const projectNameOf = (projectId?: string): string | undefined =>
+    projectId ? projects.list().projects.find((p) => p.id === projectId)?.name : undefined;
+
+  // Built-in tools every agent session carries: web access, mission control,
+  // and memory. Mission tools resolve through a late ref — MissionManager
+  // needs routing, which is defined further down.
   let missionsRef: MissionManager | null = null;
   let telegramRef: TelegramBridge | null = null;
   const builtins = {
-    specs: () => [...webToolSpecs(), ...(missionsRef?.toolSpecs() ?? [])],
+    specs: () => [...webToolSpecs(), ...journal.toolSpecs(), ...(missionsRef?.toolSpecs() ?? [])],
     execute: (name: string, args: unknown) => {
       if (name.startsWith('web_')) return executeWebTool(name, args);
+      if (name.startsWith('memory_')) return journal.executeTool(name, args);
       if (missionsRef) return missionsRef.executeTool(name, args);
       return Promise.resolve({ content: 'Missions are not ready yet.', isError: true });
     },
@@ -135,6 +143,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const meta = projects.meta(sessionId);
       if (meta) recordUsage(bound, ev, meta.projectId);
     },
+    onEvent: (sessionId, event) => {
+      // Journal real actions (writes/commands/infra), not read-only lookups.
+      if (event.type !== 'tool_started') return;
+      if (event.name !== 'ws_write' && event.name !== 'ws_run' && !event.name.includes('__')) return;
+      const meta = projects.meta(sessionId);
+      const a = (event.args ?? {}) as Record<string, unknown>;
+      const detail =
+        event.name === 'ws_write'
+          ? `wrote ${a.path}`
+          : event.name === 'ws_run'
+            ? `ran: ${a.command}`
+            : `${event.name}`;
+      journal.append({
+        kind: 'tool',
+        text: detail,
+        ...(projectNameOf(meta?.projectId) ? { project: projectNameOf(meta?.projectId) } : {}),
+      });
+    },
   });
 
   ipcMain.handle(IPC.usageGet, () => usage.get());
@@ -147,6 +173,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.projectsList, () => projects.list());
   ipcMain.handle(IPC.projectCreate, (_e, name: string, dir?: string) => {
     const project = projects.createProject(name, dir);
+    journal.append({ kind: 'project', text: `created project "${name}"` });
     broadcastProjects();
     return project;
   });
@@ -157,6 +184,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const dir = join(parentDir, safe);
       mkdirSync(dir, { recursive: true });
       const project = projects.createProject(name.trim(), dir);
+      journal.append({ kind: 'project', text: `created project "${name.trim()}"`, project: name.trim() });
       broadcastProjects();
       return { ok: true, project };
     } catch (err) {
@@ -344,6 +372,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }
       }
       const result = sessions.send(sessionId, parts, override, specOverride);
+      if (result.ok) {
+        const meta = projects.meta(sessionId);
+        const text = parts
+          .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+          .map((p) => p.text)
+          .join(' ')
+          .trim();
+        journal.append({
+          kind: 'chat',
+          text: text || '[attachment]',
+          ...(projectNameOf(meta?.projectId) ? { project: projectNameOf(meta?.projectId) } : {}),
+        });
+      }
       return routed && result.ok ? { ...result, routed } : result;
     },
   );
@@ -563,6 +604,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     onUsage: (bound, ev, projectId) => recordUsage(bound, ev, projectId),
     notify: (text) => telegramRef?.notify(text),
     onChanged: (list) => sendToWindow(IPC.missionsChanged, list),
+    log: (text, projectId) =>
+      journal.append({
+        kind: 'mission',
+        text,
+        surface: 'mission',
+        ...(projectNameOf(projectId) ? { project: projectNameOf(projectId) } : {}),
+      }),
   });
   missionsRef = missions;
 
@@ -575,6 +623,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     missionsSummary: () => missions.describeAll(),
     onUsage: (bound, ev) => recordUsage(bound, ev),
     onChanged: (info) => sendToWindow(IPC.telegramChanged, info),
+    log: (text) => journal.append({ kind: 'chat', text, surface: 'telegram' }),
   });
   telegramRef = telegram;
   telegram.sync();

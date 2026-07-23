@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { AgentSession, type PermissionDecision } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { Mission, MissionAction, MissionCreateInput } from '../shared/ipc-contract';
+import { fmtStamp } from './journal';
 
 /**
  * Missions: background objectives Vodo pursues on its own schedule. Each
@@ -50,6 +51,8 @@ export interface MissionAgentBackend {
   /** Broadcast a mission event (Telegram + anything else). */
   notify(text: string): void;
   onChanged(missions: Mission[]): void;
+  /** Activity journaling (projectId resolved to a name by the host). */
+  log?(text: string, projectId?: string): void;
 }
 
 interface RunState {
@@ -354,11 +357,13 @@ export class MissionManager {
     state.text = '';
     state.erred = false;
 
+    const now = `Now (local): ${fmtStamp(Date.now())}.\n`;
     const prompt: string =
       mission.runCount === 1
-        ? `Mission objective:\n${mission.objective}`
-        : `Scheduled re-run #${mission.runCount} of your mission. Objective:\n${mission.objective}\n\n` +
+        ? `${now}Mission objective:\n${mission.objective}`
+        : `${now}Scheduled re-run #${mission.runCount} of your mission. Objective:\n${mission.objective}\n\n` +
           'You have your previous runs above. Continue where you left off, verify earlier work, and report what changed.';
+    this.backend.log?.(`"${mission.title}" run #${mission.runCount} started`, mission.projectId);
 
     let override: { provider?: string; model?: string } | undefined;
     const dir = mission.projectId ? this.backend.projectDir(mission.projectId) : undefined;
@@ -402,6 +407,11 @@ export class MissionManager {
 
     this.scheduleNext(mission);
     this.persist();
+    this.backend.log?.(
+      `"${mission.title}" run #${mission.runCount} ${state?.erred ? 'failed' : 'finished'}` +
+        (summary ? `: ${summary.slice(0, 160)}` : ''),
+      mission.projectId,
+    );
     this.backend.notify(
       `${state?.erred ? '⚠' : '✅'} Mission "${mission.title}" run #${mission.runCount} ` +
         `${state?.erred ? 'hit an error' : 'finished'}` +

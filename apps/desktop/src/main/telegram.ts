@@ -2,7 +2,9 @@ import { AgentSession, type PermissionDecision } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { TelegramInfo } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
+import { fmtStamp } from './journal';
 import type { SecretStore } from './secrets';
+import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 
 /**
  * Telegram remote control: talk to Vodo from your phone, start missions, get
@@ -46,6 +48,8 @@ export interface TelegramAgentBackend {
   missionsSummary(): string;
   onUsage(bound: BoundModel | undefined, ev: { inputTokens: number; outputTokens: number }): void;
   onChanged(info: TelegramInfo): void;
+  /** Activity journaling for incoming messages. */
+  log?(text: string): void;
 }
 
 interface ChatState {
@@ -53,6 +57,7 @@ interface ChatState {
   bound?: BoundModel;
   buffer: string;
   routedNote?: string;
+  basePrompt: string;
 }
 
 export class TelegramBridge {
@@ -281,18 +286,24 @@ export class TelegramBridge {
     if (state) return state;
 
     const base = this.backend.vodoSpec();
+    const basePrompt =
+      `${base.systemPrompt ?? ''}\n\n` +
+      'You are talking to the user over Telegram — they are away from the machine. Keep replies ' +
+      'compact and plain-text (no markdown tables). You have web tools, mission tools, and ' +
+      'cross-everything memory (memory_recall over the full activity journal; memory_note to pin ' +
+      'facts); for long or repeating work, create a mission instead of doing it inline.';
     const spec: AgentSpec = {
       ...base,
       id: `tg_${chatId}`,
       name: 'Vodo',
-      systemPrompt:
-        `${base.systemPrompt ?? ''}\n\n` +
-        'You are talking to the user over Telegram — they are away from the machine. Keep replies ' +
-        'compact and plain-text (no markdown tables). You have web tools and mission tools; for ' +
-        'long or repeating work, create a mission instead of doing it inline.',
+      systemPrompt: basePrompt,
     };
 
-    const fresh: ChatState = { buffer: '', session: undefined as unknown as AgentSession };
+    const fresh: ChatState = {
+      buffer: '',
+      basePrompt,
+      session: undefined as unknown as AgentSession,
+    };
     fresh.session = new AgentSession({
       id: `tg_${chatId}`,
       spec,
@@ -328,6 +339,12 @@ export class TelegramBridge {
 
   private async chat(chatId: number, text: string): Promise<void> {
     const state = this.chatState(chatId);
+    this.backend.log?.(text);
+    // Keep the agent's clock fresh — the spec is rebuilt per turn.
+    state.session.spec = {
+      ...state.session.spec,
+      systemPrompt: `${state.basePrompt}\nCurrent local date-time: ${fmtStamp(Date.now())}.`,
+    };
     const pick = await this.backend.route(text).catch(() => undefined);
     const parts: UserPart[] = [{ type: 'text', text }];
     if (pick) state.routedNote = pick.rationale;
@@ -348,6 +365,7 @@ export class TelegramBridge {
     name: string,
     args: unknown,
   ): Promise<PermissionDecision> {
+    if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
     return new Promise((resolve) => {
       const id = `tg${++this.permSeq}`;
       this.pendingPerms.set(id, resolve);

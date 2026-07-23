@@ -4,6 +4,8 @@ import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contr
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
+import { fmtStamp } from './journal';
+import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
 interface SessionManagerDeps {
@@ -23,12 +25,11 @@ interface SessionManagerDeps {
     bound: BoundModel | undefined,
     usage: { inputTokens: number; outputTokens: number },
   ) => void;
+  /** Observer for session events (activity journaling). */
+  onEvent?: (sessionId: string, event: import('@vo-coder/core').SessionEvent) => void;
 }
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
-
-/** Read-only built-ins run without a permission prompt — nothing to protect. */
-const AUTO_ALLOWED_TOOLS = new Set(['ws_list', 'ws_read', 'web_search', 'web_fetch', 'mission_list']);
 
 /**
  * One live AgentSession per chat session id, created lazily with its history
@@ -79,9 +80,13 @@ export class SessionManager {
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
     const builtinNote = this.deps.builtins
-      ? '\n\nYou can always search the web (web_search, then web_fetch to read a result) and run ' +
+      ? `\n\nCurrent local date-time: ${fmtStamp(Date.now())}.\n` +
+        'You can always search the web (web_search, then web_fetch to read a result) and run ' +
         'background missions (mission_create / mission_list / mission_control) — use a mission for ' +
-        'long or repeating work instead of doing it inline.'
+        'long or repeating work instead of doing it inline. You also have cross-everything memory: ' +
+        'memory_recall searches the timestamped journal of ALL activity (every chat in every ' +
+        'project, missions, Telegram, file writes, commands) — use it for questions about what the ' +
+        'user was doing at some time or in some project. memory_note pins a durable fact there.'
       : '';
     if (!dir) {
       return builtinNote ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}` } : spec;
@@ -121,6 +126,7 @@ export class SessionManager {
       },
       emit: (sid, event) => {
         this.deps.send(IPC.chatEvent, { sessionId: sid, event });
+        this.deps.onEvent?.(sid, event);
         if (event.type === 'usage') {
           this.deps.onUsage?.(sid, this.lastBound.get(sid), event);
         }

@@ -471,8 +471,8 @@ function VoiceSection() {
     <section>
       <h2>Voice</h2>
       <p className="hint">
-        Push-to-talk: hold the 🎤 button or Ctrl+Space. Live chat: the 🎧 toggle in the chat
-        header — speak, get spoken answers, interrupt any time.
+        Push-to-talk: hold the mic button beside the chat input, or Ctrl+Space. Live chat: the Live
+        toggle above it — speak, get spoken answers, interrupt any time.
       </p>
       <div className="field-row">
         <label>speech→text</label>

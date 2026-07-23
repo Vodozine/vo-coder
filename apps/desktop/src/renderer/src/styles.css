@@ -602,6 +602,37 @@ select:focus {
 }
 .attach {
   padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.attach.mini {
+  padding: 4px 8px;
+  font-size: 12px;
+  flex: 1;
+}
+.composer-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: stretch;
+  justify-content: center;
+}
+.composer-tools-row {
+  display: flex;
+  gap: 6px;
+}
+.icon {
+  flex-shrink: 0;
+  vertical-align: -2px;
+}
+.meta .icon {
+  vertical-align: -1.5px;
+  margin-right: 2px;
+}
+.attachment-chip .icon {
+  vertical-align: -1.5px;
 }
 
 /* ---- permission modal ---- */
@@ -1456,12 +1487,22 @@ select:focus {
   padding: 2px 8px;
 }
 .mission-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--mono);
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
   flex-shrink: 0;
+}
+.mission-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .mission-status.running {
   color: var(--accent2);
