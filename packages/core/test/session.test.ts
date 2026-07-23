@@ -299,3 +299,32 @@ describe('AgentSession loop', () => {
     await done;
   });
 });
+
+describe('stall watchdog', () => {
+  it('aborts a silent provider and ends the turn with a clear error', async () => {
+    let aborted = false;
+    const provider: ChatProvider = {
+      id: 'fake',
+      listModels: async () => [],
+      stream: async function* (_req, opts) {
+        yield { type: 'text_delta', text: 'partial ' } as ProviderEvent;
+        // Then go silent forever — only the abort signal ends the hang.
+        await new Promise<void>((resolve) => {
+          opts.signal.addEventListener('abort', () => {
+            aborted = true;
+            resolve();
+          });
+        });
+      },
+    };
+    const { session, events, done } = makeSession(provider, { stallTimeoutMs: 40 });
+    session.send('hello');
+    await done;
+    expect(aborted).toBe(true);
+    const err = events.find((e) => e.type === 'error');
+    expect(err && err.type === 'error' ? err.error.message : '').toMatch(/stalled/);
+    // The partial text survives in history; the session is idle again.
+    expect(session.history.at(-1)).toMatchObject({ role: 'assistant' });
+    expect(session.getStatus()).toBe('idle');
+  });
+});

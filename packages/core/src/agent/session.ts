@@ -76,6 +76,8 @@ export interface AgentSessionOptions {
     messages: readonly HarnessMessage[],
     bound: BoundModel,
   ) => HarnessMessage[];
+  /** Ms of provider silence before the run is declared stalled. Default 120s. */
+  stallTimeoutMs?: number;
 }
 
 export interface SendResult {
@@ -86,6 +88,54 @@ export interface SendResult {
 }
 
 const DENIED_RESULT = 'The user denied permission for this tool call.';
+
+const STALL_TIMEOUT_MS = 120_000;
+
+/**
+ * A provider that goes silent (queued free-tier model, dead connection, proxy
+ * black hole) must not hang the turn forever: when no event arrives for `ms`,
+ * abort the underlying request and synthesize error+done so the run ends
+ * loudly — instead of the UI spinning "streaming" until the user gives up.
+ */
+async function* guardStall(
+  src: AsyncIterable<ProviderEvent>,
+  ms: number,
+  abort: () => void,
+): AsyncIterable<ProviderEvent> {
+  const it = src[Symbol.asyncIterator]();
+  while (true) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<'stalled'>((resolve) => {
+      timer = setTimeout(() => resolve('stalled'), ms);
+    });
+    let winner: 'stalled' | IteratorResult<ProviderEvent>;
+    try {
+      // race attaches a handler to it.next(), so its post-abort rejection
+      // never becomes an unhandled rejection.
+      winner = await Promise.race([it.next(), stalled]);
+    } catch {
+      return; // iterator threw (abort etc.) — session's loop simply ends
+    } finally {
+      clearTimeout(timer);
+    }
+    if (winner === 'stalled') {
+      abort();
+      yield {
+        type: 'error',
+        error: {
+          kind: 'network',
+          message:
+            `No data from the model for ${Math.round(ms / 1000)}s — the request stalled and was ` +
+            'aborted. Send again to retry, or switch models if it keeps happening.',
+        },
+      };
+      yield { type: 'done', stopReason: 'aborted' };
+      return;
+    }
+    if (winner.done) return;
+    yield winner.value;
+  }
+}
 
 /**
  * The agent loop state machine: idle → streaming → awaiting_tool → streaming …
@@ -202,20 +252,24 @@ export class AgentSession {
         let wantsTools = false;
         let erred = false;
 
-        for await (const event of bound.provider.stream(
-          {
-            model: bound.model,
-            system: this.spec.systemPrompt,
-            messages: (() => {
-              const window =
-                this.startIdx > 0 ? this.history.slice(this.startIdx) : this.history;
-              return this.opts.prepareMessages?.(window, bound) ?? (window as HarnessMessage[]);
-            })(),
-            params: this.spec.params,
-            ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
-            ...(tools.length ? { tools } : {}),
-          },
-          { signal: ac.signal },
+        for await (const event of guardStall(
+          bound.provider.stream(
+            {
+              model: bound.model,
+              system: this.spec.systemPrompt,
+              messages: (() => {
+                const window =
+                  this.startIdx > 0 ? this.history.slice(this.startIdx) : this.history;
+                return this.opts.prepareMessages?.(window, bound) ?? (window as HarnessMessage[]);
+              })(),
+              params: this.spec.params,
+              ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
+              ...(tools.length ? { tools } : {}),
+            },
+            { signal: ac.signal },
+          ),
+          this.opts.stallTimeoutMs ?? STALL_TIMEOUT_MS,
+          () => ac.abort(),
         )) {
           this.opts.emit(this.id, event);
           switch (event.type) {
