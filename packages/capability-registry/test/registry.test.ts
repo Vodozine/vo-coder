@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -42,7 +42,10 @@ describe('hardware fit rule', () => {
 describe('openrouter source', () => {
   it('maps recorded JSON into normalized records', async () => {
     const records = await fetchOpenRouterModels(fixtureFetch);
+    // The fixture carries 4 entries; the `…:batch` variant is dropped because
+    // batch has no streaming endpoint — routing to it 404s.
     expect(records).toHaveLength(3);
+    expect(records.some((r) => r.id.endsWith(':batch'))).toBe(false);
     const sonnet = records.find((r) => r.id === 'anthropic/claude-sonnet-5')!;
     expect(sonnet).toMatchObject({
       contextLength: 200000,
@@ -107,6 +110,30 @@ describe('catalog merge + cache', () => {
     clock += 20_000; // past TTL
     await buildCatalog(opts);
     expect(calls).toBe(2);
+  });
+
+  it('drops a delisted batch variant already sitting in the cache', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vo-cat-'));
+    dirs.push(dir);
+    // Simulate a cache written before the batch guard existed: a `…:batch`
+    // record OpenRouter has since delisted, still inside its TTL.
+    writeFileSync(
+      join(dir, 'catalog-cache.json'),
+      JSON.stringify({
+        at: 1_000_000,
+        records: [
+          { id: 'openai/gpt-5-nano', provider: 'openrouter', pricing: { inputPerMTok: 0.05 } },
+          { id: 'openai/gpt-5-nano:batch', provider: 'openrouter', pricing: { inputPerMTok: 0.02 } },
+        ],
+      }),
+    );
+    const catalog = await buildCatalog({
+      cacheDir: dir,
+      ttlMs: 1_000_000,
+      now: () => 1_100_000,
+    });
+    expect(catalog.some((m) => m.id === 'openai/gpt-5-nano')).toBe(true);
+    expect(catalog.some((m) => m.id === 'openai/gpt-5-nano:batch')).toBe(false);
   });
 
   it('falls back to the seed when offline', async () => {

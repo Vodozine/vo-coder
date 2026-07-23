@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { annotateQuality } from './quality.js';
 import { applyArenaQuality, fetchArenaRatings } from './sources/lmarena.js';
-import { fetchOpenRouterModels } from './sources/openrouter.js';
+import { fetchOpenRouterModels, isStreamableModelId } from './sources/openrouter.js';
 import type { ModelRecord } from './types.js';
 
 export function loadSeed(): ModelRecord[] {
@@ -100,7 +100,10 @@ export async function buildCatalog(opts: CatalogOptions = {}): Promise<ModelReco
   if (cachePath) {
     try {
       const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as CacheFile;
-      if (now() - cached.at < ttl) live = cached.records;
+      // Filter on read too: a variant OpenRouter delisted (e.g. `…:batch`) can
+      // still sit in a cache written before this guard existed, or before the
+      // delisting — drop it now rather than waiting out the TTL.
+      if (now() - cached.at < ttl) live = cached.records.filter((r) => isStreamableModelId(r.id));
     } catch {
       /* cache miss */
     }
