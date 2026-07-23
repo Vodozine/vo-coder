@@ -51,6 +51,10 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
     await clickNav(label);
     await snap(label.toLowerCase());
   }
+  // Memory map — give the async map query time to render its nodes.
+  await clickNav('Memory');
+  await wait(1800);
+  await snap('memory');
   // Preview with a file open so it shows highlighted code, not the empty pane.
   await clickNav('Preview');
   await wait(1200);
