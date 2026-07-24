@@ -574,16 +574,21 @@ export function Chat() {
 
   const decorate = (modelId: string): string => {
     const rec = catalog?.records.find((r) => r.id === modelId);
-    if (!rec) return modelId;
-    const bits: string[] = [rec.displayName ?? modelId];
-    if (rec.contextLength) bits.push(`${Math.round(rec.contextLength / 1000)}k`);
-    if (
-      rec.pricing?.inputPerMTok !== undefined &&
+    const bits: string[] = [rec?.displayName ?? modelId];
+    if (rec?.contextLength) bits.push(`${Math.round(rec.contextLength / 1000)}k`);
+    // Pricing is per-ENDPOINT. The catalog carries OpenRouter's rates; NVIDIA
+    // uses the same org/model slugs (z-ai/glm-5.2, openai/gpt-oss-120b), so a
+    // naive id match would stamp OpenRouter's PAID price on NVIDIA's endpoint —
+    // which serves these free (rate-limited). Show that truth instead.
+    if (config.defaultProvider === 'nvidia') {
+      bits.push('free endpoint');
+    } else if (
+      rec?.pricing?.inputPerMTok !== undefined &&
       rec.pricing.inputPerMTok >= 0 &&
       (rec.pricing.outputPerMTok ?? 0) >= 0
     ) {
       bits.push(`$${rec.pricing.inputPerMTok}/$${rec.pricing.outputPerMTok} per MTok`);
-    } else if (rec.estMemGb !== undefined) {
+    } else if (rec?.estMemGb !== undefined) {
       bits.push(rec.fit.fits ? `local · fits ✓` : `local · too big ✗`);
     }
     return bits.join(' · ');
