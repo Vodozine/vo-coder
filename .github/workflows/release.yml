@@ -45,7 +45,8 @@ jobs:
       - name: Add x64 node-pty prebuild for the Intel Mac build
         if: matrix.os == 'macos-latest'
         run: |
-          V=$(node -p "require('@lydell/node-pty/package.json').optionalDependencies['@lydell/node-pty-darwin-x64']")
+          # fs read, not require(): the package's exports map hides package.json
+          V=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/@lydell/node-pty/package.json','utf8')).optionalDependencies['@lydell/node-pty-darwin-x64']")
           npm pack "@lydell/node-pty-darwin-x64@$V"
           mkdir -p node_modules/@lydell/node-pty-darwin-x64
           tar -xzf lydell-node-pty-darwin-x64-*.tgz -C node_modules/@lydell/node-pty-darwin-x64 --strip-components=1
