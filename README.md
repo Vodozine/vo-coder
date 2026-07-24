@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://vodozine.github.io/vo-coder/"><strong>Website</strong></a> ·
   <a href="https://github.com/Vodozine/vo-coder/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://github.com/Vodozine/vo-coder/discussions"><strong>Discussions</strong></a> ·
   <a href="#whats-inside">Features</a>
 </p>
 
