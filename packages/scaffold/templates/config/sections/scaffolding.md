@@ -105,6 +105,13 @@ Heads-up: your development OS is not macOS — plan for a cloud Mac / CI service
 (or a borrowed Mac) for builds, or consider a cross-platform framework.
 <!-- /when -->
 <!-- /when -->
+<!-- when: answers.targetPlatform == "website" -->
+
+Platform note (website): static-first — plain pages or a static-site generator;
+only add a server when a feature truly needs one. Decide hosting early (GitHub
+Pages, Netlify, a plain web server…). Content, SEO metadata, and load speed are
+the product.
+<!-- /when -->
 <!-- when: answers.targetPlatform == "web" -->
 
 Platform note (web): the app is whatever the browser downloads — define the

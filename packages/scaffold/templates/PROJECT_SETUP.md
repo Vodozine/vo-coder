@@ -35,6 +35,7 @@ Describe briefly: project name, purpose, core idea.
 - Desktop — cross-platform (Windows + macOS + Linux)
 - Android app
 - iOS app
+- Website
 - Web app (browser)
 - Server / cloud
 - Other / not sure

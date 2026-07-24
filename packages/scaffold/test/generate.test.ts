@@ -87,6 +87,13 @@ describe('PROJECT_CONFIG.md generation matrix', () => {
     expect(ios).toContain('Mac with Xcode');
     expect(ios).toContain('your development OS is not macOS');
 
+    const website = generateConfig(
+      { ...personas['beginner-js-app-none-windows']!, targetPlatform: 'website' },
+      { generatedAt: GEN_AT },
+    ).markdown;
+    expect(website).toContain('static-first');
+    expect(website).not.toContain('Electron, Tauri');
+
     const advanced = generateConfig(personas['advanced-python-backend-proxmox-linux']!, {
       generatedAt: GEN_AT,
     }).markdown;

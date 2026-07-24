@@ -22,6 +22,7 @@ export type TargetPlatform =
   | 'cross-desktop'
   | 'android'
   | 'ios'
+  | 'website'
   | 'web'
   | 'server'
   | 'other';

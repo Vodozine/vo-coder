@@ -141,10 +141,16 @@ export const QUESTIONS: QuestionDef[] = [
           'iPhone / iPad, shipped through the App Store. Building requires a Mac with Xcode.',
       },
       {
+        value: 'website',
+        label: 'Website',
+        description:
+          'Pages people visit to read and look around — a portfolio, blog, business site, landing page.',
+      },
+      {
         value: 'web',
         label: 'Web app (browser)',
         description:
-          'Runs in the browser — nothing to install, works on every device. The easiest way to reach everyone.',
+          'A program that runs in the browser — dashboards, editors, tools. Nothing to install, works on every device.',
       },
       {
         value: 'server',
