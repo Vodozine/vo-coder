@@ -8,6 +8,7 @@ export { OllamaProvider } from './adapters/ollama.js';
 export type { OllamaProviderOptions } from './adapters/ollama.js';
 export {
   LmStudioProvider,
+  NvidiaProvider,
   OpenAICompatibleProvider,
   OpenAIProvider,
   OpenRouterProvider,

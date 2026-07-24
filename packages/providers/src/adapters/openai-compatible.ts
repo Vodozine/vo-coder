@@ -213,6 +213,13 @@ export class XaiProvider extends OpenAICompatibleProvider {
   }
 }
 
+/** NVIDIA NIM cloud (build.nvidia.com) — OpenAI-compatible, keys are nvapi-…. */
+export class NvidiaProvider extends OpenAICompatibleProvider {
+  constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {
+    super('nvidia', { ...opts, baseURL: opts.baseURL ?? 'https://integrate.api.nvidia.com/v1' });
+  }
+}
+
 /** LM Studio's local server speaks the OpenAI wire format; no real key needed. */
 export class LmStudioProvider extends OpenAICompatibleProvider {
   constructor(opts: Partial<OpenAICompatibleOptions> = {}) {

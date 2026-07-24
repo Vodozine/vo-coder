@@ -3,7 +3,7 @@ import type { McpRegistryEntry } from '@vo-coder/core';
 import type { AppConfig, TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
 
 function KeyRow({ provider }: { provider: string }) {
   const status = useStore((s) => s.secretStatus[provider]);
@@ -904,6 +904,7 @@ export function Settings() {
         <KeyRow provider="openai" />
         <KeyRow provider="openrouter" />
         <KeyRow provider="xai" />
+        <KeyRow provider="nvidia" />
         <XaiSignIn />
       </section>
 

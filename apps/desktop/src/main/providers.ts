@@ -1,6 +1,7 @@
 import {
   AnthropicProvider,
   LmStudioProvider,
+  NvidiaProvider,
   OllamaProvider,
   OpenAIProvider,
   OpenRouterProvider,
@@ -33,6 +34,8 @@ export class ProviderHub {
     if (openrouterKey) reg.register(new OpenRouterProvider({ apiKey: openrouterKey }));
     const xaiAuth = this.getXaiOAuthToken?.() ?? this.secrets.get('xai');
     if (xaiAuth) reg.register(new XaiProvider({ apiKey: xaiAuth }));
+    const nvidiaKey = this.secrets.get('nvidia');
+    if (nvidiaKey) reg.register(new NvidiaProvider({ apiKey: nvidiaKey }));
     // Local servers need no key; always registered (they error helpfully if not running).
     reg.register(new OllamaProvider({ baseUrl: this.config.get().ollamaBaseUrl }));
     reg.register(new LmStudioProvider({ baseURL: this.config.get().lmstudioBaseUrl }));

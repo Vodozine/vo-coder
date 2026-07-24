@@ -63,6 +63,7 @@ export class SecretStore {
       'openai',
       'openrouter',
       'xai',
+      'nvidia',
       'telegram',
       'elevenlabs',
       'tts-custom',

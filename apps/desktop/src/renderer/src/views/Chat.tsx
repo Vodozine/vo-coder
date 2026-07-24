@@ -130,7 +130,7 @@ function ContextChip({
   );
 }
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
 
 /** Inline render of a generated image — pixels come over IPC, never tokens. */
 function GeneratedImage({ path }: { path: string }) {

@@ -60,7 +60,7 @@ More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 ## What's inside
 <a id="whats-inside"></a>
 
-**🤖 Six providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed.
+**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed.
 
 **🧭 Smart routing, your rules** — four modes: *Auto* (cheapest adequate model per message), *My agents first* (your specialist agents get matching work, Auto as fallback), *My agents only* (every turn lands on one of your agents), or *Off*. Every routed reply shows the reasoning and estimated cost.
 

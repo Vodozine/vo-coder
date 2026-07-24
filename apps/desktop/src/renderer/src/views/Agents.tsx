@@ -3,7 +3,7 @@ import type { AgentSpec } from '@vo-coder/providers';
 import { ModelPicker } from '../components/ModelPicker';
 import { useStore } from '../state/store';
 
-const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai'];
+const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
 
 function AgentForm({
   initial,
