@@ -107,107 +107,169 @@ export class OpenAICompatibleProvider implements ChatProvider {
         : {}),
     };
 
-    let res: Response;
-    try {
-      res = await this.fetchFn(`${this.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify(body),
-        signal: opts.signal,
-      });
-    } catch (err) {
-      yield opts.signal.aborted || isAbortError(err)
-        ? { type: 'done', stopReason: 'aborted' }
-        : { type: 'error', error: networkError(messageOf(err)) };
-      return;
-    }
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      yield {
-        type: 'error',
-        error: errorFromStatus(res.status, humanizeErrorBody(res.status, detail) || res.statusText),
-      };
-      return;
-    }
-
-    const toolAcc = new Map<number, { id: string; name: string; json: string }>();
-    let stopReason: StopReason = 'end_turn';
-    let usageEmitted = false;
-
-    const flushTools = function* (): Generator<ProviderEvent> {
-      for (const acc of toolAcc.values()) {
-        yield {
-          type: 'tool_call',
-          id: acc.id,
-          name: acc.name,
-          args: acc.json ? JSON.parse(acc.json) : {},
+    // Busy shared endpoints (NVIDIA's free tier at 48/48, any 429) usually
+    // free a slot within seconds — retry a couple of times with backoff
+    // before surfacing an error. Retries only happen while NOTHING has been
+    // yielded yet, so the consumer never sees a partial double-stream.
+    const MAX_ATTEMPTS = 3;
+    const backoffOrAbort = async (attempt: number, retryAfterSec?: number): Promise<boolean> => {
+      const waitMs = Math.min(
+        retryAfterSec && retryAfterSec > 0
+          ? retryAfterSec * 1000
+          : attempt * 2000 + Math.random() * 1000,
+        8000,
+      );
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          opts.signal.removeEventListener('abort', onAbort);
+          resolve(false);
+        }, waitMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve(true);
         };
-      }
-      toolAcc.clear();
+        if (opts.signal.aborted) onAbort();
+        else opts.signal.addEventListener('abort', onAbort, { once: true });
+      });
     };
 
-    try {
-      for await (const line of streamLines(res.body)) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') break;
-        const chunk = JSON.parse(payload) as CompletionChunk;
-        if (chunk.error?.message) {
-          const raw = chunk.error.message;
-          const rateLimited = /resource ?exhausted|too many requests|rate.?limit|quota/i.test(raw);
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await this.fetchFn(`${this.baseURL}/chat/completions`, {
+          method: 'POST',
+          headers: this.headers(),
+          body: JSON.stringify(body),
+          signal: opts.signal,
+        });
+      } catch (err) {
+        yield opts.signal.aborted || isAbortError(err)
+          ? { type: 'done', stopReason: 'aborted' }
+          : { type: 'error', error: networkError(messageOf(err)) };
+        return;
+      }
+
+      if (!res.ok) {
+        const retryable =
+          res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503;
+        if (!retryable || attempt === MAX_ATTEMPTS) {
+          const detail = await res.text().catch(() => '');
           yield {
             type: 'error',
-            error: {
-              kind: rateLimited ? 'rate_limit' : 'unknown',
-              message: humanizeErrorBody(undefined, raw),
-            },
+            error: errorFromStatus(
+              res.status,
+              humanizeErrorBody(res.status, detail) || res.statusText,
+            ),
           };
           return;
         }
-        const choice = chunk.choices?.[0];
-        const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
-        if (reasoning) {
-          yield { type: 'thinking_delta', text: reasoning };
+        void res.text().catch(() => ''); // drain before retrying
+        if (await backoffOrAbort(attempt, Number(res.headers.get('retry-after')))) {
+          yield { type: 'done', stopReason: 'aborted' };
+          return;
         }
-        if (choice?.delta?.content) {
-          yield { type: 'text_delta', text: choice.delta.content };
-        }
-        for (const tc of choice?.delta?.tool_calls ?? []) {
-          const acc = toolAcc.get(tc.index) ?? { id: '', name: '', json: '' };
-          if (tc.id) acc.id = tc.id;
-          if (tc.function?.name) acc.name = tc.function.name;
-          if (tc.function?.arguments) acc.json += tc.function.arguments;
-          toolAcc.set(tc.index, acc);
-        }
-        if (choice?.finish_reason) {
-          yield* flushTools();
-          stopReason =
-            choice.finish_reason === 'tool_calls'
-              ? 'tool_use'
-              : choice.finish_reason === 'length'
-                ? 'max_tokens'
-                : 'end_turn';
-        }
-        if (chunk.usage) {
-          usageEmitted = true;
+        continue;
+      }
+
+      const toolAcc = new Map<number, { id: string; name: string; json: string }>();
+      let stopReason: StopReason = 'end_turn';
+      let usageEmitted = false;
+      let yieldedAny = false;
+      let retryInBand = false;
+
+      const flushTools = function* (): Generator<ProviderEvent> {
+        for (const acc of toolAcc.values()) {
           yield {
-            type: 'usage',
-            inputTokens: chunk.usage.prompt_tokens ?? 0,
-            outputTokens: chunk.usage.completion_tokens ?? 0,
-            ...(chunk.usage.prompt_tokens_details?.cached_tokens !== undefined
-              ? { cacheReadTokens: chunk.usage.prompt_tokens_details.cached_tokens }
-              : {}),
+            type: 'tool_call',
+            id: acc.id,
+            name: acc.name,
+            args: acc.json ? JSON.parse(acc.json) : {},
           };
         }
+        toolAcc.clear();
+      };
+
+      try {
+        for await (const line of streamLines(res.body)) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') break;
+          const chunk = JSON.parse(payload) as CompletionChunk;
+          if (chunk.error?.message) {
+            const raw = chunk.error.message;
+            const rateLimited = /resource ?exhausted|too many requests|rate.?limit|quota/i.test(raw);
+            // Same busy-worker signal, delivered in-band after a 200 — retry
+            // as long as nothing has streamed to the consumer yet.
+            if (rateLimited && !yieldedAny && attempt < MAX_ATTEMPTS) {
+              retryInBand = true;
+              break;
+            }
+            yield {
+              type: 'error',
+              error: {
+                kind: rateLimited ? 'rate_limit' : 'unknown',
+                message: humanizeErrorBody(undefined, raw),
+              },
+            };
+            return;
+          }
+          const choice = chunk.choices?.[0];
+          const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
+          if (reasoning) {
+            yieldedAny = true;
+            yield { type: 'thinking_delta', text: reasoning };
+          }
+          if (choice?.delta?.content) {
+            yieldedAny = true;
+            yield { type: 'text_delta', text: choice.delta.content };
+          }
+          for (const tc of choice?.delta?.tool_calls ?? []) {
+            const acc = toolAcc.get(tc.index) ?? { id: '', name: '', json: '' };
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments) acc.json += tc.function.arguments;
+            toolAcc.set(tc.index, acc);
+          }
+          if (choice?.finish_reason) {
+            yieldedAny = true;
+            yield* flushTools();
+            stopReason =
+              choice.finish_reason === 'tool_calls'
+                ? 'tool_use'
+                : choice.finish_reason === 'length'
+                  ? 'max_tokens'
+                  : 'end_turn';
+          }
+          if (chunk.usage) {
+            usageEmitted = true;
+            yieldedAny = true;
+            yield {
+              type: 'usage',
+              inputTokens: chunk.usage.prompt_tokens ?? 0,
+              outputTokens: chunk.usage.completion_tokens ?? 0,
+              ...(chunk.usage.prompt_tokens_details?.cached_tokens !== undefined
+                ? { cacheReadTokens: chunk.usage.prompt_tokens_details.cached_tokens }
+                : {}),
+            };
+          }
+        }
+        if (retryInBand) {
+          if (await backoffOrAbort(attempt)) {
+            yield { type: 'done', stopReason: 'aborted' };
+            return;
+          }
+          continue;
+        }
+        yield* flushTools();
+        if (!usageEmitted) yield { type: 'usage', inputTokens: 0, outputTokens: 0 };
+        yield { type: 'done', stopReason };
+        return;
+      } catch (err) {
+        yield opts.signal.aborted || isAbortError(err)
+          ? { type: 'done', stopReason: 'aborted' }
+          : { type: 'error', error: networkError(messageOf(err)) };
+        return;
       }
-      yield* flushTools();
-      if (!usageEmitted) yield { type: 'usage', inputTokens: 0, outputTokens: 0 };
-      yield { type: 'done', stopReason };
-    } catch (err) {
-      yield opts.signal.aborted || isAbortError(err)
-        ? { type: 'done', stopReason: 'aborted' }
-        : { type: 'error', error: networkError(messageOf(err)) };
     }
   }
 }
