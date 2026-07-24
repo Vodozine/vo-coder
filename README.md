@@ -33,6 +33,14 @@ And because an assistant should not be trapped in one window, Vodo works as one 
 
 Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — you see every file write and command before it happens.
 
+## The story
+
+Vo-Coder is a **pet project**. I built it for myself and I use it daily — it's shared because it's useful, not because it's finished. There will be bugs; I'm working through them as they surface. Found one, or want something it doesn't do yet? **[Discussions](https://github.com/Vodozine/vo-coder/discussions)** is the place.
+
+It's also a port of something bigger. Vo-Coder began as the brain of **Vodomation OS** — my own highly customized Linux distro with its own desktop environment, currently in the works. There it runs far deeper than any desktop app can: most of Vodomation's built-in apps don't need compiling, so Vo-Coder can change and extend *every one of them while you use them* — the multimedia and design apps included. Ask **Vaudio** (the audio app) for an effect that doesn't exist, and Vo-Coder writes the audio plugin on the fly. An OS that grows with you.
+
+That framework is so different from a conventional desktop that a straight port was impossible — so this standalone Vo-Coder was **rebuilt from scratch** to bring the same brain to Windows, macOS, and Linux.
+
 ## Screens
 
 <table>
