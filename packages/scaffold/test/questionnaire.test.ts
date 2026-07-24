@@ -17,10 +17,19 @@ function answerThrough(state: QuestionnaireState, values: string[]): Questionnai
 }
 
 describe('questionnaire state machine', () => {
-  it('walks the base 7 questions in the documented order', () => {
+  it('walks the base 8 questions in the documented order', () => {
     let s = start();
     const seen: string[] = [];
-    for (const v of ['My app', 'beginner', 'standalone-app', 'javascript', 'none', 'windows', '']) {
+    for (const v of [
+      'My app',
+      'beginner',
+      'standalone-app',
+      'cross-desktop',
+      'javascript',
+      'none',
+      'windows',
+      '',
+    ]) {
       seen.push(current(s)!.id);
       s = answer(s, v);
     }
@@ -28,6 +37,7 @@ describe('questionnaire state machine', () => {
       'description',
       'skillLevel',
       'projectType',
+      'targetPlatform',
       'language',
       'virtualization',
       'devOs',
@@ -37,7 +47,7 @@ describe('questionnaire state machine', () => {
   });
 
   it('branches: hypervisorKind only appears when virtualization is hypervisor', () => {
-    let s = answerThrough(start(), ['App', 'advanced', 'backend-service', 'python']);
+    let s = answerThrough(start(), ['App', 'advanced', 'backend-service', 'server', 'python']);
     s = answer(s, 'hypervisor');
     expect(current(s)!.id).toBe('hypervisorKind');
     s = answer(s, 'proxmox');
@@ -45,7 +55,7 @@ describe('questionnaire state machine', () => {
   });
 
   it('branches: languageOther only appears for language=other, and its answer is dropped when the branch closes', () => {
-    let s = answerThrough(start(), ['App', 'intermediate', 'cli']);
+    let s = answerThrough(start(), ['App', 'intermediate', 'cli', 'windows-desktop']);
     s = answer(s, 'other');
     expect(current(s)!.id).toBe('languageOther');
     s = answer(s, 'zig');
@@ -64,10 +74,10 @@ describe('questionnaire state machine', () => {
   });
 
   it('progress counts only visible questions', () => {
-    let s = answerThrough(start(), ['App', 'beginner', 'cli', 'javascript']);
-    expect(progress(s)).toEqual({ done: 4, total: 7 });
-    s = answer(s, 'hypervisor'); // adds the hypervisorKind follow-up
+    let s = answerThrough(start(), ['App', 'beginner', 'cli', 'web', 'javascript']);
     expect(progress(s)).toEqual({ done: 5, total: 8 });
+    s = answer(s, 'hypervisor'); // adds the hypervisorKind follow-up
+    expect(progress(s)).toEqual({ done: 6, total: 9 });
   });
 
   it('seeded environment answers skip those questions and honor dependsOn', () => {
@@ -75,7 +85,7 @@ describe('questionnaire state machine', () => {
     let s = seedAnswers(start(), seeds, ENV_QUESTION_IDS);
     // The wizard still starts at the project question…
     expect(current(s)!.id).toBe('description');
-    for (const v of ['My app', 'advanced', 'backend-service', 'python']) s = answer(s, v);
+    for (const v of ['My app', 'advanced', 'backend-service', 'server', 'python']) s = answer(s, v);
     // …and jumps straight past virtualization/hypervisor/devOs to philosophy.
     expect(current(s)!.id).toBe('philosophy');
     s = answer(s, '');
@@ -102,6 +112,7 @@ describe('questionnaire state machine', () => {
       'My service',
       'advanced',
       'backend-service',
+      'server',
       'python',
       'hypervisor',
       'proxmox',
@@ -112,6 +123,7 @@ describe('questionnaire state machine', () => {
       description: 'My service',
       skillLevel: 'advanced',
       projectType: 'backend-service',
+      targetPlatform: 'server',
       language: 'python',
       virtualization: 'hypervisor',
       hypervisorKind: 'proxmox',

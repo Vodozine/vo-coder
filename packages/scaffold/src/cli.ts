@@ -34,9 +34,17 @@ async function main(): Promise<void> {
     const label = `[${done + 1}/${total}] ${q.prompt}`;
     let value: unknown;
     if (q.kind === 'select') {
+      // Beginners get each option explained (skill level always is — it's
+      // answered before we know who we're talking to).
+      const explain = q.id === 'skillLevel' || state.answers.skillLevel === 'beginner';
+      if (explain && q.beginnerHint) p.log.info(q.beginnerHint);
       value = await p.select({
         message: label,
-        options: q.options!.map((o) => ({ value: o.value, label: o.label })),
+        options: q.options!.map((o) => ({
+          value: o.value,
+          label: o.label,
+          ...(explain && o.description ? { hint: o.description } : {}),
+        })),
       });
     } else {
       value = await p.text({

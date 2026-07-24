@@ -3,7 +3,7 @@
 exports[`PROJECT_CONFIG.md generation matrix > advanced-python-backend-proxmox-linux: renders without warnings and matches snapshot 1`] = `
 "# Project Configuration
 
-<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"An inference gateway","skillLevel":"advanced","projectType":"backend-service","language":"python","virtualization":"hypervisor","hypervisorKind":"proxmox","devOs":"linux","philosophy":"anti-e-waste hardware reuse"}} -->
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"An inference gateway","skillLevel":"advanced","projectType":"backend-service","targetPlatform":"server","language":"python","virtualization":"hypervisor","hypervisorKind":"proxmox","devOs":"linux","philosophy":"anti-e-waste hardware reuse"}} -->
 
 Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
 for this build — the harness and the infrastructure MCP read it to scaffold,
@@ -14,6 +14,7 @@ test, and provision. Edit answers by re-running the questionnaire.
 - **Project Description:** An inference gateway
 - **Skill Level:** advanced
 - **Project Type:** backend-service
+- **Target Platform:** server
 - **Development Language:** python
 - **Virtualization Available:** hypervisor (proxmox)
 - **Development OS:** linux
@@ -98,10 +99,100 @@ if it shows up three times, it belongs in the template.
 "
 `;
 
+exports[`PROJECT_CONFIG.md generation matrix > beginner-ios-on-windows: renders without warnings and matches snapshot 1`] = `
+"# Project Configuration
+
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A habit tracker phone app","skillLevel":"beginner","projectType":"standalone-app","targetPlatform":"ios","language":"other","languageOther":"swift","virtualization":"none","devOs":"windows","philosophy":""}} -->
+
+Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
+for this build — the harness and the infrastructure MCP read it to scaffold,
+test, and provision. Edit answers by re-running the questionnaire.
+
+## Your Answers
+
+- **Project Description:** A habit tracker phone app
+- **Skill Level:** beginner
+- **Project Type:** standalone-app
+- **Target Platform:** ios
+- **Development Language:** swift
+- **Virtualization Available:** none
+- **Development OS:** windows
+- **Project Philosophy:**
+
+## Project Scaffolding
+
+Design rule for every part of this codebase: **small, modular blocks with
+explicit contracts** (inputs, outputs, side effects) and **a test hook at every
+connection point**. Blocks never reach into each other's internals.
+
+Apply the same shape in swift: an entry point that only wires
+blocks together, one directory/module per block, a shared contracts area, and
+tests co-located with each block.
+
+Platform note (iOS): building and shipping requires a Mac with Xcode plus an
+Apple Developer account for App Store distribution.
+
+Heads-up: your development OS is not macOS — plan for a cloud Mac / CI service
+(or a borrowed Mac) for builds, or consider a cross-platform framework.
+
+## Dependency Management
+
+- Whatever the swift ecosystem uses, the rule is the same: a manifest for intent, a committed lockfile for reproducibility.
+
+## Development Environment Setup
+
+- Windows dev machine: prefer PowerShell-compatible scripts, or provide both \`.ps1\` and \`.sh\` variants.
+- Watch for path separators and line endings — set \`.gitattributes\` with \`* text=auto eol=lf\` early.
+
+- Local-only development: document every manual setup step in the README the moment you perform it — future-you is the deployment target.
+
+## Testing Strategy
+
+Test points live at every module connection point — that is the payoff of the
+block structure. A block without a test hook is not done.
+
+- Start with **one test per block** that exercises its contract end to end. Copy the pattern; don't study testing theory first.
+- Run the suite before every commit. A red test is information, not failure.
+
+## Staging / Pre-Production Validation
+
+- No virtualization available: your staging path is a clean checkout + full test suite + a manual smoke script. Write that smoke script now and keep it current.
+
+## Production Deployment
+
+- Direct deployment: script it end to end (build → verify → copy → restart) so a release is one command, and keep the previous build alongside for instant rollback.
+
+## Monitoring and Observability
+
+- Log every error with enough context to reproduce it (inputs, not just the message). Structured logging can wait; useful logging cannot.
+- Check the logs after each deploy — that habit is the whole practice at this stage.
+
+## Rollback Procedures
+
+- Git is your rollback: commit small and often; a bad release is \`git revert\` + redeploy.
+- Before risky changes, note the last-known-good commit hash somewhere you'll find it under stress.
+
+## Learning Loop Documentation
+
+After each meaningful iteration, answer in three lines (append below):
+
+1. What worked?
+2. What didn't?
+3. What should feed back into the template or this config?
+
+Failure is data. If the same friction shows up twice, it belongs in this file;
+if it shows up three times, it belongs in the template.
+
+### Log
+
+<!-- entries append here -->
+"
+`;
+
 exports[`PROJECT_CONFIG.md generation matrix > beginner-js-app-none-windows: renders without warnings and matches snapshot 1`] = `
 "# Project Configuration
 
-<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A todo desktop app","skillLevel":"beginner","projectType":"standalone-app","language":"javascript","virtualization":"none","devOs":"windows","philosophy":""}} -->
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A todo desktop app","skillLevel":"beginner","projectType":"standalone-app","targetPlatform":"cross-desktop","language":"javascript","virtualization":"none","devOs":"windows","philosophy":""}} -->
 
 Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
 for this build — the harness and the infrastructure MCP read it to scaffold,
@@ -112,6 +203,7 @@ test, and provision. Edit answers by re-running the questionnaire.
 - **Project Description:** A todo desktop app
 - **Skill Level:** beginner
 - **Project Type:** standalone-app
+- **Target Platform:** cross-desktop
 - **Development Language:** javascript
 - **Virtualization Available:** none
 - **Development OS:** windows
@@ -132,6 +224,11 @@ src/
 
 - Every module exports a typed interface; consumers import the contract, not the implementation.
 - Prefer plain functions over classes unless state genuinely lives in the block.
+
+Platform note (cross-platform desktop): pick the shell framework first
+(Electron, Tauri, Qt, …) and keep ALL platform-specific code behind one
+\`platform/\` block — the rest of the codebase must never ask which OS it is on.
+Test packaging on every target OS early, not at release time.
 
 ## Dependency Management
 
@@ -191,7 +288,7 @@ if it shows up three times, it belongs in the template.
 exports[`PROJECT_CONFIG.md generation matrix > intermediate-rust-cli-docker-macos: renders without warnings and matches snapshot 1`] = `
 "# Project Configuration
 
-<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A log analyzer CLI","skillLevel":"intermediate","projectType":"cli","language":"rust","virtualization":"docker","devOs":"macos","philosophy":"minimal dependencies"}} -->
+<!-- vo-config: {"version":1,"generatedAt":"2026-07-22T00:00:00.000Z","answers":{"description":"A log analyzer CLI","skillLevel":"intermediate","projectType":"cli","targetPlatform":"other","language":"rust","virtualization":"docker","devOs":"macos","philosophy":"minimal dependencies"}} -->
 
 Generated from the PROJECT_SETUP.md questionnaire. This file is the north star
 for this build — the harness and the infrastructure MCP read it to scaffold,
@@ -202,6 +299,7 @@ test, and provision. Edit answers by re-running the questionnaire.
 - **Project Description:** A log analyzer CLI
 - **Skill Level:** intermediate
 - **Project Type:** cli
+- **Target Platform:** other
 - **Development Language:** rust
 - **Virtualization Available:** docker
 - **Development OS:** macos

@@ -102,6 +102,7 @@ export function toAnswers(state: QuestionnaireState): ProjectAnswers {
     description: a.description!,
     skillLevel: a.skillLevel as ProjectAnswers['skillLevel'],
     projectType: a.projectType as ProjectAnswers['projectType'],
+    targetPlatform: a.targetPlatform as ProjectAnswers['targetPlatform'],
     language: a.language as ProjectAnswers['language'],
     ...(a.languageOther ? { languageOther: a.languageOther } : {}),
     virtualization: a.virtualization as ProjectAnswers['virtualization'],

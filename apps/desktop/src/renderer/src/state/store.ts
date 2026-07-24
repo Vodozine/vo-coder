@@ -394,7 +394,7 @@ export const useStore = create<AppState>((set, get) => ({
       activeProjectId: project.id,
     }));
     await get().newSession(project.id);
-    // Straight into the 7-question setup for the new folder.
+    // Straight into the 8-question setup for the new folder.
     set({ scaffoldTarget: project.dir ?? null, view: 'scaffold' });
     return null;
   },
@@ -717,6 +717,13 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshMcp();
   },
 }));
+
+// The preview pane and its dev server belong to one project. Switching
+// projects — via any path (open session, new project, delete…) — tears both
+// down so the next project never inherits a stale page or a squatting server.
+useStore.subscribe((state, prev) => {
+  if (state.activeProjectId !== prev.activeProjectId) void window.vo.previewClose();
+});
 
 /** Rebuild display messages from a persisted harness transcript. */
 function uiFromHistory(history: HarnessMessage[]): UiMessage[] {

@@ -77,17 +77,23 @@ More on the **[website ↗](https://vodozine.github.io/vo-coder/)**.
 
 **👀 Live code view** — watch agents build in real time: project tree with change states, per-line diffs, syntax highlighting, git-aware review. Select any code and ask for an explanation, a rethink, or a change — right where it is.
 
-**🏗 Project scaffolding** — a 7-question setup generates a `PROJECT_CONFIG.md` that agents and tools treat as the project's north star. Environment answers are remembered across projects.
+**🏗 Project scaffolding** — an 8-question setup (including the target platform: Windows/macOS/Linux desktop, Android, iOS, web, server) generates a `PROJECT_CONFIG.md` that agents and tools treat as the project's north star. Beginners get every option explained; environment answers are remembered across projects.
 
 **🖥 Infrastructure MCP** — a bundled, generalized infrastructure server: environment discovery plus a Proxmox driver (VMs, containers, snapshots, backups) behind read < write < destructive permission tiers. Works in any MCP client, not just Vo-Coder. Finding more tools is built in: search the official MCP registry and add servers with one click.
 
-**📟 The essentials** — real PTY terminal with tabs, a live app preview that starts your project's dev server for you, per-project + all-time usage tracking, auto-updates that keep your settings and keys.
+**📟 The essentials** — real PTY terminal with tabs, a live app preview that starts (and stops) your project's dev server and follows whichever project you're in, per-project + all-time usage tracking, auto-updates that keep your settings and keys.
 
 **🛡 Built to not hang** — a silent or throttled model can't freeze a turn (a stall watchdog aborts it), Stop always interrupts even a wedged command, and long build-and-verify runs get room to finish instead of dying halfway. Three operating modes — **Auto** (autonomous), **Plan** (read-only, proposes a plan), **Manual** (approve every action).
 
 ## Install
 
-Grab the latest installer from **[Releases](https://github.com/Vodozine/vo-coder/releases)**. Windows first; the app updates itself from there.
+Grab the latest installer from **[Releases](https://github.com/Vodozine/vo-coder/releases)** — Windows (auto-updating), macOS (Apple Silicon **and** Intel), and Linux AppImage.
+
+**macOS:** open the DMG and drag Vo-Coder to Applications. Pick the **arm64** DMG for Apple Silicon (M-series) or the **x64** DMG for Intel. On first launch, **right-click the app → Open → Open** — a plain double-click is blocked because the build isn't notarized (no Apple Developer account behind it, just an open-source project). If macOS still says the app is *"damaged"*, run this once in Terminal and open it again:
+
+```bash
+xattr -cr /Applications/Vo-Coder.app
+```
 
 On first run: add one API key (or start a local Ollama/LM Studio server — no key needed), and say hello to Vodo.
 

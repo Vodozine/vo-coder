@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { WebContentsView, type BrowserWindow } from 'electron';
+import { WebContentsView, shell, type BrowserWindow } from 'electron';
 
 export interface PreviewBounds {
   x: number;
@@ -53,6 +53,23 @@ function killTree(pid: number | undefined): void {
   }
 }
 
+function safeProtocol(url: string): string {
+  try {
+    return new URL(url).protocol;
+  } catch {
+    return '';
+  }
+}
+
+function isLocalhost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 async function portResponds(port: number): Promise<boolean> {
   try {
     const ctl = new AbortController();
@@ -74,6 +91,8 @@ export class PreviewManager {
   private view: WebContentsView | null = null;
   private currentUrl: string | null = null;
   private devChild: ChildProcess | null = null;
+  /** Project dir the running dev child serves — reuse is per-project. */
+  private devDir: string | null = null;
 
   constructor(private getWindow: () => BrowserWindow | null) {}
 
@@ -91,15 +110,31 @@ export class PreviewManager {
     if (!cmd) {
       return { ok: false, error: 'No dev/start/serve script found in this project’s package.json.' };
     }
-    // Already have one running for this preview? If its port answers, reuse it.
-    if (this.devChild && this.devChild.exitCode === null) {
-      if (await portResponds(cmd.port)) return { ok: true, url: `http://localhost:${cmd.port}/` };
-    } else {
-      this.stopDev();
+    // Reuse only a server we started for THIS project that still answers.
+    // Anything else — dead child, other project's server, stuck boot — is
+    // killed before spawning, or the old tree leaks and squats on the port
+    // serving the wrong app forever (it would even survive an app restart).
+    if (
+      this.devChild &&
+      this.devChild.exitCode === null &&
+      this.devDir === dir &&
+      (await portResponds(cmd.port))
+    ) {
+      return { ok: true, url: `http://localhost:${cmd.port}/` };
     }
+    this.stopDev();
 
-    const child = spawn(cmd.command, { cwd: dir, shell: true, windowsHide: true, env: process.env });
+    const child = spawn(cmd.command, {
+      cwd: dir,
+      shell: true,
+      windowsHide: true,
+      env: process.env,
+      // POSIX: own process group, so killTree's group kill (-pid) reaches the
+      // whole npm → node tree. Windows kills by tree via taskkill instead.
+      detached: process.platform !== 'win32',
+    });
     this.devChild = child;
+    this.devDir = dir;
     let log = '';
     let discovered: number | null = null;
     const onData = (buf: Buffer): void => {
@@ -153,18 +188,47 @@ export class PreviewManager {
     if (this.devChild) {
       killTree(this.devChild.pid);
       this.devChild = null;
+      this.devDir = null;
     }
+  }
+
+  /** Explicit "stop the server behind the preview" (UI button). */
+  stopServer(): { stopped: boolean } {
+    const hadLive = this.devChild !== null && this.devChild.exitCode === null;
+    this.stopDev();
+    return { stopped: hadLive };
+  }
+
+  private devRunning(): boolean {
+    return this.devChild !== null && this.devChild.exitCode === null;
   }
 
   private ensureView(): WebContentsView | null {
     const win = this.getWindow();
     if (!win) return null;
     if (!this.view) {
-      this.view = new WebContentsView({
+      const view = new WebContentsView({
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
       });
-      win.contentView.addChildView(this.view);
-      this.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+      // A crashed pane must not linger as a frozen overlay — drop it so the
+      // next open() starts from a fresh view.
+      view.webContents.on('render-process-gone', () => {
+        if (this.view === view) {
+          this.getWindow()?.contentView.removeChildView(view);
+          view.webContents.close();
+          this.view = null;
+          this.currentUrl = null;
+        }
+      });
+      // target=_blank from a previewed app goes to the user's browser, never
+      // to an orphan unstyled Electron window.
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http:') || url.startsWith('https:')) void shell.openExternal(url);
+        return { action: 'deny' };
+      });
+      win.contentView.addChildView(view);
+      view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+      this.view = view;
     }
     return this.view;
   }
@@ -227,7 +291,21 @@ export class PreviewManager {
     this.stopDev();
   }
 
-  state(): { url: string | null } {
-    return { url: this.currentUrl };
+  /**
+   * State for the renderer's resume path — validated, so a dead localhost
+   * server is never resumed as a frozen pane. file:// and non-local URLs pass
+   * through unchecked (a static page always loads; a slow external site is
+   * not our corpse to bury).
+   */
+  async stateValidated(): Promise<{ url: string | null; devRunning: boolean }> {
+    const url = this.currentUrl;
+    if (url && /^https?:$/.test(safeProtocol(url)) && isLocalhost(url)) {
+      const port = Number(new URL(url).port || 80);
+      if (!(await portResponds(port))) {
+        this.close();
+        return { url: null, devRunning: false };
+      }
+    }
+    return { url, devRunning: this.devRunning() };
   }
 }

@@ -370,11 +370,13 @@ export interface VoApi {
   >;
   /** Start the project's dev server and wait until it responds. */
   previewStartDev(dir: string): Promise<{ ok: boolean; url?: string; error?: string; log?: string }>;
+  /** Kill the dev server the preview spawned (if any). */
+  previewStopDev(): Promise<{ stopped: boolean }>;
   previewClose(): Promise<void>;
   previewHide(): Promise<void>;
   previewReload(): Promise<void>;
   previewBounds(bounds: PreviewBoundsDto): Promise<void>;
-  previewState(): Promise<{ url: string | null }>;
+  previewState(): Promise<{ url: string | null; devRunning: boolean }>;
   onCheckin(cb: (payload: CheckinPayload) => void): () => void;
   mcpSearch(query: string): Promise<McpRegistryEntry[]>;
   mcpAdd(config: McpServerConfig): Promise<McpServerStatus>;
@@ -496,6 +498,7 @@ export const IPC = {
   previewOpenFile: 'preview:openFile',
   previewDetect: 'preview:detect',
   previewStartDev: 'preview:startDev',
+  previewStopDev: 'preview:stopDev',
   previewClose: 'preview:close',
   previewHide: 'preview:hide',
   previewReload: 'preview:reload',

@@ -14,6 +14,17 @@ export type ProjectType =
   | 'data-processing'
   | 'other';
 export type Language = 'python' | 'javascript' | 'rust' | 'go' | 'java' | 'other';
+/** Where the finished software runs — not where it is developed (that's DevOs). */
+export type TargetPlatform =
+  | 'windows-desktop'
+  | 'macos-desktop'
+  | 'linux-desktop'
+  | 'cross-desktop'
+  | 'android'
+  | 'ios'
+  | 'web'
+  | 'server'
+  | 'other';
 export type Virtualization = 'docker' | 'hypervisor' | 'none';
 export type DevOs = 'windows' | 'linux' | 'macos' | 'other';
 
@@ -21,6 +32,8 @@ export interface ProjectAnswers {
   description: string;
   skillLevel: SkillLevel;
   projectType: ProjectType;
+  /** Optional because configs generated before this question exist on disk. */
+  targetPlatform?: TargetPlatform;
   language: Language;
   /** Free-text language name when language === 'other'. */
   languageOther?: string;

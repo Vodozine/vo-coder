@@ -11,6 +11,8 @@ function BrowserPreview() {
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
   const [url, setUrl] = useState('http://localhost:5173');
   const [active, setActive] = useState<string | null>(null);
+  /** True while the harness owns a live dev-server process for the preview. */
+  const [devRunning, setDevRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
   /** A bundler project that needs its dev server started. */
@@ -30,40 +32,48 @@ function BrowserPreview() {
     }
   };
 
-  // Auto-connect: resume whatever was showing; otherwise find the project's
-  // running dev server, or fall back to its built/static index.html.
+  /** Find something to show for the current project (fresh look, no resume):
+   * a running dev server, a startable one, or a static index.html. */
+  const detect = async () => {
+    if (!activeProject?.dir) return;
+    setDetecting(true);
+    setDevReady(null);
+    const found = await window.vo.previewDetect(activeProject.dir);
+    setDetecting(false);
+    if (found.kind === 'url') {
+      const result = await window.vo.previewOpen(found.url);
+      if (result.ok) {
+        setActive(found.url);
+        setUrl(found.url);
+        requestAnimationFrame(sendBounds);
+      }
+    } else if (found.kind === 'dev') {
+      // Bundler project — don't load a blank disk index.html; offer to start
+      // the dev server that actually renders it.
+      setDevReady({ command: found.command, port: found.port });
+      setUrl(`http://localhost:${found.port}`);
+    } else if (found.kind === 'file') {
+      const result = await window.vo.previewOpenFile(found.path);
+      if (result.ok) {
+        setActive(`file • ${found.path}`);
+        requestAnimationFrame(sendBounds);
+      }
+    }
+  };
+
+  // Auto-connect: resume whatever was showing (the main process has already
+  // verified its server still answers — a dead page never resumes); otherwise
+  // detect fresh for this project.
   useEffect(() => {
     void (async () => {
       const state = await window.vo.previewState();
+      setDevRunning(state.devRunning);
       if (state.url) {
         setActive(state.url);
         if (!state.url.startsWith('file:')) setUrl(state.url);
         return;
       }
-      if (!activeProject?.dir) return;
-      setDetecting(true);
-      setDevReady(null);
-      const found = await window.vo.previewDetect(activeProject.dir);
-      setDetecting(false);
-      if (found.kind === 'url') {
-        const result = await window.vo.previewOpen(found.url);
-        if (result.ok) {
-          setActive(found.url);
-          setUrl(found.url);
-          requestAnimationFrame(sendBounds);
-        }
-      } else if (found.kind === 'dev') {
-        // Bundler project — don't load a blank disk index.html; offer to start
-        // the dev server that actually renders it.
-        setDevReady({ command: found.command, port: found.port });
-        setUrl(`http://localhost:${found.port}`);
-      } else if (found.kind === 'file') {
-        const result = await window.vo.previewOpenFile(found.path);
-        if (result.ok) {
-          setActive(`file • ${found.path}`);
-          requestAnimationFrame(sendBounds);
-        }
-      }
+      await detect();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id]);
@@ -97,6 +107,17 @@ function BrowserPreview() {
     await window.vo.previewClose();
     setActive(null);
     setDevReady(null);
+    setDevRunning(false);
+  };
+
+  /** Kill the dev server behind the preview, then look again — lands on the
+   * project's "Start dev server" offer instead of a dead pane. */
+  const stopServer = async () => {
+    setError(null);
+    await window.vo.previewStopDev();
+    setActive(null);
+    setDevRunning(false);
+    await detect();
   };
 
   const startDev = async () => {
@@ -109,6 +130,7 @@ function BrowserPreview() {
       setDevReady(null);
       setActive(result.url);
       setUrl(result.url);
+      setDevRunning(true);
       requestAnimationFrame(sendBounds);
     } else {
       setError(
@@ -133,13 +155,20 @@ function BrowserPreview() {
         <button className="send" onClick={() => void open()}>
           {active ? 'Go' : 'Open'}
         </button>
+        {active && <button onClick={() => void window.vo.previewReload()}>Reload</button>}
+        {devRunning && (
+          <button
+            className="ghost"
+            title="Kill the dev server behind this preview"
+            onClick={() => void stopServer()}
+          >
+            Stop server
+          </button>
+        )}
         {active && (
-          <>
-            <button onClick={() => void window.vo.previewReload()}>Reload</button>
-            <button className="ghost" onClick={() => void close()}>
-              Close
-            </button>
-          </>
+          <button className="ghost" onClick={() => void close()}>
+            Close
+          </button>
         )}
       </div>
       {error && <p className="hint error-text preview-hint" style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}

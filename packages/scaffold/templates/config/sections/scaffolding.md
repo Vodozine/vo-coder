@@ -65,3 +65,49 @@ stay importable as a library so it can be tested without spawning a process.
 Library note: the public API surface is itself a contract — document every
 exported symbol and treat breaking changes as version events.
 <!-- /when -->
+<!-- when: answers.targetPlatform == "cross-desktop" -->
+
+Platform note (cross-platform desktop): pick the shell framework first
+(Electron, Tauri, Qt, …) and keep ALL platform-specific code behind one
+`platform/` block — the rest of the codebase must never ask which OS it is on.
+Test packaging on every target OS early, not at release time.
+<!-- /when -->
+<!-- when: answers.targetPlatform == "windows-desktop" -->
+
+Platform note (Windows desktop): decide the packaging story (installer vs
+portable exe) in week one, and keep paths/registry/UAC access behind one
+`platform/` block so the core stays testable.
+<!-- /when -->
+<!-- when: answers.targetPlatform == "macos-desktop" -->
+
+Platform note (macOS desktop): unsigned apps trip Gatekeeper ("damaged /
+unidentified developer") — plan for code signing or documented right-click →
+Open instructions before sharing builds with anyone.
+<!-- /when -->
+<!-- when: answers.targetPlatform == "linux-desktop" -->
+
+Platform note (Linux desktop): pick the distribution format early (AppImage,
+Flatpak, deb/rpm) — it constrains how the app may read config paths and bundle
+dependencies.
+<!-- /when -->
+<!-- when: answers.targetPlatform == "android" -->
+
+Platform note (Android): builds go through the Android SDK / Gradle (Android
+Studio recommended). Keep business logic out of Activities/UI classes so it can
+be unit-tested on the JVM without an emulator.
+<!-- /when -->
+<!-- when: answers.targetPlatform == "ios" -->
+
+Platform note (iOS): building and shipping requires a Mac with Xcode plus an
+Apple Developer account for App Store distribution.
+<!-- when: answers.devOs != "macos" -->
+Heads-up: your development OS is not macOS — plan for a cloud Mac / CI service
+(or a borrowed Mac) for builds, or consider a cross-platform framework.
+<!-- /when -->
+<!-- /when -->
+<!-- when: answers.targetPlatform == "web" -->
+
+Platform note (web): the app is whatever the browser downloads — define the
+supported-browser baseline now, and keep server API contracts in `shared/` so
+front end and back end cannot drift apart.
+<!-- /when -->

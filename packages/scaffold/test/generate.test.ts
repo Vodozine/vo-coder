@@ -7,6 +7,7 @@ const personas: Record<string, ProjectAnswers> = {
     description: 'A todo desktop app',
     skillLevel: 'beginner',
     projectType: 'standalone-app',
+    targetPlatform: 'cross-desktop',
     language: 'javascript',
     virtualization: 'none',
     devOs: 'windows',
@@ -16,6 +17,7 @@ const personas: Record<string, ProjectAnswers> = {
     description: 'An inference gateway',
     skillLevel: 'advanced',
     projectType: 'backend-service',
+    targetPlatform: 'server',
     language: 'python',
     virtualization: 'hypervisor',
     hypervisorKind: 'proxmox',
@@ -26,10 +28,23 @@ const personas: Record<string, ProjectAnswers> = {
     description: 'A log analyzer CLI',
     skillLevel: 'intermediate',
     projectType: 'cli',
+    targetPlatform: 'other',
     language: 'rust',
     virtualization: 'docker',
     devOs: 'macos',
     philosophy: 'minimal dependencies',
+  },
+  // iOS picked on a Windows dev box — the config must carry the cross-build heads-up.
+  'beginner-ios-on-windows': {
+    description: 'A habit tracker phone app',
+    skillLevel: 'beginner',
+    projectType: 'standalone-app',
+    targetPlatform: 'ios',
+    language: 'other',
+    languageOther: 'swift',
+    virtualization: 'none',
+    devOs: 'windows',
+    philosophy: '',
   },
 };
 
@@ -61,8 +76,16 @@ describe('PROJECT_CONFIG.md generation matrix', () => {
     expect(beginner).toContain('package-lock.json');
     expect(beginner).toContain('one test per block');
     expect(beginner).toContain('No virtualization available');
+    expect(beginner).toContain('**Target Platform:** cross-desktop');
+    expect(beginner).toContain('Electron, Tauri');
     expect(beginner).not.toContain('Proxmox');
     expect(beginner).not.toContain('pyproject.toml');
+
+    const ios = generateConfig(personas['beginner-ios-on-windows']!, {
+      generatedAt: GEN_AT,
+    }).markdown;
+    expect(ios).toContain('Mac with Xcode');
+    expect(ios).toContain('your development OS is not macOS');
 
     const advanced = generateConfig(personas['advanced-python-backend-proxmox-linux']!, {
       generatedAt: GEN_AT,

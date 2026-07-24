@@ -30,9 +30,23 @@ nsis:
   oneClick: true
   deleteAppDataOnUninstall: false
 mac:
-  target:
-    - dmg
+  # Ad-hoc signing (no Apple Developer account): keeps Apple Silicon from
+  # reporting the app "damaged" after electron-builder invalidates Electron's
+  # own signature. Users still right-click → Open once (not notarized).
+  identity: '-'
+  # Required with ad-hoc signing: hardened runtime's library validation would
+  # reject the pre-signed Electron framework and the node-pty prebuild, and
+  # block the ELECTRON_RUN_AS_NODE env the bundled infra MCP relies on.
+  hardenedRuntime: false
   category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      # Separate DMG per chip (Intel + Apple Silicon). Not a universal binary:
+      # @lydell/node-pty ships per-arch packages, and lipo-merging them via
+      # @electron/universal needs fragile x64ArchFiles tuning.
+      arch:
+        - x64
+        - arm64
 linux:
   # Default derives from the npm package name (@vo-coder/desktop) — the "@"
   # is illegal in AppImage paths.

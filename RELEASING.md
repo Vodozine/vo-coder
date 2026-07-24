@@ -3,10 +3,10 @@
 Releases happen in **two phases**. A build is **never** published to GitHub until
 it has been installed and tested locally and explicitly approved.
 
-> **Current cadence:** we are iterating through `0.9.x` with local test builds
-> only. The next version published to GitHub is **v1.0.0**. Keep bumping the
-> local version for each test installer, but do not run Phase 2 until 1.0 is
-> ready and approved.
+> **Current flow (since v1.0.0):** publishing is tag-driven. Phase 1 stays the
+> local gate; Phase 2 is `git tag vX.Y.Z && git push origin vX.Y.Z` — CI
+> (`.github/workflows/release.yml`) builds Windows + macOS (x64 & arm64) +
+> Linux and attaches everything to one draft release, which is then published.
 
 ## Phase 1 — Build a test version (local only, nothing on GitHub)
 
@@ -32,23 +32,25 @@ Install it, confirm the change works, and check nothing else regressed.
 
 ## Phase 2 — Publish (only after the test build is approved)
 
-Publish the **exact same artifacts** that were tested — do not rebuild between
-testing and publishing, or the release won't match what was verified. Upload
-straight from `release-local/`:
+Publishing is tag-driven — CI builds all three platforms so every release has
+identical, reproducible artifacts (the local Phase-1 installer is the
+verification gate, not the shipped bits):
 
 ```powershell
-$v = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
-& "C:\Program Files\GitHub CLI\gh.exe" release create "v$v" `
-  "apps/desktop/release-local/Vo-Coder Setup $v.exe" `
-  "apps/desktop/release-local/Vo-Coder Setup $v.exe.blockmap" `
-  "apps/desktop/release-local/latest.yml" `
-  --repo Vodozine/vo-coder --title "Vo-Coder $v" --notes "…"
+# version already bumped + committed
+git tag "v$v"
+git push origin master "v$v"
+# CI (release.yml) builds Win/mac(x64+arm64)/Linux → one DRAFT release
+# verify the draft has all assets, then:
+& "C:\Program Files\GitHub CLI\gh.exe" release edit "v$v" --repo Vodozine/vo-coder `
+  --draft=false --latest --title "Vo-Coder $v" --notes-file notes.md
 ```
 
-Publishing `latest.yml` + the installer is what makes the in-app auto-updater
-offer the new version to already-installed copies.
+Publishing the release (with `latest.yml`) is what makes the in-app
+auto-updater offer the new version to already-installed copies.
 
 ## Rule of thumb
 
 - `npm run dist:test` = safe, local, repeatable. Run it freely.
-- `gh release create` = the point of no return. Only after a tested, approved build.
+- Pushing a `v*` tag / `gh release edit --draft=false` = the point of no
+  return. Only after a tested, approved build.

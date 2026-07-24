@@ -38,10 +38,23 @@ jobs:
       - name: Build renderer + main
         run: npm run build -w @vo-coder/desktop
 
+      # npm ci on the arm64 runner only installs the darwin-arm64 node-pty
+      # prebuild; the x64 DMG needs its sibling too. Unpack the tarball straight
+      # into node_modules — `npm install --cpu=x64` would re-reify the tree and
+      # prune the arm64 prebuild as "wrong platform".
+      - name: Add x64 node-pty prebuild for the Intel Mac build
+        if: matrix.os == 'macos-latest'
+        run: |
+          V=$(node -p "require('@lydell/node-pty/package.json').optionalDependencies['@lydell/node-pty-darwin-x64']")
+          npm pack "@lydell/node-pty-darwin-x64@$V"
+          mkdir -p node_modules/@lydell/node-pty-darwin-x64
+          tar -xzf lydell-node-pty-darwin-x64-*.tgz -C node_modules/@lydell/node-pty-darwin-x64 --strip-components=1
+          rm lydell-node-pty-darwin-x64-*.tgz
+
+      # Mac signing is ad-hoc (identity: '-' in electron-builder.yml) — no
+      # Apple certificate involved, but the bundle is no longer "damaged".
       - name: Package and upload installers
         working-directory: apps/desktop
         run: npx electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No Apple certificate — ship the mac build unsigned.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

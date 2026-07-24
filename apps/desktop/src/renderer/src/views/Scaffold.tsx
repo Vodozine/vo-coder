@@ -92,7 +92,7 @@ export function Scaffold() {
     <div className="settings">
       <h1>Scaffold</h1>
       <p className="hint">
-        Seven questions, one personalized PROJECT_CONFIG.md — the north star the harness and the
+        Eight questions, one personalized PROJECT_CONFIG.md — the north star the harness and the
         infrastructure MCP build from.
       </p>
 
@@ -146,15 +146,36 @@ export function Scaffold() {
             <div className="wizard-question">
               <p className="wizard-prompt">{q.prompt}</p>
               {q.hint && <p className="hint">{q.hint}</p>}
-              {q.kind === 'select' ? (
-                <div className="wizard-options">
-                  {q.options!.map((o) => (
-                    <button key={o.value} onClick={() => giveAnswer(o.value)}>
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              ) : (
+              {(() => {
+                // Beginners get every option explained; the skill question
+                // itself always is — it's answered before we know who's asking.
+                const explain =
+                  q.id === 'skillLevel' || qState.answers.skillLevel === 'beginner';
+                return (
+                  <>
+                    {explain && q.beginnerHint && (
+                      <p className="hint wizard-beginner-hint">{q.beginnerHint}</p>
+                    )}
+                    {q.kind === 'select' ? (
+                      <div className={`wizard-options ${explain ? 'explained' : ''}`}>
+                        {q.options!.map((o) => (
+                          <button key={o.value} onClick={() => giveAnswer(o.value)}>
+                            {explain && o.description ? (
+                              <>
+                                <span className="wizard-option-label">{o.label}</span>
+                                <span className="wizard-option-desc">{o.description}</span>
+                              </>
+                            ) : (
+                              o.label
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+              {q.kind !== 'select' && (
                 <div className="field-row">
                   <input
                     className="grow"

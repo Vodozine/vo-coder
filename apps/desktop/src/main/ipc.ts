@@ -1042,9 +1042,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (result.ok && result.url) preview.open(result.url);
     return result;
   });
+  ipcMain.handle(IPC.previewStopDev, () => {
+    // A stopped server leaves a dead page behind — clear the pane with it.
+    const result = preview.stopServer();
+    preview.close();
+    return result;
+  });
   ipcMain.handle(IPC.previewClose, () => preview.close());
   ipcMain.handle(IPC.previewHide, () => preview.hide());
   ipcMain.handle(IPC.previewReload, () => preview.reload());
   ipcMain.handle(IPC.previewBounds, (_e, bounds: PreviewBounds) => preview.setBounds(bounds));
-  ipcMain.handle(IPC.previewState, () => preview.state());
+  ipcMain.handle(IPC.previewState, () => preview.stateValidated());
 }

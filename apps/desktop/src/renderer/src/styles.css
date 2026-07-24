@@ -856,6 +856,34 @@ select:focus {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Beginner mode: options become explained cards — label + why-pick-this. */
+.wizard-options.explained {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 620px;
+}
+.wizard-options.explained button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+  padding: 10px 14px;
+}
+.wizard-option-label {
+  font-weight: 600;
+}
+.wizard-option-desc {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+  white-space: normal;
+}
+.wizard-beginner-hint {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+  max-width: 620px;
+}
 .wizard-question .field-row {
   width: 100%;
 }
