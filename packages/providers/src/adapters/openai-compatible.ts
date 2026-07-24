@@ -1,4 +1,4 @@
-import { errorFromStatus, isAbortError, messageOf, networkError } from '../errors.js';
+import { errorFromStatus, humanizeErrorBody, isAbortError, messageOf, networkError } from '../errors.js';
 import { streamLines } from '../internal/ndjson.js';
 import type {
   ChatProvider,
@@ -124,7 +124,10 @@ export class OpenAICompatibleProvider implements ChatProvider {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      yield { type: 'error', error: errorFromStatus(res.status, detail || res.statusText) };
+      yield {
+        type: 'error',
+        error: errorFromStatus(res.status, humanizeErrorBody(res.status, detail) || res.statusText),
+      };
       return;
     }
 
@@ -151,7 +154,15 @@ export class OpenAICompatibleProvider implements ChatProvider {
         if (payload === '[DONE]') break;
         const chunk = JSON.parse(payload) as CompletionChunk;
         if (chunk.error?.message) {
-          yield { type: 'error', error: { kind: 'unknown', message: chunk.error.message } };
+          const raw = chunk.error.message;
+          const rateLimited = /resource ?exhausted|too many requests|rate.?limit|quota/i.test(raw);
+          yield {
+            type: 'error',
+            error: {
+              kind: rateLimited ? 'rate_limit' : 'unknown',
+              message: humanizeErrorBody(undefined, raw),
+            },
+          };
           return;
         }
         const choice = chunk.choices?.[0];

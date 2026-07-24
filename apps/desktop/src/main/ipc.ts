@@ -42,6 +42,7 @@ import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { UsageTracker } from './usage';
+import { DeadModels } from './dead-models';
 import { executeFileIdTool, fileIdToolSpecs } from './file-id';
 import { executeImageTool, imageToolSpecs } from './image-gen';
 import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
@@ -196,6 +197,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // handoffs skip benched models so a broken pick hands the job over instead
   // of failing the same way forever.
   const strikes = new ModelStrikes();
+  // Models the endpoint permanently 404s (listed but not served — NVIDIA's
+  // free tier does this for pulled models). Learned once, hidden from pickers.
+  const dead = new DeadModels(join(app.getPath('userData'), 'dead-models.json'));
   const sessions = new SessionManager({
     config,
     hub,
@@ -231,10 +235,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // The tool-budget check-in ("Paused after…") is a pause, not a failure.
       if (event.type === 'error' && !event.error.message.startsWith('Paused after')) {
         const bound = sessions.boundOf(sessionId);
-        if (bound) strikes.fail(bound.provider.id, bound.model, event.error.message);
+        if (bound) {
+          strikes.fail(bound.provider.id, bound.model, event.error.message);
+          // 404 model-not-found is deterministic — the endpoint does not serve
+          // this model at all. Hide it from the pickers from now on.
+          if (event.error.status === 404 || /not available on this endpoint/i.test(event.error.message)) {
+            dead.markDead(bound.provider.id, bound.model);
+          }
+        }
       } else if (event.type === 'done' && event.stopReason !== 'aborted') {
         const bound = sessions.boundOf(sessionId);
-        if (bound) strikes.ok(bound.provider.id, bound.model);
+        if (bound) {
+          strikes.ok(bound.provider.id, bound.model);
+          dead.revive(bound.provider.id, bound.model);
+        }
       }
       // Journal real actions (writes/commands/infra), not read-only lookups.
       if (event.type !== 'tool_started') return;
@@ -395,7 +409,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!provider) {
       throw new Error(`Provider "${providerId}" is not configured — add its API key in Settings.`);
     }
-    return provider.listModels();
+    // Listed-but-not-served models (learned from 404s) stay out of the pickers.
+    return dead.filter(providerId, await provider.listModels());
   });
 
   // Emotional-signal middleware: a frustrated user spinning in circles burns
