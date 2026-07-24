@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://vodozine.github.io/vo-coder/"><strong>Website</strong></a> ·
+  <a href="https://vodomation.com/vo-coder.html"><strong>Website</strong></a> ·
   <a href="https://github.com/Vodozine/vo-coder/releases/latest"><strong>Download</strong></a> ·
   <a href="https://github.com/Vodozine/vo-coder/discussions"><strong>Discussions</strong></a> ·
   <a href="#whats-inside">Features</a>
@@ -55,7 +55,7 @@ That framework is so different from a conventional desktop that a straight port 
   </tr>
 </table>
 
-More on the **[website ↗](https://vodozine.github.io/vo-coder/)**.
+More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 
 ## What's inside
 <a id="whats-inside"></a>
