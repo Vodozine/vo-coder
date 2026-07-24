@@ -338,6 +338,29 @@ describe('stall watchdog', () => {
     expect(session.history.at(-1)).toMatchObject({ role: 'assistant' });
     expect(session.getStatus()).toBe('idle');
   });
+
+  it('hollow keep-alive deltas do not keep a dead turn alive', async () => {
+    const provider: ChatProvider = {
+      id: 'fake',
+      listModels: async () => [],
+      stream: async function* (_req, opts) {
+        yield { type: 'text_delta', text: 'thinking… ' } as ProviderEvent;
+        // Whitespace "keep-alives" every 10ms — well inside the 40ms stall
+        // window — while never producing real output again. Without the
+        // meaningful-event filter these would reset the watchdog forever.
+        while (!opts.signal.aborted) {
+          yield { type: 'text_delta', text: ' ' } as ProviderEvent;
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      },
+    };
+    const { session, events, done } = makeSession(provider, { stallTimeoutMs: 40 });
+    session.send('hello');
+    await done;
+    const err = events.find((e) => e.type === 'error');
+    expect(err && err.type === 'error' ? err.error.message : '').toMatch(/stalled/);
+    expect(session.getStatus()).toBe('idle');
+  });
 });
 
 describe('Stop interrupts a hanging tool', () => {

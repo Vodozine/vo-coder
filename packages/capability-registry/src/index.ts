@@ -10,6 +10,7 @@ export {
   suggest,
 } from './router.js';
 export type { RouteTier } from './router.js';
+export { BENCH_MS, MAX_STRIKES, ModelStrikes } from './strikes.js';
 export { annotateQuality, qualityFor, QUALITY_PATTERNS } from './quality.js';
 export {
   applyArenaQuality,

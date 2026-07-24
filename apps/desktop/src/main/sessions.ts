@@ -364,6 +364,11 @@ export class SessionManager {
     return this.sessions.get(sessionId)?.history ?? this.deps.projects.loadTranscript(sessionId);
   }
 
+  /** The provider/model that served this session's last run (routing strikes). */
+  boundOf(sessionId: string): BoundModel | undefined {
+    return this.lastBound.get(sessionId);
+  }
+
   send(
     sessionId: string,
     parts: UserPart[],

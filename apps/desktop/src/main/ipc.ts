@@ -19,6 +19,7 @@ import {
   buildCatalog,
   checkFit,
   looksLikeWorkRequest,
+  ModelStrikes,
   profileHardware,
   signalFromPrompt,
   suggest,
@@ -191,6 +192,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // Sync mirror of the catalog for hot paths that can't await getCatalog().
   let catalogSync: ModelRecord[] = [];
 
+  // Two consecutive failed runs bench a model (30 min) — routing and agent
+  // handoffs skip benched models so a broken pick hands the job over instead
+  // of failing the same way forever.
+  const strikes = new ModelStrikes();
   const sessions = new SessionManager({
     config,
     hub,
@@ -221,6 +226,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return pick ? { provider: pick.provider, model: pick.model } : undefined;
     },
     onEvent: (sessionId, event) => {
+      // Routing self-heal: 2 consecutive failed runs bench the model so the
+      // next route tries a different one (deprecated ids, dead endpoints).
+      // The tool-budget check-in ("Paused after…") is a pause, not a failure.
+      if (event.type === 'error' && !event.error.message.startsWith('Paused after')) {
+        const bound = sessions.boundOf(sessionId);
+        if (bound) strikes.fail(bound.provider.id, bound.model, event.error.message);
+      } else if (event.type === 'done' && event.stopReason !== 'aborted') {
+        const bound = sessions.boundOf(sessionId);
+        if (bound) strikes.ok(bound.provider.id, bound.model);
+      }
       // Journal real actions (writes/commands/infra), not read-only lookups.
       if (event.type !== 'tool_started') return;
       if (event.name !== 'ws_write' && event.name !== 'ws_run' && !event.name.includes('__')) return;
@@ -474,14 +489,43 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           });
           // "My agents first" + a WORK request in a project: if no keyword
           // hit, still hand it to the user's best agent — you built staff so
-          // project work goes to your staff, not back to the catalog.
+          // project work goes to your staff, not back to the catalog. But only
+          // an agent with a REAL signal (score > 0): a specialist whose hints
+          // are all off-topic (e.g. a vision agent with no image on the table)
+          // must hand the job over to catalog routing, not absorb it by being
+          // the only staff around.
           if (!match && mode === 'agents' && builderMode && looksLikeWorkRequest(text) && agents.length > 0) {
             const top = rankAgents(text, agents, { hasImage: needsVision })[0];
-            if (top) {
+            if (top && top.score > 0) {
               match = {
                 agent: top.agent,
                 matched: top.matched.length ? top.matched : ['best fit for project work'],
               };
+            }
+          }
+          // Handover: a matched agent whose model is benched (repeated recent
+          // failures) passes the job to the next ranked agent with a healthy
+          // model — or, in "agents first" mode, back to catalog routing.
+          if (match?.agent.model) {
+            const benchedOf = (a: AgentSpec) =>
+              !!a.model &&
+              strikes.benched(a.provider ?? config.get().defaultProvider, a.model);
+            if (benchedOf(match.agent)) {
+              const failing = match.agent;
+              const healthy = rankAgents(text, agents, { hasImage: needsVision }).find(
+                (r) => r.agent.id !== failing.id && !benchedOf(r.agent),
+              );
+              if (healthy) {
+                match = {
+                  agent: healthy.agent,
+                  matched: [
+                    ...(healthy.matched.length ? healthy.matched : ['best available']),
+                    `handover: ${failing.name} model failing`,
+                  ],
+                };
+              } else if (mode === 'agents') {
+                match = null; // no healthy specialist — catalog routing takes it
+              }
             }
           }
           // Image turns must land on a vision-capable agent model — swap to
@@ -679,6 +723,45 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })());
   void getCatalog().catch(() => {}); // warm both catalog and mirror at startup
 
+  // Native remote providers retire model ids the seed still lists (gpt-5-codex
+  // outlived its OpenAI deprecation here) — verify routing candidates against
+  // the provider's LIVE model list, like OpenRouter ids already are. Fail-open:
+  // no list (offline, timeout, unsupported endpoint) → no filtering.
+  const liveIdCache = new Map<string, { ids: Set<string> | null; at: number }>();
+  const LIVE_IDS_TTL = 60 * 60_000;
+  const NATIVE_VERIFIED = ['openai', 'xai', 'anthropic'] as const;
+  const liveNativeIds = async (): Promise<Map<string, Set<string> | null>> => {
+    const out = new Map<string, Set<string> | null>();
+    const registered = new Set(hub.registry().ids());
+    await Promise.all(
+      NATIVE_VERIFIED.filter((p) => registered.has(p)).map(async (providerId) => {
+        const hit = liveIdCache.get(providerId);
+        if (hit && Date.now() - hit.at < LIVE_IDS_TTL) {
+          out.set(providerId, hit.ids);
+          return;
+        }
+        let ids: Set<string> | null = null;
+        try {
+          const provider = hub.registry().get(providerId);
+          if (provider) {
+            const models = await Promise.race([
+              provider.listModels(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`${providerId} timeout`)), 2500),
+              ),
+            ]);
+            ids = models.length ? new Set(models.map((m) => m.id)) : null;
+          }
+        } catch {
+          ids = null;
+        }
+        liveIdCache.set(providerId, { ids, at: Date.now() });
+        out.set(providerId, ids);
+      }),
+    );
+    return out;
+  };
+
   /**
    * The economic core: the user talks to Vodo, Vodo picks the right man for
    * the job. Candidates are filtered to providers that are actually usable
@@ -711,6 +794,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const liveOpenRouter = new Set(
       records.filter((r) => r.provider === 'openrouter').map((r) => r.id),
     );
+    const liveNative = await liveNativeIds();
     // User blocklist: excluded models/vendors never enter routing.
     const excluded = config
       .get()
@@ -732,7 +816,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           // Only route to ids that exist on OpenRouter right now.
           if (liveOpenRouter.size === 0 || liveOpenRouter.has(m.id)) eligible.push(m);
         } else {
-          eligible.push(m);
+          // Native providers: skip ids the provider no longer serves
+          // (deprecated/retired models linger in the seed).
+          const live = liveNative.get(m.provider);
+          if (!live || live.has(m.id)) eligible.push(m);
         }
       } else if (
         // Native provider not configured, but the same model is reachable
@@ -744,11 +831,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         eligible.push({ ...m, provider: 'openrouter', id: m.openrouterId });
       }
     }
-    const top = suggest(signal, eligible, profileHardware(), 1, {
+    // Benched models (2 recent consecutive failures) sit out — the job is
+    // handed to the next candidate instead of retrying a known-broken pick.
+    const routable = eligible.filter((m) => !strikes.benched(m.provider ?? '', m.id));
+    const avoided = eligible.length !== routable.length ? strikes.benchedModels() : [];
+    const top = suggest(signal, routable, profileHardware(), 1, {
       tier: config.get().routeTier,
     })[0];
     if (!top?.model.provider) return undefined;
-    return { provider: top.model.provider, model: top.model.id, rationale: top.rationale };
+    return {
+      provider: top.model.provider,
+      model: top.model.id,
+      rationale:
+        top.rationale +
+        (avoided.length ? ` · avoiding ${avoided.join(', ')} after repeated errors` : ''),
+    };
   };
 
   // ---- agent OS: missions + telegram remote ----
@@ -936,14 +1033,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         .get()
         .excludedModels.map((t) => t.trim().toLowerCase())
         .filter(Boolean);
-      const records = (await getCatalog()).records.filter(
-        (m) =>
-          !excluded.some(
+      const liveNative = await liveNativeIds();
+      const records = (await getCatalog()).records.filter((m) => {
+        if (
+          excluded.some(
             (term) =>
               m.id.toLowerCase().includes(term) ||
               (m.displayName ?? '').toLowerCase().includes(term),
-          ),
-      );
+          )
+        ) {
+          return false;
+        }
+        if (strikes.benched(m.provider ?? '', m.id)) return false;
+        const live = m.provider ? liveNative.get(m.provider) : undefined;
+        return !live || live.has(m.id);
+      });
       return suggest(signalFromPrompt(text, opts), records, profileHardware(), 3, {
         tier: config.get().routeTier,
       });

@@ -108,10 +108,16 @@ async function* guardStall(
   abort: () => void,
 ): AsyncIterable<ProviderEvent> {
   const it = src[Symbol.asyncIterator]();
+  // Only MEANINGFUL events extend the deadline. Some gateways trickle empty /
+  // whitespace deltas as keep-alives while a queued model produces nothing —
+  // those must not keep a dead turn "streaming" forever.
+  const meaningful = (e: ProviderEvent): boolean =>
+    !((e.type === 'text_delta' || e.type === 'thinking_delta') && e.text.trim() === '');
+  let deadline = Date.now() + ms;
   while (true) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stalled = new Promise<'stalled'>((resolve) => {
-      timer = setTimeout(() => resolve('stalled'), ms);
+      timer = setTimeout(() => resolve('stalled'), Math.max(0, deadline - Date.now()));
     });
     let winner: 'stalled' | IteratorResult<ProviderEvent>;
     try {
@@ -138,6 +144,7 @@ async function* guardStall(
       return;
     }
     if (winner.done) return;
+    if (meaningful(winner.value)) deadline = Date.now() + ms;
     yield winner.value;
   }
 }
