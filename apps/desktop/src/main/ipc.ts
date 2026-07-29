@@ -104,7 +104,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   /** Price a usage event from the catalog and record it (any session kind). */
   const recordUsage = (
-    bound: { model: string } | undefined,
+    bound: { model: string; provider?: { id?: string } } | undefined,
     ev: { inputTokens: number; outputTokens: number },
     projectId?: string,
   ): void => {
@@ -112,13 +112,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     void (async () => {
       let inPerM = 0;
       let outPerM = 0;
-      try {
-        const { records } = await getCatalog();
-        const rec = records.find((r) => r.id === bound.model);
-        inPerM = Math.max(0, rec?.pricing?.inputPerMTok ?? 0);
-        outPerM = Math.max(0, rec?.pricing?.outputPerMTok ?? 0);
-      } catch {
-        /* unpriced — tokens still count */
+      // Pricing is per-ENDPOINT. Grok login (subscription OAuth) is preferred
+      // over any saved xAI API key for requests — that path is subscription-
+      // billed, not pay-per-token. NVIDIA's free tier is the same idea.
+      const providerId = bound.provider?.id?.toLowerCase() ?? '';
+      const freeEndpoint =
+        providerId === 'nvidia' || (providerId === 'xai' && hub.usingXaiOAuth());
+      if (!freeEndpoint) {
+        try {
+          const { records } = await getCatalog();
+          const rec = records.find((r) => r.id === bound.model);
+          inPerM = Math.max(0, rec?.pricing?.inputPerMTok ?? 0);
+          outPerM = Math.max(0, rec?.pricing?.outputPerMTok ?? 0);
+        } catch {
+          /* unpriced — tokens still count */
+        }
       }
       usage.record(
         projectId ?? 'remote',
@@ -910,9 +918,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       wantsThinking: config.get().thinkingDefault,
     });
     const { records, installed } = await getCatalog();
+    // Catalog seed carries xAI *API* rates. With Grok login active the hub
+    // prefers the OAuth bearer — those calls are subscription-billed ($0
+    // per-token). Zero the rates so auto-routing treats SuperGrok as free
+    // instead of $2–3/MTok API pricing (same pattern as NVIDIA free tier).
+    const xaiSubFree = hub.usingXaiOAuth();
+    const pricedRecords = xaiSubFree
+      ? records.map((r) =>
+          (r.provider ?? '').toLowerCase() === 'xai'
+            ? { ...r, pricing: { inputPerMTok: 0, outputPerMTok: 0 } }
+            : r,
+        )
+      : records;
     const registered = new Set(hub.registry().ids());
     const liveOpenRouter = new Set(
-      records.filter((r) => r.provider === 'openrouter').map((r) => r.id),
+      pricedRecords.filter((r) => r.provider === 'openrouter').map((r) => r.id),
     );
     const liveNative = await liveNativeIds();
     // User blocklist: excluded models/vendors never enter routing.
@@ -927,7 +947,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           (m.displayName ?? '').toLowerCase().includes(term),
       );
     const eligible: ModelRecord[] = [];
-    for (const m of records) {
+    for (const m of pricedRecords) {
       if (isExcluded(m)) continue;
       if (m.provider && registered.has(m.provider)) {
         if (m.provider === 'ollama' || m.provider === 'lmstudio') {
@@ -1139,7 +1159,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.registryCatalog, async () => {
     const hardware = profileHardware();
-    const records = (await getCatalog()).records.map((m) => ({ ...m, fit: checkFit(m, hardware) }));
+    // Catalog seed stores xAI *API* rates. Grok login (OAuth) is subscription-
+    // billed — zero those rates in the payload the UI reads so Chat/Settings
+    // never show $2/$6 while SuperGrok is the live credential (even if an API
+    // key is also saved; the hub prefers OAuth for requests).
+    const xaiSubFree = hub.usingXaiOAuth();
+    const records = (await getCatalog()).records.map((m) => {
+      const fit = checkFit(m, hardware);
+      if (xaiSubFree && (m.provider ?? '').toLowerCase() === 'xai') {
+        return { ...m, fit, pricing: { inputPerMTok: 0, outputPerMTok: 0 } };
+      }
+      return { ...m, fit };
+    });
     return { hardware, records };
   });
   ipcMain.handle(
@@ -1154,20 +1185,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         .excludedModels.map((t) => t.trim().toLowerCase())
         .filter(Boolean);
       const liveNative = await liveNativeIds();
-      const records = (await getCatalog()).records.filter((m) => {
-        if (
-          excluded.some(
-            (term) =>
-              m.id.toLowerCase().includes(term) ||
-              (m.displayName ?? '').toLowerCase().includes(term),
-          )
-        ) {
-          return false;
-        }
-        if (strikes.benched(m.provider ?? '', m.id)) return false;
-        const live = m.provider ? liveNative.get(m.provider) : undefined;
-        return !live || live.has(m.id);
-      });
+      const xaiSubFree = hub.usingXaiOAuth();
+      const records = (await getCatalog()).records
+        .filter((m) => {
+          if (
+            excluded.some(
+              (term) =>
+                m.id.toLowerCase().includes(term) ||
+                (m.displayName ?? '').toLowerCase().includes(term),
+            )
+          ) {
+            return false;
+          }
+          if (strikes.benched(m.provider ?? '', m.id)) return false;
+          const live = m.provider ? liveNative.get(m.provider) : undefined;
+          return !live || live.has(m.id);
+        })
+        .map((r) =>
+          xaiSubFree && (r.provider ?? '').toLowerCase() === 'xai'
+            ? { ...r, pricing: { inputPerMTok: 0, outputPerMTok: 0 } }
+            : r,
+        );
       return suggest(signalFromPrompt(text, opts), records, profileHardware(), 3, {
         tier: config.get().routeTier,
       });

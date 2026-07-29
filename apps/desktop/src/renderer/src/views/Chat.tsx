@@ -511,6 +511,8 @@ export function Chat() {
   const models = useStore((s) => s.models);
   const modelsError = useStore((s) => s.modelsError);
   const catalog = useStore((s) => s.catalog);
+  // Grok login prefers OAuth over API key — show subscription (free) pricing.
+  const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
   const suggestFor = useStore((s) => s.suggestFor);
   const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
   const activeAgentId = activeMeta?.agentId ?? 'default';
@@ -640,12 +642,17 @@ export function Chat() {
     const rec = catalog?.records.find((r) => r.id === modelId);
     const bits: string[] = [rec?.displayName ?? modelId];
     if (rec?.contextLength) bits.push(`${Math.round(rec.contextLength / 1000)}k`);
-    // Pricing is per-ENDPOINT. The catalog carries OpenRouter's rates; NVIDIA
-    // uses the same org/model slugs (z-ai/glm-5.2, openai/gpt-oss-120b), so a
-    // naive id match would stamp OpenRouter's PAID price on NVIDIA's endpoint —
-    // which serves these free (rate-limited). Show that truth instead.
+    // Pricing is per-ENDPOINT. The catalog carries OpenRouter / API rates;
+    // NVIDIA's free tier and Grok subscription login must not inherit those.
     if (config.defaultProvider === 'nvidia') {
       bits.push('free endpoint');
+    } else if (
+      config.defaultProvider === 'xai' &&
+      (xaiOauthConnected ||
+        (rec?.pricing?.inputPerMTok === 0 && (rec?.pricing?.outputPerMTok ?? 0) === 0))
+    ) {
+      // OAuth flag OR catalog already zeroed by main (Grok login active).
+      bits.push('free (Grok login)');
     } else if (
       rec?.pricing?.inputPerMTok !== undefined &&
       rec.pricing.inputPerMTok >= 0 &&

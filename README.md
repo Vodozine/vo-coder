@@ -104,6 +104,7 @@ More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 - **Open existing folder as a project** from the sidebar (no scaffold questionnaire)
 - **Composer draft persistence** per chat; smarter chat scroll-follow
 - **Busy-endpoint retry** for 429 / 5xx / in-band ResourceExhausted
+- **Grok login pricing** — SuperGrok / X Premium shows as free (subscription) even when an xAI API key is also saved; routing and usage meters match
 - **Dogfood-safe packaging** — CodeWatch ignores `release-*` pack dirs; `npm run preview` launches the real Electron shell
 
 ## Install

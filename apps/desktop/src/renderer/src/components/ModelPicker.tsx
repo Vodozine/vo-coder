@@ -111,6 +111,11 @@ export function ModelPicker({
       }
     }
 
+    // Grok login is subscription-billed — show $0 even when an API key is also
+    // saved (hub prefers OAuth). NVIDIA free tier is the same pattern.
+    const freeEndpoint =
+      provider === 'nvidia' || (provider === 'xai' && xaiOauthConnected);
+
     let list = [...byId.values()].map((m) => {
       const rec = catalog?.records.find((r) => r.id === m.id && (!r.provider || r.provider === provider));
       // Also match catalog rows that only differ by openrouter-style id for OR.
@@ -119,8 +124,8 @@ export function ModelPicker({
         catalog?.records.find(
           (r) => r.id === m.id || (r.provider === provider && r.displayName === m.displayName),
         );
-      const inPrice = recLoose?.pricing?.inputPerMTok;
-      const outPrice = recLoose?.pricing?.outputPerMTok;
+      const inPrice = freeEndpoint ? 0 : recLoose?.pricing?.inputPerMTok;
+      const outPrice = freeEndpoint ? 0 : recLoose?.pricing?.outputPerMTok;
       const valid = inPrice !== undefined && inPrice >= 0 && (outPrice ?? 0) >= 0;
       return {
         id: m.id,
@@ -168,10 +173,18 @@ export function ModelPicker({
       );
     }
     return filtered;
-  }, [models, catalog, query, byPrice, provider, filter]);
+  }, [models, catalog, query, byPrice, provider, filter, xaiOauthConnected]);
 
-  const price = (r: Row) =>
-    r.local ? 'local · $0' : r.inPrice !== undefined ? `$${r.inPrice}/$${r.outPrice}` : '—';
+  const price = (r: Row) => {
+    if (r.local) return 'local · $0';
+    // Subscription / free-tier endpoints surface as $0/$0.
+    if (r.inPrice === 0 && (r.outPrice ?? 0) === 0) {
+      if (provider === 'xai' && xaiOauthConnected) return 'free (Grok login)';
+      if (provider === 'nvidia') return 'free endpoint';
+      return '$0/$0';
+    }
+    return r.inPrice !== undefined ? `$${r.inPrice}/$${r.outPrice}` : '—';
+  };
 
   // Catalog seeds can still offer a dropdown when listModels fails (e.g. Grok
   // login just landed) as long as matching rows exist. For chat ('all'), only

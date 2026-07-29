@@ -24,6 +24,15 @@ export class ProviderHub {
     private getXaiOAuthToken?: () => string | null,
   ) {}
 
+  /**
+   * True when SuperGrok / X Premium OAuth is the live xAI credential.
+   * Grok login is subscription-billed (no per-token API charge) even if an
+   * API key is also saved — the hub prefers the OAuth bearer for requests.
+   */
+  usingXaiOAuth(): boolean {
+    return !!this.getXaiOAuthToken?.();
+  }
+
   registry(): ProviderRegistry {
     const reg = new ProviderRegistry();
     const cfg = this.config.get();

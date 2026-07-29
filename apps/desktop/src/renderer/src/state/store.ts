@@ -307,12 +307,16 @@ export const useStore = create<AppState>((set, get) => ({
         if (event.state === 'connected') {
           set({ xaiOauthConnected: true });
           // Always refresh the xAI list so Chat/Agents/Settings pickers
-          // populate as soon as Grok login lands.
+          // populate as soon as Grok login lands. Also re-pull the catalog
+          // so seed API rates flip to $0 (subscription) in the header.
           void get().loadModels('xai');
+          void get().loadCatalog();
         } else if (event.state === 'signed_out') {
           set({ xaiOauthConnected: false });
           const provider = get().config?.defaultProvider;
           if (provider === 'xai') void get().loadModels('xai');
+          // Restore paid API rates in the UI once OAuth is gone.
+          void get().loadCatalog();
         }
       });
       // Once-only: sessionCreate broadcasts the full list; stacking this listener
