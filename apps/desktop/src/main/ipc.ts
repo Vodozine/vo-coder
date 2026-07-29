@@ -83,7 +83,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
     win.webContents.send(channel, payload);
   };
-  const xaiOauth = new XaiOAuth(config, secrets, sendToWindow);
+  /** Assigned once liveIdCache exists — clears xAI routing verification after login/out. */
+  let invalidateXaiLiveIds: () => void = () => {};
+  const xaiOauth = new XaiOAuth(config, secrets, (channel, payload) => {
+    sendToWindow(channel, payload);
+    // After Grok login/out the xAI client is (re)registered with a new bearer —
+    // drop cached live model ids so routing re-verifies against the live list.
+    if (channel === IPC.xaiOauthEvent) {
+      const ev = payload as { state?: string };
+      if (ev.state === 'connected' || ev.state === 'signed_out') invalidateXaiLiveIds();
+    }
+  });
   setInterval(() => void xaiOauth.refreshIfNeeded(), 10 * 60_000);
   void xaiOauth.refreshIfNeeded();
   const hub = new ProviderHub(config, secrets, () => xaiOauth.token());
@@ -173,7 +183,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           : undefined);
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name === 'image_generate') {
-        return executeImageTool(args, config, secrets, ctxDir());
+        return executeImageTool(args, config, secrets, ctxDir(), { xaiToken: () => xaiOauth.token() });
       }
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
@@ -272,7 +282,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.usageGet, () => usage.get());
   ipcMain.handle(IPC.xaiOauthStatus, () => xaiOauth.status());
   ipcMain.handle(IPC.xaiOauthBegin, () => xaiOauth.begin());
-  ipcMain.handle(IPC.xaiOauthSignOut, () => xaiOauth.signOut());
+  ipcMain.handle(IPC.xaiOauthSignOut, () => {
+    xaiOauth.signOut();
+    invalidateXaiLiveIds();
+  });
 
   // ---- projects & chat sessions ----
   const broadcastProjects = () => sendToWindow(IPC.projectsChanged, projects.list());
@@ -293,6 +306,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       journal.append({ kind: 'project', text: `created project "${name.trim()}"`, project: name.trim() });
       broadcastProjects();
       return { ok: true, project };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle(IPC.projectOpenExisting, (_e, dir: string) => {
+    try {
+      const resolved = resolve(dir);
+      if (!existsSync(resolved)) return { ok: false, error: 'That folder does not exist.' };
+      // Same path already registered — reopen instead of duplicating.
+      const existing = projects.list().projects.find(
+        (p) => p.dir && resolve(p.dir).toLowerCase() === resolved.toLowerCase(),
+      );
+      if (existing) {
+        journal.append({
+          kind: 'project',
+          text: `reopened existing project "${existing.name}"`,
+          project: existing.name,
+        });
+        broadcastProjects();
+        return { ok: true, project: existing, created: false };
+      }
+      const base = resolved.split(/[\\/]/).filter(Boolean).pop() || 'Project';
+      const project = projects.createProject(base, resolved);
+      journal.append({
+        kind: 'project',
+        text: `opened existing folder as project "${project.name}"`,
+        project: project.name,
+      });
+      broadcastProjects();
+      return { ok: true, project, created: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -407,10 +450,69 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.listModels, async (_e, providerId: string) => {
     const provider = hub.registry().get(providerId);
     if (!provider) {
-      throw new Error(`Provider "${providerId}" is not configured — add its API key in Settings.`);
+      const disabled = (config.get().disabledProviders ?? [])
+        .map((p) => p.toLowerCase())
+        .includes(providerId.toLowerCase());
+      const isXai = providerId.toLowerCase() === 'xai';
+      throw new Error(
+        disabled
+          ? `Provider "${providerId}" is turned off — enable it in Settings → API keys.`
+          : isXai
+            ? 'Provider "xai" is not configured — add an API key or Sign in with X (Grok login) in Settings.'
+            : `Provider "${providerId}" is not configured — add its API key in Settings.`,
+      );
+    }
+    // Live /v1/models first. For every configured provider, merge curated catalog
+    // chat/vision models so pickers stay populated when the endpoint is sparse
+    // or briefly fails (common with Grok login). Pure image-gen seeds stay out —
+    // those belong only in Settings → Image model.
+    let live: Awaited<ReturnType<typeof provider.listModels>> = [];
+    try {
+      live = await provider.listModels();
+    } catch (err) {
+      if (providerId.toLowerCase() !== 'xai') throw err;
+      // Grok OAuth can briefly 401 while tokens refresh — fall back to seed.
+    }
+    const byId = new Map(live.map((m) => [m.id, m]));
+    try {
+      const { records } = await getCatalog();
+      for (const r of records) {
+        if ((r.provider ?? '').toLowerCase() !== providerId.toLowerCase()) continue;
+        // Skip pure image generators (no vision/tools/chat tags).
+        const tags = r.tags ?? [];
+        const pureImage =
+          r.outputsImage === true &&
+          r.supportsVision !== true &&
+          r.supportsTools !== true &&
+          (tags.length === 0 || tags.every((t) => t === 'image-gen' || t === 'image'));
+        if (pureImage) continue;
+        if (!byId.has(r.id)) {
+          byId.set(r.id, {
+            id: r.id,
+            provider: providerId,
+            displayName: r.displayName ?? r.id,
+            contextLength: r.contextLength,
+            supportsTools: r.supportsTools,
+            supportsVision: r.supportsVision,
+            supportsThinking: r.supportsThinking,
+          });
+        } else {
+          const cur = byId.get(r.id)!;
+          byId.set(r.id, {
+            ...cur,
+            displayName: cur.displayName ?? r.displayName ?? r.id,
+            contextLength: cur.contextLength ?? r.contextLength,
+            supportsTools: cur.supportsTools ?? r.supportsTools,
+            supportsVision: cur.supportsVision ?? r.supportsVision,
+            supportsThinking: cur.supportsThinking ?? r.supportsThinking,
+          });
+        }
+      }
+    } catch {
+      /* catalog optional — live list alone is fine */
     }
     // Listed-but-not-served models (learned from 404s) stay out of the pickers.
-    return dead.filter(providerId, await provider.listModels());
+    return dead.filter(providerId, [...byId.values()]);
   });
 
   // Emotional-signal middleware: a frustrated user spinning in circles burns
@@ -745,6 +847,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const liveIdCache = new Map<string, { ids: Set<string> | null; at: number }>();
   const LIVE_IDS_TTL = 60 * 60_000;
   const NATIVE_VERIFIED = ['openai', 'xai', 'anthropic'] as const;
+  invalidateXaiLiveIds = () => {
+    liveIdCache.delete('xai');
+  };
   const liveNativeIds = async (): Promise<Map<string, Set<string> | null>> => {
     const out = new Map<string, Set<string> | null>();
     const registered = new Set(hub.registry().ids());

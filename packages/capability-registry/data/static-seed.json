@@ -127,6 +127,47 @@
                        "openrouterId":  "x-ai/grok-4"
                    },
                    {
+                       "id":  "grok-4.5",
+                       "provider":  "xai",
+                       "displayName":  "Grok 4.5",
+                       "contextLength":  500000,
+                       "pricing":  {
+                                       "inputPerMTok":  2,
+                                       "outputPerMTok":  6
+                                   },
+                       "tags":  [
+                                    "reasoning",
+                                    "coding",
+                                    "tool-use",
+                                    "vision"
+                                ],
+                       "supportsTools":  true,
+                       "supportsVision":  true,
+                       "supportsThinking":  true,
+                       "quality":  9,
+                       "openrouterId":  "x-ai/grok-4.5"
+                   },
+                   {
+                       "id":  "grok-imagine-image",
+                       "provider":  "xai",
+                       "displayName":  "Grok Imagine (image)",
+                       "tags":  [
+                                    "image-gen"
+                                ],
+                       "outputsImage":  true,
+                       "quality":  8
+                   },
+                   {
+                       "id":  "grok-imagine-image-quality",
+                       "provider":  "xai",
+                       "displayName":  "Grok Imagine Quality (image)",
+                       "tags":  [
+                                    "image-gen"
+                                ],
+                       "outputsImage":  true,
+                       "quality":  9
+                   },
+                   {
                        "id":  "llama3.2:3b",
                        "provider":  "ollama",
                        "displayName":  "Llama 3.2 3B (local)",

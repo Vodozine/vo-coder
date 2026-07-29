@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand';
+import { create } from 'zustand';
 import type { AgentSpec, HarnessMessage, ModelInfo, UserPart } from '@vo-coder/providers';
 import type { McpServerStatus, McpSuggestion } from '@vo-coder/core';
 import type { ChatSessionMeta, ProjectInfo, UsageData } from '../../../shared/ipc-contract';
@@ -75,6 +75,8 @@ interface AppState {
   view: View;
   config: AppConfig | null;
   secretStatus: Record<string, string | null>;
+  /** SuperGrok / X Premium device-login — counts as xAI auth without an API key. */
+  xaiOauthConnected: boolean;
   /** Keyed by chat session id. */
   sessions: Record<string, SessionUi>;
   projects: ProjectInfo[];
@@ -86,6 +88,8 @@ interface AppState {
   mcpStatus: McpServerStatus[];
   permissions: PermissionPrompt[];
   attachments: StagedAttachment[];
+  /** Unsent composer text keyed by chat session id — survives tab switches. */
+  composerDrafts: Record<string, string>;
   catalog: CatalogInfo | null;
   suggestions: RankedModel[] | null;
   checkin: CheckinPayload | null;
@@ -124,6 +128,8 @@ interface AppState {
   newProject(name: string): Promise<void>;
   /** Create the folder on disk, the project, a first chat — then open the scaffold wizard. */
   newProjectIn(name: string, parentDir: string): Promise<string | null>;
+  /** Attach any existing folder as a project, open a chat, and auto-run intake (no questionnaire). */
+  openExistingProject(): Promise<string | null>;
   /** One-shot handoff to the Scaffold view: the folder to set up. */
   scaffoldTarget: string | null;
   consumeScaffoldTarget(): string | null;
@@ -145,6 +151,7 @@ interface AppState {
   loadModels(provider: string): Promise<void>;
   addAttachment(file: File): Promise<void>;
   removeAttachment(index: number): void;
+  setComposerDraft(sessionId: string, text: string): void;
   respondPermission(requestId: string, decision: 'allow' | 'deny'): Promise<void>;
   refreshMcp(): Promise<void>;
   mcpConnect(name: string): Promise<void>;
@@ -153,6 +160,8 @@ interface AppState {
 
 let nextId = 1;
 let subscribed = false;
+/** Shared boot so React StrictMode double-mount cannot create two starter chats. */
+let bootPromise: Promise<void> | null = null;
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -170,6 +179,7 @@ export const useStore = create<AppState>((set, get) => ({
   view: 'chat',
   config: null,
   secretStatus: {},
+  xaiOauthConnected: false,
   sessions: {},
   projects: [],
   sessionMetas: [],
@@ -180,6 +190,7 @@ export const useStore = create<AppState>((set, get) => ({
   mcpStatus: [],
   permissions: [],
   attachments: [],
+  composerDrafts: {},
   catalog: null,
   suggestions: null,
   checkin: null,
@@ -291,21 +302,41 @@ export const useStore = create<AppState>((set, get) => ({
       window.vo.onUpdateEvent((event) => set({ updateInfo: event }));
       window.vo.onUsageChanged((data) => set({ usage: data }));
       window.vo.onMissionsChanged((missions) => set({ missions }));
+      // Grok login (OAuth) is first-class xAI auth — refresh status + model lists.
+      window.vo.onXaiOauth((event) => {
+        if (event.state === 'connected') {
+          set({ xaiOauthConnected: true });
+          // Always refresh the xAI list so Chat/Agents/Settings pickers
+          // populate as soon as Grok login lands.
+          void get().loadModels('xai');
+        } else if (event.state === 'signed_out') {
+          set({ xaiOauthConnected: false });
+          const provider = get().config?.defaultProvider;
+          if (provider === 'xai') void get().loadModels('xai');
+        }
+      });
+      // Once-only: sessionCreate broadcasts the full list; stacking this listener
+      // plus a local prepend would paint the same chat twice.
+      window.vo.onProjectsChanged((data) =>
+        set({ projects: data.projects, sessionMetas: data.sessions }),
+      );
     }
-    const [config, secretStatus, mcpStatus] = await Promise.all([
+    // StrictMode remounts effects in dev — share one boot so we never create
+    // two starter chats when the project is empty.
+    if (bootPromise) return bootPromise;
+    bootPromise = (async () => {
+    const [config, secretStatus, mcpStatus, xaiOauth] = await Promise.all([
       window.vo.getConfig(),
       window.vo.secretStatus(),
       window.vo.mcpList(),
+      window.vo.xaiOauthStatus(),
     ]);
-    set({ config, secretStatus, mcpStatus });
+    set({ config, secretStatus, mcpStatus, xaiOauthConnected: xaiOauth.connected });
     void get().loadModels(config.defaultProvider);
     void get().loadCatalog();
     void window.vo.usageGet().then((usage) => set({ usage }));
     void window.vo.missionsList().then((missions) => set({ missions }));
 
-    window.vo.onProjectsChanged((data) =>
-      set({ projects: data.projects, sessionMetas: data.sessions }),
-    );
     const data = await window.vo.projectsList();
     set({ projects: data.projects, sessionMetas: data.sessions });
     // Resume the most recent thread, or start the first one.
@@ -314,6 +345,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (latest) await get().openSession(latest.id);
       else if (data.projects[0]) await get().newSession(data.projects[0].id);
     }
+    })();
+    return bootPromise;
   },
 
   setView(view) {
@@ -363,8 +396,12 @@ export const useStore = create<AppState>((set, get) => ({
       projectId ?? get().activeProjectId ?? get().projects[0]?.id ?? 'general';
     const meta = await window.vo.sessionCreate(targetProject, agentId);
     set((s) => ({
-      sessionMetas: [meta, ...s.sessionMetas],
-      sessions: { ...s.sessions, [meta.id]: emptySession() },
+      // sessionCreate already broadcasts this meta via projectsChanged; only
+      // prepend if the event has not landed yet (otherwise the sidebar shows two).
+      sessionMetas: s.sessionMetas.some((m) => m.id === meta.id)
+        ? s.sessionMetas
+        : [meta, ...s.sessionMetas],
+      sessions: { ...s.sessions, [meta.id]: s.sessions[meta.id] ?? emptySession() },
       activeSessionId: meta.id,
       activeProjectId: targetProject,
       view: 'chat',
@@ -373,7 +410,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   async newProject(name) {
     const project = await window.vo.projectCreate(name);
-    set((s) => ({ projects: [...s.projects, project], activeProjectId: project.id }));
+    set((s) => ({
+      projects: s.projects.some((p) => p.id === project.id) ? s.projects : [...s.projects, project],
+      activeProjectId: project.id,
+    }));
     await get().newSession(project.id);
   },
 
@@ -399,13 +439,56 @@ export const useStore = create<AppState>((set, get) => ({
     return null;
   },
 
+  async openExistingProject() {
+    const picked = await window.vo.scaffoldPickDir();
+    if (!picked) return null;
+    const result = await window.vo.projectOpenExisting(picked);
+    if (!result.ok || !result.project) return result.error ?? 'Could not open that folder.';
+    const project = result.project;
+    set((s) => ({
+      projects: s.projects.some((p) => p.id === project.id)
+        ? s.projects.map((p) => (p.id === project.id ? project : p))
+        : [...s.projects, project],
+      activeProjectId: project.id,
+    }));
+    // Prefer an existing chat in this project; otherwise start a fresh one.
+    const existingChat = get().sessionMetas.find((m) => m.projectId === project.id);
+    const isFresh = !existingChat;
+    if (existingChat) await get().openSession(existingChat.id);
+    else await get().newSession(project.id);
+
+    // Automatic intake only on first attach (or a brand-new chat) — reopening
+    // the same folder must not spam another scan. Never force the questionnaire.
+    if (project.dir && (result.created || isFresh)) {
+      const intake =
+        'A project folder was just attached. Run an automatic project intake now so you are ready ' +
+        'to continue work immediately.\n\n' +
+        '1) ws_list the root (and one level of important subfolders if needed) to map the tree.\n' +
+        "2) Read the project's Markdown documentation that matters for context: README*, " +
+        'PROJECT_CONFIG.md, CONTRIBUTING*, AGENTS.md, docs/**/*.md (skip node_modules, dist, ' +
+        'build, .git, lockfiles, and huge generated files). Use ws_read on each useful file.\n' +
+        '3) Summarize for me in plain language: what this project is, the stack/tools, how to ' +
+        'build/run/test, current state of the work, and the most useful next steps.\n' +
+        '4) Call map_update to pin durable facts (components, decisions, tasks you can see from ' +
+        'the docs). Keep the reply concise — a briefing, not a dump.\n\n' +
+        'Do the intake yourself with tools. Do not ask me to fill a questionnaire.';
+      // Fire-and-forget: UI is already on the chat; the stream fills in.
+      void get().send(intake);
+    }
+    set({ view: 'chat' });
+    return null;
+  },
+
   async removeSession(sessionId) {
     await window.vo.sessionDelete(sessionId);
     set((s) => {
       const sessions = { ...s.sessions };
       delete sessions[sessionId];
+      const composerDrafts = { ...s.composerDrafts };
+      delete composerDrafts[sessionId];
       return {
         sessions,
+        composerDrafts,
         sessionMetas: s.sessionMetas.filter((m) => m.id !== sessionId),
         activeSessionId: s.activeSessionId === sessionId ? null : s.activeSessionId,
       };
@@ -420,14 +503,21 @@ export const useStore = create<AppState>((set, get) => ({
   async removeProject(projectId) {
     await window.vo.projectDelete(projectId);
     const data = await window.vo.projectsList();
-    set((s) => ({
-      projects: data.projects,
-      sessionMetas: data.sessions,
-      activeProjectId: s.activeProjectId === projectId ? null : s.activeProjectId,
-      activeSessionId: s.sessionMetas.find((m) => m.id === s.activeSessionId)?.projectId === projectId
-        ? null
-        : s.activeSessionId,
-    }));
+    set((s) => {
+      const keep = new Set(data.sessions.map((m) => m.id));
+      const composerDrafts = Object.fromEntries(
+        Object.entries(s.composerDrafts).filter(([id]) => keep.has(id)),
+      );
+      return {
+        projects: data.projects,
+        sessionMetas: data.sessions,
+        composerDrafts,
+        activeProjectId: s.activeProjectId === projectId ? null : s.activeProjectId,
+        activeSessionId: s.sessionMetas.find((m) => m.id === s.activeSessionId)?.projectId === projectId
+          ? null
+          : s.activeSessionId,
+      };
+    });
     if (!get().activeSessionId) {
       const next = get().sessionMetas[0];
       if (next) await get().openSession(next.id);
@@ -696,6 +786,18 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeAttachment(index) {
     set((s) => ({ attachments: s.attachments.filter((_, i) => i !== index) }));
+  },
+
+  setComposerDraft(sessionId, text) {
+    set((s) => {
+      if (!text) {
+        if (!(sessionId in s.composerDrafts)) return s;
+        const composerDrafts = { ...s.composerDrafts };
+        delete composerDrafts[sessionId];
+        return { composerDrafts };
+      }
+      return { composerDrafts: { ...s.composerDrafts, [sessionId]: text } };
+    });
   },
 
   async respondPermission(requestId, decision) {

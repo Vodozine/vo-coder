@@ -26,19 +26,25 @@ export class ProviderHub {
 
   registry(): ProviderRegistry {
     const reg = new ProviderRegistry();
+    const cfg = this.config.get();
+    // User can turn a provider off without clearing credentials — useful with auto routing.
+    // xAI OAuth (Grok login) and the xAI API key share this same On/Off gate.
+    const off = new Set((cfg.disabledProviders ?? []).map((p) => p.toLowerCase()));
+    const on = (id: string) => !off.has(id.toLowerCase());
     const anthropicKey = this.secrets.get('anthropic');
-    if (anthropicKey) reg.register(new AnthropicProvider({ apiKey: anthropicKey }));
+    if (on('anthropic') && anthropicKey) reg.register(new AnthropicProvider({ apiKey: anthropicKey }));
     const openaiKey = this.secrets.get('openai');
-    if (openaiKey) reg.register(new OpenAIProvider({ apiKey: openaiKey }));
+    if (on('openai') && openaiKey) reg.register(new OpenAIProvider({ apiKey: openaiKey }));
     const openrouterKey = this.secrets.get('openrouter');
-    if (openrouterKey) reg.register(new OpenRouterProvider({ apiKey: openrouterKey }));
+    if (on('openrouter') && openrouterKey) reg.register(new OpenRouterProvider({ apiKey: openrouterKey }));
+    // Prefer SuperGrok / X Premium bearer; fall back to a saved API key.
     const xaiAuth = this.getXaiOAuthToken?.() ?? this.secrets.get('xai');
-    if (xaiAuth) reg.register(new XaiProvider({ apiKey: xaiAuth }));
+    if (on('xai') && xaiAuth) reg.register(new XaiProvider({ apiKey: xaiAuth }));
     const nvidiaKey = this.secrets.get('nvidia');
-    if (nvidiaKey) reg.register(new NvidiaProvider({ apiKey: nvidiaKey }));
-    // Local servers need no key; always registered (they error helpfully if not running).
-    reg.register(new OllamaProvider({ baseUrl: this.config.get().ollamaBaseUrl }));
-    reg.register(new LmStudioProvider({ baseURL: this.config.get().lmstudioBaseUrl }));
+    if (on('nvidia') && nvidiaKey) reg.register(new NvidiaProvider({ apiKey: nvidiaKey }));
+    // Local servers need no key; registered when enabled (they error helpfully if not running).
+    if (on('ollama')) reg.register(new OllamaProvider({ baseUrl: cfg.ollamaBaseUrl }));
+    if (on('lmstudio')) reg.register(new LmStudioProvider({ baseURL: cfg.lmstudioBaseUrl }));
     return reg;
   }
 }

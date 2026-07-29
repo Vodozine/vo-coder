@@ -7,7 +7,12 @@ import { IPC, type WatchEvent, type WatchGitStatus } from '../shared/ipc-contrac
 
 const pExecFile = promisify(execFile);
 
-const IGNORED = /[\\/](node_modules|\.git|dist|dist-bundle|out|release|coverage|__pycache__|\.venv|\.next|\.turbo)([\\/]|$)/;
+// release[^\\/]* covers release, release-local, release-1.2.5, etc. The old
+// bare `release` token missed those dirs — electron-builder writing hundreds of
+// MB into apps/desktop/release-* while Vo-Coder has this monorepo open flooded
+// CodeWatch IPC and helped crash the live (dogfooding) shell mid-pack.
+const IGNORED =
+  /[\\/](node_modules|\.git|dist|dist-bundle|out|release[^\\/]*|coverage|__pycache__|\.venv|\.next|\.turbo)([\\/]|$)/;
 const MAX_FILE_BYTES = 400_000;
 
 /**

@@ -38,7 +38,9 @@ export class ProviderRegistry {
     const provider = this.providers.get(providerId);
     if (!provider) {
       throw new Error(
-        `Provider "${providerId}" is not configured. Add its API key or endpoint in Settings.`,
+        providerId === 'xai'
+          ? 'Provider "xai" is not configured. Add an API key or Sign in with X (Grok login) in Settings.'
+          : `Provider "${providerId}" is not configured. Add its API key or endpoint in Settings.`,
       );
     }
     // A model default only carries over when the provider is the default one —

@@ -13,34 +13,51 @@ interface Row {
   fits?: boolean;
 }
 
+export type ModelPickerFilter = 'all' | 'vision' | 'image';
+
 /**
  * Model dropdown with search, price columns, and price sorting — comparing
  * cost is the point of the whole harness, so the numbers sit right in the
  * picker instead of hiding in provider dashboards.
+ *
+ * filter:
+ *   'vision' — models that accept image input (Settings → Vision model)
+ *   'image'  — models that OUTPUT images (Settings → Image model)
+ *   'all'    — every model the provider lists (default)
  */
 export function ModelPicker({
   provider,
   value,
   onChange,
   placeholder,
+  filter = 'all',
 }: {
   provider: string;
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
+  filter?: ModelPickerFilter;
 }) {
   const catalog = useStore((s) => s.catalog);
+  // Grok login registers xAI without an API key — re-fetch when that flips.
+  const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [byPrice, setByPrice] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
+  // Only xAI care about OAuth; other providers ignore the flag for cache stability.
+  const authEpoch = provider === 'xai' ? (xaiOauthConnected ? 1 : 0) : 0;
 
   useEffect(() => {
     let cancelled = false;
     setModels([]);
     setFailed(false);
+    if (!provider) {
+      setFailed(true);
+      return;
+    }
     window.vo
       .listModels(provider)
       .then((list) => {
@@ -52,7 +69,7 @@ export function ModelPicker({
     return () => {
       cancelled = true;
     };
-  }, [provider]);
+  }, [provider, authEpoch]);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -63,22 +80,79 @@ export function ModelPicker({
   }, []);
 
   const rows = useMemo<Row[]>(() => {
-    const list = models.map((m) => {
-      const rec = catalog?.records.find((r) => r.id === m.id);
-      const inPrice = rec?.pricing?.inputPerMTok;
-      const outPrice = rec?.pricing?.outputPerMTok;
+    // Start from the live provider list; always merge catalog seed entries for
+    // the active filter so Grok login / sparse /v1/models still show curated
+    // xAI chat, vision, and Imagine models.
+    const byId = new Map<string, ModelInfo>();
+    for (const m of models) byId.set(m.id, m);
+    if (catalog?.records) {
+      for (const r of catalog.records) {
+        if (r.provider !== provider) continue;
+        if (filter === 'vision' && r.supportsVision !== true) continue;
+        if (filter === 'image' && r.outputsImage !== true) continue;
+        if (filter === 'all') {
+          // Chat/agent pickers: skip pure image-gen seeds.
+          const tags = r.tags ?? [];
+          const pureImage =
+            r.outputsImage === true &&
+            r.supportsVision !== true &&
+            (tags.length === 0 || tags.every((t) => t === 'image-gen' || t === 'image'));
+          if (pureImage) continue;
+        }
+        if (!byId.has(r.id)) {
+          byId.set(r.id, {
+            id: r.id,
+            provider,
+            displayName: r.displayName ?? r.id,
+            contextLength: r.contextLength,
+            supportsVision: r.supportsVision,
+          });
+        }
+      }
+    }
+
+    let list = [...byId.values()].map((m) => {
+      const rec = catalog?.records.find((r) => r.id === m.id && (!r.provider || r.provider === provider));
+      // Also match catalog rows that only differ by openrouter-style id for OR.
+      const recLoose =
+        rec ??
+        catalog?.records.find(
+          (r) => r.id === m.id || (r.provider === provider && r.displayName === m.displayName),
+        );
+      const inPrice = recLoose?.pricing?.inputPerMTok;
+      const outPrice = recLoose?.pricing?.outputPerMTok;
       const valid = inPrice !== undefined && inPrice >= 0 && (outPrice ?? 0) >= 0;
       return {
         id: m.id,
-        name: rec?.displayName ?? m.displayName ?? m.id,
-        ctx: rec?.contextLength ?? m.contextLength,
+        name: recLoose?.displayName ?? m.displayName ?? m.id,
+        ctx: recLoose?.contextLength ?? m.contextLength,
         inPrice: valid ? inPrice : undefined,
         outPrice: valid ? outPrice : undefined,
-        quality: rec?.quality,
-        local: rec?.estMemGb !== undefined || provider === 'ollama' || provider === 'lmstudio',
-        fits: rec?.fit?.fits,
+        quality: recLoose?.quality,
+        local:
+          recLoose?.estMemGb !== undefined || provider === 'ollama' || provider === 'lmstudio',
+        fits: recLoose?.fit?.fits,
+        supportsVision: recLoose?.supportsVision ?? m.supportsVision,
+        outputsImage: recLoose?.outputsImage === true,
       };
     });
+
+    if (filter === 'vision') {
+      // Prefer positively vision-capable; keep unknown live ids (provider may
+      // list models the seed doesn't annotate) so the picker stays complete.
+      const known = list.filter((r) => r.supportsVision === true);
+      const unknown = list.filter((r) => r.supportsVision !== true && r.supportsVision !== false);
+      // If the catalog flagged any, show those first then unknowns; if nothing
+      // is annotated, fall back to the full live list so XAI still works.
+      list = known.length > 0 ? [...known, ...unknown] : list;
+    } else if (filter === 'image') {
+      const imageOnly = list.filter((r) => r.outputsImage);
+      // Image generators are a dedicated class — never dump the whole chat list.
+      // If the live API returned none and the seed has none, leave empty so the
+      // free-text fallback appears.
+      list = imageOnly;
+    }
+
     const q = query.trim().toLowerCase();
     const filtered = q
       ? list.filter(
@@ -94,13 +168,43 @@ export function ModelPicker({
       );
     }
     return filtered;
-  }, [models, catalog, query, byPrice, provider]);
+  }, [models, catalog, query, byPrice, provider, filter]);
 
   const price = (r: Row) =>
     r.local ? 'local · $0' : r.inPrice !== undefined ? `$${r.inPrice}/$${r.outPrice}` : '—';
 
-  if (failed || (models.length === 0 && !open)) {
+  // Catalog seeds can still offer a dropdown when listModels fails (e.g. Grok
+  // login just landed) as long as matching rows exist. For chat ('all'), only
+  // fall back when listModels did not hard-fail — that means the provider is
+  // configured (API key or Grok login); otherwise keep the free-text field.
+  const hasCatalogFallback = (catalog?.records ?? []).some((r) => {
+    if (r.provider !== provider) return false;
+    if (filter === 'vision') return r.supportsVision === true;
+    if (filter === 'image') return r.outputsImage === true;
+    // filter === 'all'
+    if (failed) return false;
+    const tags = r.tags ?? [];
+    const pureImage =
+      r.outputsImage === true &&
+      r.supportsVision !== true &&
+      (tags.length === 0 || tags.every((t) => t === 'image-gen' || t === 'image'));
+    return !pureImage;
+  });
+
+  if ((failed && !hasCatalogFallback) || (models.length === 0 && !hasCatalogFallback && !open)) {
     // Free-text fallback (no key / server down) — still fully usable.
+    return (
+      <input
+        className="grow"
+        value={value}
+        placeholder={placeholder ?? 'model id'}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
+  // When we only have catalog rows (list failed/empty), still open the picker.
+  if (rows.length === 0 && !open && models.length === 0 && !hasCatalogFallback) {
     return (
       <input
         className="grow"

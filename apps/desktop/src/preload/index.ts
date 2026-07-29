@@ -87,6 +87,7 @@ const api: VoApi = {
   projectsList: () => ipcRenderer.invoke(IPC.projectsList),
   projectCreate: (name, dir) => ipcRenderer.invoke(IPC.projectCreate, name, dir),
   projectCreateIn: (parentDir, name) => ipcRenderer.invoke(IPC.projectCreateIn, parentDir, name),
+  projectOpenExisting: (dir) => ipcRenderer.invoke(IPC.projectOpenExisting, dir),
   projectDelete: (id) => ipcRenderer.invoke(IPC.projectDelete, id),
   projectSetDir: (id, dir) => ipcRenderer.invoke(IPC.projectSetDir, id, dir),
   sessionCreate: (projectId, agentId) => ipcRenderer.invoke(IPC.sessionCreate, projectId, agentId),

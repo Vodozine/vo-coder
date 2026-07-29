@@ -12,6 +12,10 @@ import type { SecretStore } from './secrets';
  * the session has one — and only the PATH travels through the conversation.
  * The pixels reach the UI via the imagePath side-channel, never the token
  * stream.
+ *
+ * Providers:
+ *   openrouter / openai — chat/completions with modalities: ['image','text']
+ *   xai                 — OpenAI-style /images/generations (Grok Imagine)
  */
 
 const TIMEOUT_MS = 120_000;
@@ -51,8 +55,8 @@ function guardedTarget(dir: string | undefined, saveAs: string | undefined): str
   return target;
 }
 
-/** Pull image bytes out of the various OpenAI-compatible response shapes. */
-function extractImage(json: unknown): { data: Buffer; note: string } | null {
+/** Pull image bytes out of chat/completions (OpenRouter image-output) shapes. */
+function extractChatImage(json: unknown): { data: Buffer; note: string } | null {
   const msg = (json as { choices?: Array<{ message?: Record<string, unknown> }> }).choices?.[0]
     ?.message;
   if (!msg) return null;
@@ -62,7 +66,22 @@ function extractImage(json: unknown): { data: Buffer; note: string } | null {
     | undefined;
   const url = images?.[0]?.image_url?.url ?? images?.[0]?.b64_json;
   if (!url) return null;
-  const b64 = url.startsWith('data:') ? url.slice(url.indexOf(',') + 1) : url;
+  return decodeImagePayload(url, note);
+}
+
+/** Pull image bytes from OpenAI/xAI /images/generations responses. */
+function extractImagesApi(json: unknown): { data: Buffer; note: string } | null {
+  const data = (json as { data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }> })
+    .data?.[0];
+  if (!data) return null;
+  const note = typeof data.revised_prompt === 'string' ? data.revised_prompt.trim() : '';
+  if (data.b64_json) return decodeImagePayload(data.b64_json, note);
+  if (data.url) return null; // caller downloads URL
+  return null;
+}
+
+function decodeImagePayload(urlOrB64: string, note: string): { data: Buffer; note: string } | null {
+  const b64 = urlOrB64.startsWith('data:') ? urlOrB64.slice(urlOrB64.indexOf(',') + 1) : urlOrB64;
   try {
     return { data: Buffer.from(b64, 'base64'), note };
   } catch {
@@ -70,11 +89,27 @@ function extractImage(json: unknown): { data: Buffer; note: string } | null {
   }
 }
 
+async function downloadUrl(url: string, signal: AbortSignal): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+export interface ImageToolAuth {
+  /** xAI OAuth bearer (SuperGrok) — preferred over the API key when present. */
+  xaiToken?: () => string | null;
+}
+
 export async function executeImageTool(
   args: unknown,
   config: ConfigStore,
   secrets: SecretStore,
   projectDir: string | undefined,
+  auth: ImageToolAuth = {},
 ): Promise<{ content: string; isError?: boolean; imagePath?: string }> {
   const a = (args ?? {}) as Record<string, unknown>;
   const prompt = String(a.prompt ?? '').trim();
@@ -85,40 +120,83 @@ export async function executeImageTool(
     return {
       content:
         'No image model configured — set one under Settings → Image model (an image-output model, ' +
-        'e.g. an OpenRouter image model).',
+        'e.g. xAI Grok Imagine or an OpenRouter image model).',
       isError: true,
     };
   }
-  const baseUrl =
-    pointer.provider === 'openrouter'
-      ? 'https://openrouter.ai/api/v1'
-      : pointer.provider === 'openai'
-        ? 'https://api.openai.com/v1'
-        : null;
-  const key = secrets.get(pointer.provider);
-  if (!baseUrl) {
-    return { content: `Image generation via "${pointer.provider}" is not supported yet — use openrouter or openai.`, isError: true };
+
+  const provider = pointer.provider;
+  const key =
+    provider === 'xai'
+      ? (auth.xaiToken?.() ?? secrets.get('xai'))
+      : secrets.get(provider);
+  if (!key) {
+    return {
+      content:
+        provider === 'xai'
+          ? 'No xAI credentials — add an API key or sign in with X under Settings.'
+          : `No API key saved for ${provider}.`,
+      isError: true,
+    };
   }
-  if (!key) return { content: `No API key saved for ${pointer.provider}.`, isError: true };
 
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: pointer.model,
-        messages: [{ role: 'user', content: prompt }],
-        modalities: ['image', 'text'],
-      }),
-      signal: ctl.signal,
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
+    let image: { data: Buffer; note: string } | null = null;
+
+    if (provider === 'xai') {
+      // Grok Imagine uses the classic images API, not chat modalities.
+      const res = await fetch('https://api.x.ai/v1/images/generations', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: pointer.model,
+          prompt,
+          response_format: 'b64_json',
+          n: 1,
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
+      }
+      const json = await res.json();
+      image = extractImagesApi(json);
+      if (!image) {
+        // Some responses return a temporary URL instead of b64.
+        const url = (json as { data?: Array<{ url?: string }> }).data?.[0]?.url;
+        if (url) {
+          const buf = await downloadUrl(url, ctl.signal);
+          if (buf) image = { data: buf, note: '' };
+        }
+      }
+    } else if (provider === 'openrouter' || provider === 'openai') {
+      const baseUrl =
+        provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1';
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: pointer.model,
+          messages: [{ role: 'user', content: prompt }],
+          modalities: ['image', 'text'],
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
+      }
+      image = extractChatImage(await res.json());
+    } else {
+      return {
+        content: `Image generation via "${provider}" is not supported yet — use xai, openrouter, or openai.`,
+        isError: true,
+      };
     }
-    const image = extractImage(await res.json());
+
     if (!image) {
       return {
         content: `"${pointer.model}" returned no image — is it actually an image-generation model?`,

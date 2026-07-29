@@ -29,6 +29,10 @@ export class ConfigStore {
         if ((raw as { approvalMode?: string }).approvalMode === 'guided') {
           this.cache.approvalMode = 'manual';
         }
+        // Older configs lack disabledProviders — treat as all enabled.
+        if (!Array.isArray(this.cache.disabledProviders)) {
+          this.cache.disabledProviders = [];
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }

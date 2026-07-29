@@ -15,7 +15,10 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "tsc -b && npm run typecheck -w @vo-coder/desktop",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "preview": "node scripts/preview-desktop.mjs",
+    "preview:stop": "node scripts/preview-desktop.mjs --stop",
+    "preview:restart": "node scripts/preview-desktop.mjs --restart"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

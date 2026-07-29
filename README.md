@@ -60,19 +60,19 @@ More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 ## What's inside
 <a id="whats-inside"></a>
 
-**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed.
+**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed. Flip any provider **On/Off** without deleting credentials so auto-routing skips it until you want it back.
 
-**🧭 Smart routing, your rules** — four modes: *Auto* (cheapest adequate model per message), *My agents first* (your specialist agents get matching work, Auto as fallback), *My agents only* (every turn lands on one of your agents), or *Off*. Every routed reply shows the reasoning and estimated cost.
+**🧭 Smart routing, your rules** — four modes: *Auto* (cheapest adequate model per message), *My agents first* (your specialist agents get matching work, Auto as fallback), *My agents only* (every turn lands on one of your agents), or *Off*. Every routed reply shows the reasoning and estimated cost. Busy or failing endpoints (429 / 5xx / ResourceExhausted) back off and retry; models that keep failing get benched so routing moves on.
 
 **🛠 Agents with hands** — agents don't hand you instructions; they do the work. Workspace tools (list/read/write files, run commands) scoped to your project folder, gated by per-call permission prompts. Web search and page fetching are built into every session — no API key, no setup.
 
-**📂 Point a chat at any folder** — attach any folder to a chat (no project needed) and the agent gets tools over it: browse, read, run, and *see*. Review a codebase, or catalog a folder of photos so you can find them later by feel — "the moody one," "the sunny beach shot."
+**📂 Point a chat at any folder** — attach any folder to a chat (no project needed) and the agent gets tools over it: browse, read, run, and *see*. Or **open an existing folder as a project** from the sidebar — no questionnaire, just tools and memory on that path. Review a codebase, or catalog a folder of photos so you can find them later by feel — "the moody one," "the sunny beach shot."
 
-**👁 Real eyes for any model** — `look_at_image` runs an image file through your vision model and hands the description back as text, so even a text-only coder can "see" a screenshot or photo. Camera **RAW** files (NEF, CR2/CR3, ARW, RAF, ORF, RW2, DNG, and 20+ more) open via their embedded preview. `file_identify` decodes camera/app naming schemes — which device shot each file, and the date baked into the name.
+**👁 Real eyes for any model** — `look_at_image` runs an image file through your vision model and hands the description back as text, so even a text-only coder can "see" a screenshot or photo. Camera **RAW** files (NEF, CR2/CR3, ARW, RAF, ORF, RW2, DNG, and 20+ more) open via their embedded preview. `file_identify` decodes camera/app naming schemes — which device shot each file, and the date baked into the name. Vision model pickers filter for real vision-capable IDs (including xAI when you're on Grok login).
 
 **🔍 One-click code review** — a Review button runs a real read-only pass over the folder, ranks findings by severity, and ends with proposed changes behind an **Approve / Revise / Don't accept** pill. Approve and the agent applies the edits and verifies them; decline and nothing is touched.
 
-**🎨 Image generation in-chat** — point an image-output model at a prompt and the result renders inline *and* lands in the project's `designs/` folder.
+**🎨 Image generation in-chat** — point an image-output model at a prompt and the result renders inline *and* lands in the project's `designs/` folder. Supports **xAI Grok Imagine** (API key or Grok login), OpenRouter image models, and OpenAI — pick them from Settings → Image model.
 
 **🚀 Missions** — background objectives Vodo pursues in its own isolated agent instances, one-shot or looping on a schedule. Missions run concurrently with your chats, so long work never blocks the conversation. Just ask: *"check my backups every hour and report problems."*
 
@@ -90,9 +90,21 @@ More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 
 **🖥 Infrastructure MCP** — a bundled, generalized infrastructure server: environment discovery plus a Proxmox driver (VMs, containers, snapshots, backups) behind read < write < destructive permission tiers. Works in any MCP client, not just Vo-Coder. Finding more tools is built in: search the official MCP registry and add servers with one click.
 
-**📟 The essentials** — real PTY terminal with tabs, a live app preview that starts (and stops) your project's dev server and follows whichever project you're in, per-project + all-time usage tracking, auto-updates that keep your settings and keys.
+**📟 The essentials** — real PTY terminal with tabs, a live app preview that starts (and stops) your project's dev server and follows whichever project you're in, per-project + all-time usage tracking, auto-updates that keep your settings and keys. Composer drafts survive tab switches; chat only auto-scrolls when you're already near the bottom.
 
 **🛡 Built to not hang** — a silent or throttled model can't freeze a turn (a stall watchdog aborts it), Stop always interrupts even a wedged command, and long build-and-verify runs get room to finish instead of dying halfway. Three operating modes — **Auto** (autonomous), **Plan** (read-only, proposes a plan), **Manual** (approve every action).
+
+## What's new in 1.2.7
+
+- **NVIDIA NIM** as a first-class cloud provider (free-tier friendly model list, dead-endpoint learning, clearer errors)
+- **Provider On/Off** toggles — keep API keys and Grok login saved while excluding a provider from routing and chat
+- **Grok login = full xAI** — SuperGrok / X Premium unlocks chat, vision, and **Grok Imagine** image models without an API key
+- **Grok Imagine** in Settings → Image model (plus curated Grok 4.5 / Imagine catalog seeds)
+- **Vision & image model pickers** filter by capability and merge live lists with the catalog
+- **Open existing folder as a project** from the sidebar (no scaffold questionnaire)
+- **Composer draft persistence** per chat; smarter chat scroll-follow
+- **Busy-endpoint retry** for 429 / 5xx / in-band ResourceExhausted
+- **Dogfood-safe packaging** — CodeWatch ignores `release-*` pack dirs; `npm run preview` launches the real Electron shell
 
 ## Install
 
@@ -113,10 +125,15 @@ git clone https://github.com/Vodozine/vo-coder.git
 cd vo-coder
 npm install
 npx tsc -b                      # compile workspace packages
-npm run dev -w @vo-coder/desktop
+npm run preview                 # native Electron window (preferred)
+# or: npm run dev -w @vo-coder/desktop
 ```
 
+`npm run preview` launches the **real Electron shell** with an isolated dev profile. Do not use a browser-only Vite server of the renderer — that is not the app. Details: [docs/desktop-preview.md](docs/desktop-preview.md).
+
 Package an installer: `npm run dist:test -w @vo-coder/desktop` → `apps/desktop/release-local/`.
+
+Official multi-platform builds (Windows NSIS, macOS DMG arm64+x64, Linux AppImage) run on GitHub Actions when a `v*` tag is pushed — see [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/packaging.md](docs/packaging.md).
 
 The monorepo: `apps/desktop` (Electron shell) plus independently publishable packages — `providers` (streaming adapters), `core` (agent loop, MCP client), `capability-registry` (catalog, pricing, routing), `scaffold`, `voice`, `infra-mcp`, `project-config`.
 

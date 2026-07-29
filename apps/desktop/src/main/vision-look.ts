@@ -173,7 +173,10 @@ export async function executeLookTool(
   })();
   if (!bound) {
     return {
-      content: `Vision provider "${pointer.provider}" is not configured — add its API key in Settings.`,
+      content:
+        pointer.provider === 'xai'
+          ? 'Vision provider "xai" is not configured — add an API key or Sign in with X (Grok login) in Settings.'
+          : `Vision provider "${pointer.provider}" is not configured — add its API key in Settings.`,
       isError: true,
     };
   }

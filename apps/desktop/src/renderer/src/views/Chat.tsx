@@ -262,6 +262,7 @@ function StatusCard({
   usingDefaults: boolean;
 }) {
   const secretStatus = useStore((s) => s.secretStatus);
+  const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
   const models = useStore((s) => s.models);
   const modelsError = useStore((s) => s.modelsError);
   const mcpStatus = useStore((s) => s.mcpStatus);
@@ -272,6 +273,9 @@ function StatusCard({
   const config = useStore((s) => s.config);
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
   const keyOk = !!secretStatus[provider];
+  // Grok login (subscription OAuth) is valid xAI auth without an API key.
+  const authOk = keyOk || (provider === 'xai' && xaiOauthConnected);
+  const providerDisabled = (config?.disabledProviders ?? []).includes(provider);
   const routeMode = config?.routeMode ?? 'off';
   const autoRouting = routeMode !== 'off' && usingDefaults;
   // The loaded model list belongs to the header provider; only trust it when
@@ -280,11 +284,28 @@ function StatusCard({
 
   let providerState: RowState;
   let providerDetail: string;
-  if (isLocal) {
+  if (providerDisabled) {
+    providerState = 'bad';
+    providerDetail =
+      provider === 'xai'
+        ? 'turned off in Settings — Grok login / API key stay saved; flip On to use again'
+        : 'turned off in Settings — key stays saved; flip On to use again';
+  } else if (isLocal) {
     providerState = listUsable ? 'ok' : 'bad';
     providerDetail = listUsable
       ? `server reachable — ${models.length} model(s) installed`
       : (modelsError ?? 'server not reachable — is it running?');
+  } else if (provider === 'xai') {
+    providerState = authOk ? 'ok' : 'bad';
+    if (xaiOauthConnected && keyOk) {
+      providerDetail = `signed in with Grok + API key (${secretStatus[provider]})`;
+    } else if (xaiOauthConnected) {
+      providerDetail = 'signed in with Grok (SuperGrok / X Premium)';
+    } else if (keyOk) {
+      providerDetail = `API key saved (${secretStatus[provider]})`;
+    } else {
+      providerDetail = 'no credentials — add an API key or Sign in with X in Settings';
+    }
   } else {
     providerState = keyOk ? 'ok' : 'bad';
     providerDetail = keyOk ? `API key saved (${secretStatus[provider]})` : 'no API key — add it in Settings';
@@ -500,6 +521,7 @@ export function Chat() {
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
   const attachments = useStore((s) => s.attachments);
+  const setComposerDraft = useStore((s) => s.setComposerDraft);
   const send = useStore((s) => s.send);
   const stop = useStore((s) => s.stop);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -515,9 +537,25 @@ export function Chat() {
     (s) => (s.activeSessionId ? s.review[s.activeSessionId] : undefined) === 'verdict',
   );
 
-  const [input, setInput] = useState('');
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  // Draft lives in the store so leaving Chat (another nav tab) does not wipe it.
+  // Keyed by session so switching chats keeps each thread's unsent text.
+  const input = useStore((s) =>
+    s.activeSessionId ? (s.composerDrafts[s.activeSessionId] ?? '') : '',
+  );
+  const setInput = (value: string | ((prev: string) => string)) => {
+    const sessionId = useStore.getState().activeSessionId;
+    if (!sessionId) return;
+    const next =
+      typeof value === 'function'
+        ? value(useStore.getState().composerDrafts[sessionId] ?? '')
+        : value;
+    setComposerDraft(sessionId, next);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Follow new output only while the user is already near the bottom. */
+  const pinToBottomRef = useRef(true);
 
   const { recording, live, voiceError, pttStart, pttStop, liveToggle } = useVoice((text) =>
     setInput((prev) => (prev ? `${prev} ${text}` : text)),
@@ -545,8 +583,32 @@ export function Chat() {
   const messages = session?.messages ?? [];
   const streaming = session?.streaming ?? false;
 
+  const isNearBottom = (el: HTMLElement, threshold = 80) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  };
+
+  const onMessagesScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    pinToBottomRef.current = isNearBottom(el);
+  };
+
+  // New chat / session switch: jump to latest and re-enable follow.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    pinToBottomRef.current = true;
+    // Wait a frame so the new session's messages are painted.
+    requestAnimationFrame(() => scrollToBottom());
+  }, [activeSessionId]);
+
+  // While pinned, keep the viewport on the latest tokens/tools as they stream in.
+  useEffect(() => {
+    if (!pinToBottomRef.current) return;
+    scrollToBottom();
   }, [messages]);
 
   if (!config) return <div className="empty-state">Loading…</div>;
@@ -556,8 +618,10 @@ export function Chat() {
 
   const submit = () => {
     if (!input.trim() && attachments.length === 0) return;
+    pinToBottomRef.current = true; // user sent something — follow the reply
     void send(input); // while streaming this becomes a graceful injection
     setInput('');
+    requestAnimationFrame(() => scrollToBottom());
   };
 
   const onProviderChange = async (provider: string) => {
@@ -620,7 +684,7 @@ export function Chat() {
             >
               {PROVIDERS.map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {(config.disabledProviders ?? []).includes(p) ? `${p} (off)` : p}
                 </option>
               ))}
             </select>
@@ -662,7 +726,7 @@ export function Chat() {
         </button>
       </header>
 
-      <div className="messages" ref={scrollRef}>
+      <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         {messages.length === 0 && (
           <StatusCard
             provider={activeAgent?.provider ?? config.defaultProvider}

@@ -97,9 +97,11 @@ function ProjectsPanel() {
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
   const newProjectIn = useStore((s) => s.newProjectIn);
+  const openExistingProject = useStore((s) => s.openExistingProject);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [naming, setNaming] = useState(false);
+  /** null | 'menu' | 'new' — sidebar create/open affordance. */
+  const [projectMenu, setProjectMenu] = useState<null | 'menu' | 'new'>(null);
   const [name, setName] = useState('');
   const [parent, setParent] = useState(() => localStorage.getItem('vo-projects-parent') ?? '');
   const [createError, setCreateError] = useState<string | null>(null);
@@ -130,18 +132,53 @@ function ProjectsPanel() {
       return;
     }
     setName('');
-    setNaming(false);
+    setProjectMenu(null);
+  };
+
+  const continueExisting = async () => {
+    setCreateError(null);
+    const error = await openExistingProject();
+    if (error) {
+      setCreateError(error);
+      setProjectMenu('menu');
+      return;
+    }
+    setProjectMenu(null);
   };
 
   return (
     <div className="projects-panel">
       <div className="projects-head">
         <span>Projects</span>
-        <button className="chip-x" title="New project" onClick={() => setNaming(!naming)}>
+        <button
+          className="chip-x"
+          title="Add a project"
+          onClick={() => setProjectMenu((m) => (m ? null : 'menu'))}
+        >
           +
         </button>
       </div>
-      {naming && (
+      {projectMenu === 'menu' && (
+        <div className="project-name-form project-add-menu">
+          <button
+            className="project-menu-btn"
+            onClick={() => {
+              setCreateError(null);
+              setProjectMenu('new');
+            }}
+          >
+            <Icon name="folder" size={12} /> New project…
+          </button>
+          <button className="project-menu-btn" onClick={() => void continueExisting()}>
+            <Icon name="folder" size={12} /> Continue from folder…
+          </button>
+          <div className="project-loc-hint">
+            Continue attaches any existing folder — no new folder, no questionnaire.
+          </div>
+          {createError && <div className="project-loc-hint error-text">{createError}</div>}
+        </div>
+      )}
+      {projectMenu === 'new' && (
         <div className="project-name-form">
           <input
             autoFocus
@@ -150,17 +187,31 @@ function ProjectsPanel() {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void createProject();
-              if (e.key === 'Escape') setNaming(false);
+              if (e.key === 'Escape') setProjectMenu(null);
             }}
           />
-          <button className="project-loc" title="Where the project folder is created" onClick={() => void pickParent()}>
-            <Icon name="folder" size={12} /> {parent ? `…\\${parent.split(/[\\/]/).pop()}` : 'Choose location…'}
+          <button
+            className="project-loc"
+            title="Where the project folder is created"
+            onClick={() => void pickParent()}
+          >
+            <Icon name="folder" size={12} />{' '}
+            {parent ? `…\\${parent.split(/[\\/]/).pop()}` : 'Choose location…'}
           </button>
           {name.trim() && parent && (
-            <div className="project-loc-hint">creates {parent.split(/[\\/]/).pop()}\{name.trim()} and starts setup</div>
+            <div className="project-loc-hint">
+              creates {parent.split(/[\\/]/).pop()}\{name.trim()} and starts setup
+            </div>
           )}
-          <button className="send project-create" disabled={!name.trim() || !parent} onClick={() => void createProject()}>
+          <button
+            className="send project-create"
+            disabled={!name.trim() || !parent}
+            onClick={() => void createProject()}
+          >
             Create project
+          </button>
+          <button className="ghost project-create" onClick={() => setProjectMenu('menu')}>
+            Back
           </button>
           {createError && <div className="project-loc-hint error-text">{createError}</div>}
         </div>

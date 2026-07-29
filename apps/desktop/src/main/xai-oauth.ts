@@ -9,6 +9,10 @@ import type { SecretStore } from './secrets';
  * discovery document. The resulting bearer token drives api.x.ai/v1 exactly
  * like an API key, refreshed in the background. Tokens live in the encrypted
  * secret store under 'xai-oauth'.
+ *
+ * Grok login and the xAI API key share one provider gate (disabledProviders).
+ * Signing in clears a leftover Off toggle so OAuth is not stranded while the
+ * key-row switch stays Off.
  */
 
 const DEVICE_CODE_URL = 'https://auth.x.ai/oauth2/device/code';
@@ -55,6 +59,15 @@ export class XaiOAuth {
     this.send(IPC.xaiOauthEvent, event);
   }
 
+  /** Drop 'xai' from disabledProviders so OAuth can register the provider. */
+  private ensureXaiEnabled(): void {
+    const cur = this.config.get().disabledProviders ?? [];
+    if (!cur.some((p) => p.toLowerCase() === 'xai')) return;
+    this.config.set({
+      disabledProviders: cur.filter((p) => p.toLowerCase() !== 'xai'),
+    });
+  }
+
   status(): { connected: boolean; expiresAt?: number } {
     const tokens = this.stored();
     return tokens ? { connected: true, expiresAt: tokens.expiresAt } : { connected: false };
@@ -68,6 +81,9 @@ export class XaiOAuth {
   async begin(): Promise<{ ok: boolean; userCode?: string; verificationUri?: string; error?: string }> {
     const clientId = this.clientId();
     if (!clientId) return { ok: false, error: 'Set the OAuth client id first (Settings → xai).' };
+    // Signing in is choosing xAI — clear a leftover Off toggle immediately so
+    // the renderer and hub agree once the token lands.
+    this.ensureXaiEnabled();
     let res: Response;
     try {
       res = await fetch(DEVICE_CODE_URL, {
@@ -133,6 +149,9 @@ export class XaiOAuth {
             refreshToken: json.refresh_token,
             expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
           });
+          // Grok login IS the xAI provider — do not leave it stuck Off from a
+          // prior key-row toggle (OAuth alone has no separate always-on path).
+          this.ensureXaiEnabled();
           this.notify({ state: 'connected' });
           return;
         }

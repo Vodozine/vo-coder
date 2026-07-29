@@ -60,6 +60,12 @@ export interface AppConfig {
   /** Case-insensitive substrings — matching models never get auto-routed
    *  (manual selection still works). e.g. ["glm", "kimi", "fable"]. */
   excludedModels: string[];
+  /**
+   * Providers the user has turned off in Settings. Keys/OAuth stay saved;
+   * the provider is simply not registered (skipped by auto-routing and
+   * unavailable for manual picks) until turned back on.
+   */
+  disabledProviders: string[];
   /** OAuth client id for xAI subscription sign-in (public desktop client). */
   xaiOauthClientId: string;
   /** Check for and download updates automatically (manual check always works). */
@@ -139,6 +145,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   routeMode: 'auto',
   routeTier: 'cheap',
   excludedModels: [],
+  disabledProviders: [],
   // Public client id of xAI's own CLI device flow (verified from shipping
   // open-source integrations; editable in Settings if xAI rotates it).
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
@@ -408,6 +415,10 @@ export interface VoApi {
     parentDir: string,
     name: string,
   ): Promise<{ ok: boolean; project?: ProjectInfo; error?: string }>;
+  /** Register an existing folder as a project (any path). Idempotent on same dir. */
+  projectOpenExisting(
+    dir: string,
+  ): Promise<{ ok: boolean; project?: ProjectInfo; created?: boolean; error?: string }>;
   projectDelete(id: string): Promise<void>;
   /** Attach (or change) a project's folder — enables builder mode + ws tools. */
   projectSetDir(id: string, dir: string): Promise<{ ok: boolean; error?: string }>;
@@ -527,6 +538,7 @@ export const IPC = {
   projectsList: 'projects:list',
   projectCreate: 'projects:create',
   projectCreateIn: 'projects:createIn',
+  projectOpenExisting: 'projects:openExisting',
   projectDelete: 'projects:delete',
   projectSetDir: 'projects:setDir',
   sessionCreate: 'sessions:create',

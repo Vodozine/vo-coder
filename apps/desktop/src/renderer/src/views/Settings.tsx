@@ -1,39 +1,121 @@
 import { useEffect, useState } from 'react';
+import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
 import type { AppConfig, TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
+/** Providers that can be flipped off without clearing credentials. */
+const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
 function KeyRow({ provider }: { provider: string }) {
   const status = useStore((s) => s.secretStatus[provider]);
   const saveSecret = useStore((s) => s.saveSecret);
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
   const [value, setValue] = useState('');
-  const [saved, setSaved] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  /** When a key is already stored, hide the empty password field until Replace. */
+  const [replacing, setReplacing] = useState(false);
+
+  const canToggle = TOGGLEABLE_PROVIDERS.has(provider);
+  const providerOff = canToggle && (config?.disabledProviders ?? []).includes(provider);
+  const hasKey = Boolean(status);
+  const showInput = !hasKey || replacing;
+
+  const setEnabled = (on: boolean) => {
+    if (!canToggle) return;
+    const cur = config?.disabledProviders ?? [];
+    const nextDisabled = on
+      ? cur.filter((p) => p !== provider)
+      : cur.includes(provider)
+        ? cur
+        : [...cur, provider];
+    void saveConfig({ disabledProviders: nextDisabled });
+  };
 
   const save = async () => {
     await saveSecret(provider, value);
     setValue('');
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    setReplacing(false);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+  };
+
+  const clear = async () => {
+    await saveSecret(provider, '');
+    setValue('');
+    setReplacing(false);
   };
 
   return (
-    <div className="field-row">
+    <div
+      className={`field-row provider-key-row${providerOff ? ' provider-off' : ''}${hasKey ? ' has-key' : ''}`}
+    >
       <label>{provider}</label>
-      <input
-        type="password"
-        value={value}
-        placeholder={status ? `saved (${status})` : 'not set'}
-        onChange={(e) => setValue(e.target.value)}
-      />
-      <button onClick={() => void save()} disabled={!value}>
-        {saved ? 'Saved ✓' : 'Save'}
-      </button>
-      {status && (
-        <button className="ghost" onClick={() => void saveSecret(provider, '')}>
-          Clear
+      {canToggle && (
+        <button
+          type="button"
+          className={`provider-toggle ${providerOff ? 'off' : 'on'}`}
+          title={
+            providerOff
+              ? 'Provider is off — key stays saved; click to enable for routing and chat'
+              : 'Provider is on — click to disable without deleting the key'
+          }
+          onClick={() => setEnabled(providerOff)}
+        >
+          {providerOff ? 'Off' : 'On'}
         </button>
+      )}
+      {showInput ? (
+        <>
+          <input
+            type="password"
+            className="grow"
+            value={value}
+            autoFocus={replacing}
+            placeholder={hasKey ? `paste new key (replaces …${status})` : 'paste API key'}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && value.trim()) void save();
+              if (e.key === 'Escape' && replacing) {
+                setValue('');
+                setReplacing(false);
+              }
+            }}
+          />
+          <button type="button" onClick={() => void save()} disabled={!value.trim()}>
+            {savedFlash ? 'Saved ✓' : hasKey ? 'Update' : 'Save'}
+          </button>
+          {replacing && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setValue('');
+                setReplacing(false);
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <span
+            className="key-status-pill"
+            title="Key is stored in the OS keychain — use Replace to change it, or Off to exclude this provider without deleting the key"
+          >
+            <span className="key-status-dot" aria-hidden />
+            saved (…{status})
+          </span>
+          <button type="button" className="ghost" onClick={() => setReplacing(true)}>
+            Replace
+          </button>
+          <button type="button" className="ghost" onClick={() => void clear()}>
+            Clear
+          </button>
+        </>
       )}
     </div>
   );
@@ -232,28 +314,77 @@ function McpFinder() {
   );
 }
 
-/** xAI subscription sign-in (SuperGrok / X Premium) — no API key needed. */
-function XaiSignIn() {
+/**
+ * xAI is one provider with two credential paths: API key and Grok login
+ * (SuperGrok / X Premium OAuth). The On/Off toggle covers both — signing in
+ * without a key is not a separate "always-on" channel.
+ */
+function XaiProviderRow() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
-  const [connected, setConnected] = useState(false);
+  const status = useStore((s) => s.secretStatus['xai']);
+  const saveSecret = useStore((s) => s.saveSecret);
+  const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
+  const loadModels = useStore((s) => s.loadModels);
+  const [value, setValue] = useState('');
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [userCode, setUserCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const providerOff = (config?.disabledProviders ?? []).includes('xai');
+  const hasKey = Boolean(status);
+  const showInput = !hasKey || replacing;
+  const authOk = hasKey || xaiOauthConnected;
+
+  const setEnabled = (on: boolean) => {
+    const cur = config?.disabledProviders ?? [];
+    const nextDisabled = on
+      ? cur.filter((p) => p !== 'xai')
+      : cur.includes('xai')
+        ? cur
+        : [...cur, 'xai'];
+    void saveConfig({ disabledProviders: nextDisabled });
+  };
+
+  const save = async () => {
+    await saveSecret('xai', value);
+    setValue('');
+    setReplacing(false);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+    // Saving a key implies you want the provider — clear a stale Off flag.
+    if (providerOff) setEnabled(true);
+    void loadModels('xai');
+  };
+
+  const clear = async () => {
+    await saveSecret('xai', '');
+    setValue('');
+    setReplacing(false);
+  };
+
   useEffect(() => {
-    void window.vo.xaiOauthStatus().then((s) => setConnected(s.connected));
     return window.vo.onXaiOauth((event) => {
-      setConnected(event.state === 'connected');
-      if (event.state === 'connected') setUserCode(null);
+      // Store owns connected state; here we only clear the pending code / errors.
+      if (event.state === 'connected') {
+        setUserCode(null);
+        setError(null);
+        // Model pickers (chat + vision/image) need a fresh list once auth lands.
+        void loadModels('xai');
+      }
       if (event.state === 'error') setError(event.message ?? 'Sign-in failed');
       if (event.state === 'signed_out' && event.message) setError(event.message);
     });
-  }, []);
+  }, [loadModels]);
 
   const signIn = async () => {
     setBusy(true);
     setError(null);
+    // Grok login is xAI auth — flip the provider On before the browser flow so
+    // chat/routing work the moment the token lands (main also clears Off).
+    if (providerOff) setEnabled(true);
     const result = await window.vo.xaiOauthBegin();
     setBusy(false);
     if (!result.ok) {
@@ -264,12 +395,87 @@ function XaiSignIn() {
   };
 
   return (
-    <div className="xai-signin">
-      <div className="field-row">
-        <label>grok login</label>
-        {connected ? (
+    <div
+      className={`xai-provider-block${providerOff ? ' provider-off' : ''}${authOk ? ' has-auth' : ''}`}
+    >
+      <div
+        className={`field-row provider-key-row${providerOff ? ' provider-off' : ''}${hasKey ? ' has-key' : ''}`}
+      >
+        <label>xai</label>
+        <button
+          type="button"
+          className={`provider-toggle ${providerOff ? 'off' : 'on'}`}
+          title={
+            providerOff
+              ? 'xAI is off — Grok login and API key stay saved; click to enable for routing and chat'
+              : 'xAI is on — click to disable without signing out or deleting the key'
+          }
+          onClick={() => setEnabled(providerOff)}
+        >
+          {providerOff ? 'Off' : 'On'}
+        </button>
+        {showInput ? (
           <>
-            <span className="hint grow">✓ Signed in with your X / SuperGrok subscription</span>
+            <input
+              type="password"
+              className="grow"
+              value={value}
+              autoFocus={replacing}
+              placeholder={
+                hasKey
+                  ? `paste new key (replaces …${status})`
+                  : 'paste API key (optional if signed in)'
+              }
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && value.trim()) void save();
+                if (e.key === 'Escape' && replacing) {
+                  setValue('');
+                  setReplacing(false);
+                }
+              }}
+            />
+            <button type="button" onClick={() => void save()} disabled={!value.trim()}>
+              {savedFlash ? 'Saved ✓' : hasKey ? 'Update' : 'Save'}
+            </button>
+            {replacing && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setValue('');
+                  setReplacing(false);
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span
+              className="key-status-pill"
+              title="Key is stored in the OS keychain — use Replace to change it, or Off to exclude xAI without deleting the key"
+            >
+              <span className="key-status-dot" aria-hidden />
+              saved (…{status})
+            </span>
+            <button type="button" className="ghost" onClick={() => setReplacing(true)}>
+              Replace
+            </button>
+            <button type="button" className="ghost" onClick={() => void clear()}>
+              Clear
+            </button>
+          </>
+        )}
+      </div>
+      <div className="field-row xai-signin-row">
+        <label>grok login</label>
+        {xaiOauthConnected ? (
+          <>
+            <span className="hint grow">
+              ✓ Signed in — same xAI provider as the key above (chat, vision, image)
+            </span>
             <button className="ghost" onClick={() => void window.vo.xaiOauthSignOut()}>
               Sign out
             </button>
@@ -277,7 +483,7 @@ function XaiSignIn() {
         ) : (
           <>
             <span className="hint grow">
-              Have SuperGrok or X Premium? Sign in instead of using an API key.
+              SuperGrok / X Premium? Sign in instead of (or as well as) an API key.
             </span>
             <button disabled={busy} onClick={() => void signIn()}>
               {busy ? 'Starting…' : 'Sign in with X'}
@@ -406,7 +612,13 @@ function VisionSection() {
       </p>
       <div className="field-row">
         <label>provider</label>
-        <select value={effProvider} onChange={(e) => setProvider(e.target.value)}>
+        <select
+          value={effProvider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setModel('');
+          }}
+        >
           <option value="">(none)</option>
           {PROVIDERS.map((p) => (
             <option key={p} value={p}>
@@ -414,11 +626,17 @@ function VisionSection() {
             </option>
           ))}
         </select>
-        <input
-          placeholder="model id"
-          value={effModel}
-          onChange={(e) => setModel(e.target.value)}
-        />
+        {effProvider ? (
+          <ModelPicker
+            provider={effProvider}
+            value={effModel}
+            onChange={setModel}
+            placeholder="pick a vision model"
+            filter="vision"
+          />
+        ) : (
+          <input className="grow" placeholder="model id" value={effModel} disabled />
+        )}
         <button
           onClick={() =>
             void saveConfig({
@@ -437,17 +655,13 @@ function VisionSection() {
 function ImageModelSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
-  const catalog = useStore((s) => s.catalog);
   const [provider, setProvider] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
 
   if (!config) return null;
-  const effProvider = provider ?? config.imageModel?.provider ?? 'openrouter';
+  const IMAGE_PROVIDERS = ['xai', 'openrouter', 'openai'] as const;
+  const effProvider = provider ?? config.imageModel?.provider ?? 'xai';
   const effModel = model ?? config.imageModel?.model ?? '';
-  const imageModels = (catalog?.records ?? [])
-    .filter((r) => r.outputsImage === true)
-    .map((r) => r.id)
-    .sort();
 
   return (
     <section>
@@ -458,28 +672,30 @@ function ImageModelSection() {
       </p>
       <div className="field-row">
         <label>provider</label>
-        <select value={effProvider} onChange={(e) => setProvider(e.target.value)}>
-          <option value="openrouter">openrouter</option>
-          <option value="openai">openai</option>
-        </select>
-        <input
-          className="grow"
-          placeholder="model id"
-          list="image-model-ids"
-          value={effModel}
-          onChange={(e) => setModel(e.target.value)}
-        />
-        <datalist id="image-model-ids">
-          {imageModels.map((id) => (
-            <option key={id} value={id} />
+        <select
+          value={effProvider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setModel('');
+          }}
+        >
+          {IMAGE_PROVIDERS.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
           ))}
-        </datalist>
+        </select>
+        <ModelPicker
+          provider={effProvider}
+          value={effModel}
+          onChange={setModel}
+          placeholder="pick an image model"
+          filter="image"
+        />
         <button
           onClick={() =>
             void saveConfig({
-              imageModel: effModel
-                ? { provider: effProvider as 'openrouter' | 'openai', model: effModel }
-                : null,
+              imageModel: effModel ? { provider: effProvider, model: effModel } : null,
             })
           }
         >
@@ -898,20 +1114,39 @@ export function Settings() {
         <h2>API keys</h2>
         <p className="hint">
           Keys are encrypted with your OS keychain and never leave this machine except to call the
-          provider you configured.
+          provider you configured. Use On/Off to keep credentials saved while excluding that provider
+          from auto-routing and chat — turn it back on any time. For xAI, Grok login and the API key
+          share one On/Off switch (signing in is not a separate always-on channel).
         </p>
         <KeyRow provider="anthropic" />
         <KeyRow provider="openai" />
         <KeyRow provider="openrouter" />
-        <KeyRow provider="xai" />
+        <XaiProviderRow />
         <KeyRow provider="nvidia" />
-        <XaiSignIn />
       </section>
 
       <section>
         <h2>Local model servers</h2>
-        <div className="field-row">
+        <div
+          className={`field-row${(config.disabledProviders ?? []).includes('ollama') ? ' provider-off' : ''}`}
+        >
           <label>Ollama</label>
+          <button
+            type="button"
+            className={`provider-toggle ${(config.disabledProviders ?? []).includes('ollama') ? 'off' : 'on'}`}
+            title="Turn Ollama off without forgetting its URL"
+            onClick={() => {
+              const cur = config.disabledProviders ?? [];
+              const off = cur.includes('ollama');
+              void saveConfig({
+                disabledProviders: off
+                  ? cur.filter((p) => p !== 'ollama')
+                  : [...cur, 'ollama'],
+              });
+            }}
+          >
+            {(config.disabledProviders ?? []).includes('ollama') ? 'Off' : 'On'}
+          </button>
           <input
             value={ollamaUrl ?? config.ollamaBaseUrl}
             onChange={(e) => setOllamaUrl(e.target.value)}
@@ -923,8 +1158,26 @@ export function Settings() {
             Save
           </button>
         </div>
-        <div className="field-row">
+        <div
+          className={`field-row${(config.disabledProviders ?? []).includes('lmstudio') ? ' provider-off' : ''}`}
+        >
           <label>LM Studio</label>
+          <button
+            type="button"
+            className={`provider-toggle ${(config.disabledProviders ?? []).includes('lmstudio') ? 'off' : 'on'}`}
+            title="Turn LM Studio off without forgetting its URL"
+            onClick={() => {
+              const cur = config.disabledProviders ?? [];
+              const off = cur.includes('lmstudio');
+              void saveConfig({
+                disabledProviders: off
+                  ? cur.filter((p) => p !== 'lmstudio')
+                  : [...cur, 'lmstudio'],
+              });
+            }}
+          >
+            {(config.disabledProviders ?? []).includes('lmstudio') ? 'Off' : 'On'}
+          </button>
           <input
             value={lmstudioUrl ?? config.lmstudioBaseUrl}
             onChange={(e) => setLmstudioUrl(e.target.value)}
@@ -939,7 +1192,8 @@ export function Settings() {
           </button>
         </div>
         <p className="hint">
-          No keys needed — both are picked up automatically when their server is running.
+          No keys needed — both are picked up automatically when their server is running. Off keeps
+          the URL but excludes the server from auto-routing.
         </p>
       </section>
 
