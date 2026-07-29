@@ -24,6 +24,12 @@ function friendlyUpdateError(err: unknown): string {
  * userData survives. Inactive in dev; fail-soft when no releases exist yet.
  * Automatic checks respect config.autoUpdate (checked at fire time, so the
  * Settings toggle applies without a restart); the manual button always works.
+ *
+ * Important: electron-updater always fills `result.updateInfo` with whatever
+ * the feed's latest.yml says — even when that version is *older* than the
+ * running app (e.g. you installed 1.2.7 from a local build while GitHub's
+ * published latest is still 1.2.3). Always gate on `isUpdateAvailable`, never
+ * on a bare version inequality, or Settings will offer a downgrade as an update.
  */
 export function initUpdater(getWindow: () => BrowserWindow | null, config: ConfigStore): void {
   const send = (payload: UpdateEvent) => {
@@ -39,7 +45,14 @@ export function initUpdater(getWindow: () => BrowserWindow | null, config: Confi
     }
     try {
       const result = await autoUpdater.checkForUpdates();
-      if (result?.updateInfo && result.updateInfo.version !== app.getVersion()) {
+      // Prefer the library's semver gate. Falling back to a gt-style string
+      // compare only if the field is missing on an older electron-updater.
+      const newer =
+        result?.isUpdateAvailable === true ||
+        (result?.isUpdateAvailable !== false &&
+          Boolean(result?.updateInfo?.version) &&
+          isVersionNewer(result!.updateInfo!.version, app.getVersion()));
+      if (newer && result?.updateInfo?.version) {
         return { state: 'available', version: result.updateInfo.version };
       }
       return { state: 'none' };
@@ -52,6 +65,10 @@ export function initUpdater(getWindow: () => BrowserWindow | null, config: Confi
   });
 
   if (!app.isPackaged) return;
+
+  // Never treat an older feed version as installable (channel / channel-force
+  // paths can flip this on; we only ever want forward upgrades).
+  autoUpdater.allowDowngrade = false;
   autoUpdater.autoDownload = true;
   autoUpdater.on('update-available', (info) => send({ state: 'available', version: info.version }));
   autoUpdater.on('update-not-available', () => send({ state: 'none' }));
@@ -66,4 +83,26 @@ export function initUpdater(getWindow: () => BrowserWindow | null, config: Confi
   };
   setTimeout(autoCheck, 8_000);
   setInterval(autoCheck, 4 * 60 * 60 * 1000);
+}
+
+/** Lightweight semver core compare (x.y.z only) — no prerelease/build handling. */
+function isVersionNewer(candidate: string, current: string): boolean {
+  const parse = (v: string): number[] =>
+    v
+      .replace(/^v/i, '')
+      .split('.')
+      .slice(0, 3)
+      .map((p) => {
+        const n = parseInt(p.replace(/[^0-9].*$/, ''), 10);
+        return Number.isFinite(n) ? n : 0;
+      });
+  const a = parse(candidate);
+  const b = parse(current);
+  for (let i = 0; i < 3; i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
 }
