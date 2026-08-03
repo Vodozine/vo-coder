@@ -545,9 +545,19 @@ select:focus {
 }
 .field-row label {
   width: 110px;
+  flex: none;
   color: var(--text-dim);
   font-family: var(--mono);
   font-size: 13px;
+}
+/* Flex items default to min-width:auto, so a control cannot shrink below its
+   own intrinsic content width. A <select> takes that width from its LONGEST
+   option, so one wordy option ("OpenAI-compatible API (uses your openai key)")
+   sets a floor that pushes the rest of the row past the panel edge. Letting the
+   select shrink and truncate keeps the row inside the panel, while the sibling
+   input keeps its own intrinsic width and stays usable. */
+.field-row select {
+  min-width: 0;
 }
 .field-row input {
   flex: 1;
