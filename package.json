@@ -10,6 +10,7 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "tsc -b",
     "dev": "npm run dev -w @vo-coder/desktop",
     "build": "tsc -b && npm run build -w @vo-coder/desktop",
     "test": "npm run test --workspaces --if-present",
@@ -28,5 +29,11 @@
     "prettier": "^3.6.0",
     "typescript": "~5.9.0",
     "typescript-eslint": "^8.44.0"
+  },
+  "allowScripts": {
+    "electron@43.2.0": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true
   }
 }
