@@ -201,6 +201,18 @@ function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolea
         );
       })}
       {m.streaming && (m.segments ?? []).length === 0 && <div className="bubble pulse">…</div>}
+      {!m.streaming &&
+        !m.error &&
+        !m.aborted &&
+        !!m.usage &&
+        (m.segments ?? []).every(
+          (s) => (s.kind === 'text' && !s.text.trim()) || (s.kind === 'thinking' && hideThinking),
+        ) && (
+          <div className="meta">
+            the model returned no visible text — with local models this usually means the context
+            window overflowed (fewer tools / MCP servers on the agent, or a shorter prompt, helps)
+          </div>
+        )}
       {m.error && <div className="bubble error">⚠ {m.error}</div>}
       {m.aborted && <div className="meta">stopped</div>}
       {m.usage && (

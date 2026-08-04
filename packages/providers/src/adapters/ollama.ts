@@ -104,9 +104,10 @@ export class OllamaProvider implements ChatProvider {
     opts: { signal: AbortSignal },
   ): AsyncIterable<ProviderEvent> {
     const target = this.resolve(req.model);
+    const messages = toOllamaMessages(req.system, req.messages);
     const body = {
       model: target.model,
-      messages: toOllamaMessages(req.system, req.messages),
+      messages,
       stream: true,
       ...(req.thinking?.enabled ? { think: true } : {}),
       ...(req.tools?.length
@@ -124,6 +125,7 @@ export class OllamaProvider implements ChatProvider {
       options: {
         ...(req.params?.temperature !== undefined ? { temperature: req.params.temperature } : {}),
         ...(req.params?.maxTokens !== undefined ? { num_predict: req.params.maxTokens } : {}),
+        ...contextWindow(messages, req),
       },
     };
 
@@ -206,6 +208,36 @@ interface OllamaMessage {
   content: string;
   images?: string[];
   tool_calls?: Array<{ function: { name: string; arguments: unknown } }>;
+}
+
+/**
+ * Ollama silently TRUNCATES the prompt to the server's context window
+ * (num_ctx, default 4096) — an agent prompt with tool definitions blows past
+ * that, the model loses its instructions mid-sentence, and the classic symptom
+ * is a "reply" of a few counted tokens with no visible text (the cut lands
+ * inside a tool JSON and the output is template junk the parser eats).
+ *
+ * Size the window to the request instead: rough token estimate (chars/3.5 is
+ * a safe over-count for mostly-English text) plus response headroom, bucketed
+ * to coarse steps so the value stays stable across a conversation — Ollama
+ * reloads the model when num_ctx changes, so a per-request exact value would
+ * thrash. Left unset when the default window already fits.
+ */
+export function contextWindow(
+  messages: Array<{ content: string }>,
+  req: { system?: string; tools?: Array<unknown> },
+): { num_ctx?: number } {
+  const chars =
+    messages.reduce((n, m) => n + m.content.length, 0) +
+    (req.tools?.length ? JSON.stringify(req.tools).length : 0);
+  const estTokens = Math.ceil(chars / 3.5) + 2048; // + response headroom
+  if (estTokens <= 4096) return {};
+  for (const bucket of [8192, 16384, 32768]) {
+    if (estTokens <= bucket) return { num_ctx: bucket };
+  }
+  // Beyond 32k: cap — bigger KV caches OOM small GPUs; the buffer/compaction
+  // layer above is responsible for keeping conversations inside bounds.
+  return { num_ctx: 32768 };
 }
 
 function toOllamaMessages(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LlamaCppProvider } from '../src/adapters/llamacpp.ts';
-import { OllamaProvider } from '../src/adapters/ollama.ts';
+import { contextWindow, OllamaProvider } from '../src/adapters/ollama.ts';
 import { collect, fixture, userText } from './helpers.ts';
 
 /** A fetch stub that routes by URL prefix, so each endpoint answers differently. */
@@ -86,6 +86,44 @@ describe('OllamaProvider with extra endpoints', () => {
     expect((events[0] as { error: { message: string } }).error.message).toContain(
       'http://192.168.1.20:11434',
     );
+  });
+});
+
+describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', () => {
+  const msg = (chars: number) => [{ content: 'x'.repeat(chars) }];
+
+  it('leaves the server default alone when the prompt fits', () => {
+    expect(contextWindow(msg(1000), {})).toEqual({});
+  });
+
+  it('buckets oversized prompts coarsely so the model is not reloaded per turn', () => {
+    expect(contextWindow(msg(9000), {})).toEqual({ num_ctx: 8192 });
+    expect(contextWindow(msg(30000), {})).toEqual({ num_ctx: 16384 });
+    expect(contextWindow(msg(500000), {})).toEqual({ num_ctx: 32768 });
+  });
+
+  it('counts tool definitions toward the window', () => {
+    expect(contextWindow(msg(100), { tools: [{ big: 'y'.repeat(20000) }] })).toEqual({
+      num_ctx: 8192,
+    });
+  });
+
+  it('is sent on the wire for an agent-sized prompt', async () => {
+    let sawOptions: { num_ctx?: number } = {};
+    const p = new OllamaProvider({
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sawOptions = (JSON.parse(String(init?.body)) as { options: { num_ctx?: number } }).options;
+        return new Response(fixture('ollama-basic.ndjson.txt'), {
+          headers: { 'content-type': 'application/x-ndjson' },
+        });
+      }) as unknown as typeof fetch,
+    });
+    await collect(p, {
+      model: 'qwen2:7b-instruct',
+      system: 'agent prompt '.repeat(2000),
+      messages: [userText('hello')],
+    });
+    expect(sawOptions.num_ctx).toBe(16384);
   });
 });
 
