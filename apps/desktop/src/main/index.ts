@@ -1,8 +1,30 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { registerIpc } from './ipc';
 import { createMainWindow } from './windows';
+
+/**
+ * One-time profile adoption after a package rename (Free: @vo-coder/desktop →
+ * vo-coder). The userData folder tracks the app name, so renaming would strand
+ * an existing user's profile under the old name. Runs only when THIS profile
+ * has no projects.json and the legacy one does — otherwise it never touches
+ * anything.
+ */
+function adoptLegacyProfile(): void {
+  try {
+    const current = app.getPath('userData');
+    if (existsSync(join(current, 'projects.json'))) return;
+    const legacy = join(dirname(current), '@vo-coder', 'desktop');
+    if (resolve(legacy) === resolve(current)) return;
+    if (!existsSync(join(legacy, 'projects.json'))) return;
+    cpSync(legacy, current, { recursive: true, errorOnExist: false, force: false });
+    console.log(`[profile] adopted legacy profile from ${legacy}`);
+  } catch (err) {
+    // A failed adoption must never block startup — the app just starts fresh.
+    console.error('[profile] legacy adoption failed:', err);
+  }
+}
 
 // Isolated profile override (screenshots/testing) — must run before anything
 // reads a userData path. Never set in normal use.
@@ -89,7 +111,9 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  void app.whenReady().then(() => {
+  void adoptLegacyProfile();
+
+app.whenReady().then(() => {
     registerIpc(() => mainWindow);
     openWindow();
 

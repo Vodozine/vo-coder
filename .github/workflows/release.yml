@@ -34,10 +34,10 @@ jobs:
         run: npx tsc -b
 
       - name: Bundle the infra MCP (ships as an extraResource)
-        run: npm run bundle -w @vo-coder/infra-mcp
+        run: npm run bundle -w packages/infra-mcp
 
       - name: Build renderer + main
-        run: npm run build -w @vo-coder/desktop
+        run: npm run build -w apps/desktop
 
       # npm ci on the arm64 runner only installs the darwin-arm64 node-pty
       # prebuild; the x64 DMG needs its sibling too. Unpack the tarball straight
