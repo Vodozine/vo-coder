@@ -22,10 +22,16 @@ export function endpointSlug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function activeEndpoints(list: LocalEndpoint[] | undefined): Array<{ name: string; url: string }> {
+function activeEndpoints(
+  list: LocalEndpoint[] | undefined,
+): Array<{ name: string; url: string; contextTokens?: number }> {
   return (list ?? [])
     .filter((e) => e.enabled && e.url.trim() && endpointSlug(e.name))
-    .map((e) => ({ name: endpointSlug(e.name), url: e.url.trim() }));
+    .map((e) => ({
+      name: endpointSlug(e.name),
+      url: e.url.trim(),
+      ...(e.contextTokens ? { contextTokens: e.contextTokens } : {}),
+    }));
 }
 
 /**
@@ -73,6 +79,7 @@ export class ProviderHub {
       reg.register(
         new OllamaProvider({
           baseUrl: cfg.ollamaBaseUrl,
+          ...(cfg.ollamaContextTokens ? { contextTokens: cfg.ollamaContextTokens } : {}),
           extraEndpoints: activeEndpoints(cfg.ollamaExtraEndpoints),
         }),
       );

@@ -1118,6 +1118,7 @@ function EndpointRow({
   const curName = name ?? ep.name;
   const curUrl = url ?? ep.url;
   const dirty = curName !== ep.name || curUrl !== ep.url;
+  const ctx = ep.contextTokens ?? 0;
   return (
     <div className={`field-row${ep.enabled ? '' : ' provider-off'}`}>
       <input
@@ -1136,6 +1137,17 @@ function EndpointRow({
         {ep.enabled ? 'On' : 'Off'}
       </button>
       <input value={curUrl} placeholder={urlPlaceholder} onChange={(e) => setUrl(e.target.value)} />
+      <select
+        value={String(ctx)}
+        title="Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs from the loaded model reloads it on every request."
+        onChange={(e) => onChange({ ...ep, contextTokens: Number(e.target.value) || undefined })}
+      >
+        <option value="0">ctx auto</option>
+        <option value="4096">4k</option>
+        <option value="8192">8k</option>
+        <option value="16384">16k</option>
+        <option value="32768">32k</option>
+      </select>
       <button
         disabled={!dirty}
         onClick={() => {
@@ -1215,6 +1227,19 @@ export function Settings() {
             value={ollamaUrl ?? config.ollamaBaseUrl}
             onChange={(e) => setOllamaUrl(e.target.value)}
           />
+          <select
+            value={String(config.ollamaContextTokens ?? 0)}
+            title="Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs from the loaded model reloads it on every request."
+            onChange={(e) =>
+              void saveConfig({ ollamaContextTokens: Number(e.target.value) || undefined })
+            }
+          >
+            <option value="0">ctx auto</option>
+            <option value="4096">4k</option>
+            <option value="8192">8k</option>
+            <option value="16384">16k</option>
+            <option value="32768">32k</option>
+          </select>
           <button
             disabled={ollamaUrl === null || ollamaUrl === config.ollamaBaseUrl}
             onClick={() => void saveConfig({ ollamaBaseUrl: ollamaUrl ?? config.ollamaBaseUrl })}

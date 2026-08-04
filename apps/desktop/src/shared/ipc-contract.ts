@@ -34,6 +34,13 @@ export interface LocalEndpoint {
   name: string;
   url: string;
   enabled: boolean;
+  /**
+   * Pin this server's context window (tokens). Match it to the server's own
+   * OLLAMA_CONTEXT_LENGTH: Ollama reloads the model whenever num_ctx changes,
+   * and on slow storage that eviction costs far more than the request itself.
+   * Unset = size it from the request.
+   */
+  contextTokens?: number;
 }
 
 export interface AppConfig {
@@ -41,6 +48,8 @@ export interface AppConfig {
   defaultModel: string;
   ollamaBaseUrl: string;
   lmstudioBaseUrl: string;
+  /** Pin the primary Ollama server's context window — see LocalEndpoint.contextTokens. */
+  ollamaContextTokens?: number;
   /** Extra Ollama servers beyond ollamaBaseUrl; models list as "model@name". */
   ollamaExtraEndpoints: LocalEndpoint[];
   /** llama.cpp llama-server endpoints (OpenAI wire, url ends in /v1; usually one model per server). */

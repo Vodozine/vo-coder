@@ -12,11 +12,20 @@ export interface OllamaEndpoint {
   /** Short name; becomes the "@name" suffix in this endpoint's model ids. */
   name: string;
   url: string;
+  /**
+   * Pin this server's context window instead of sizing it per request. Set it
+   * to the server's own OLLAMA_CONTEXT_LENGTH: Ollama RELOADS the model
+   * whenever num_ctx differs from the loaded instance, and on a box where
+   * loading costs a minute or more that eviction is the dominant cost.
+   */
+  contextTokens?: number;
 }
 
 export interface OllamaProviderOptions {
   /** Defaults to http://127.0.0.1:11434 */
   baseUrl?: string;
+  /** Pin the primary server's context window — see OllamaEndpoint.contextTokens. */
+  contextTokens?: number;
   /**
    * Additional named servers (one per GPU/box). Their models list as
    * "model@name" and requests carrying that suffix go to that server, so an
@@ -59,16 +68,21 @@ export class OllamaProvider implements ChatProvider {
   readonly id = 'ollama' as const;
   readonly stallTimeoutMs = LOCAL_STALL_TIMEOUT_MS;
   private baseUrl: string;
-  /** name → url. The primary server has no name and no suffix. */
-  private extras: Map<string, string>;
+  private contextTokens?: number;
+  /** name → endpoint. The primary server has no name and no suffix. */
+  private extras: Map<string, { url: string; contextTokens?: number }>;
   private fetchFn: typeof fetch;
 
   constructor(opts: OllamaProviderOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? 'http://127.0.0.1:11434').replace(/\/+$/, '');
+    this.contextTokens = opts.contextTokens;
     this.extras = new Map(
       (opts.extraEndpoints ?? [])
         .filter((e) => e.name && e.url)
-        .map((e) => [e.name, e.url.replace(/\/+$/, '')]),
+        .map((e) => [
+          e.name,
+          { url: e.url.replace(/\/+$/, ''), contextTokens: e.contextTokens },
+        ]),
     );
     this.fetchFn = opts.fetch ?? fetch;
   }
@@ -79,19 +93,31 @@ export class OllamaProvider implements ChatProvider {
    * erroring, so a stale pin still answers (Ollama then 404s the bare tag with
    * its own clear message if the model truly is not there).
    */
-  private resolve(modelId: string): { model: string; url: string; label: string } {
+  private resolve(modelId: string): {
+    model: string;
+    url: string;
+    label: string;
+    contextTokens?: number;
+  } {
     const at = modelId.lastIndexOf('@');
     if (at > 0) {
-      const url = this.extras.get(modelId.slice(at + 1));
-      if (url) return { model: modelId.slice(0, at), url, label: ` (${modelId.slice(at + 1)})` };
+      const ep = this.extras.get(modelId.slice(at + 1));
+      if (ep) {
+        return {
+          model: modelId.slice(0, at),
+          url: ep.url,
+          label: ` (${modelId.slice(at + 1)})`,
+          contextTokens: ep.contextTokens,
+        };
+      }
     }
-    return { model: modelId, url: this.baseUrl, label: '' };
+    return { model: modelId, url: this.baseUrl, label: '', contextTokens: this.contextTokens };
   }
 
   async listModels(): Promise<ModelInfo[]> {
     const endpoints: Array<{ suffix: string; url: string }> = [
       { suffix: '', url: this.baseUrl },
-      ...[...this.extras].map(([name, url]) => ({ suffix: `@${name}`, url })),
+      ...[...this.extras].map(([name, ep]) => ({ suffix: `@${name}`, url: ep.url })),
     ];
     const settled = await Promise.allSettled(
       endpoints.map(async ({ suffix, url }) => {
@@ -141,7 +167,7 @@ export class OllamaProvider implements ChatProvider {
       options: {
         ...(req.params?.temperature !== undefined ? { temperature: req.params.temperature } : {}),
         ...(req.params?.maxTokens !== undefined ? { num_predict: req.params.maxTokens } : {}),
-        ...contextWindow(messages, req),
+        ...contextWindow(messages, req, target.contextTokens),
       },
     };
 
@@ -242,7 +268,13 @@ interface OllamaMessage {
 export function contextWindow(
   messages: Array<{ content: string }>,
   req: { system?: string; tools?: Array<unknown> },
+  pinned?: number,
 ): { num_ctx?: number } {
+  // A pinned window is the endpoint's own setting: send it unchanged on every
+  // request so the loaded instance is never evicted. Sizing per request would
+  // reload the model — a minute or more on a box with slow storage — and would
+  // also fight anything else using that server at its default window.
+  if (pinned && pinned > 0) return { num_ctx: pinned };
   const chars =
     messages.reduce((n, m) => n + m.content.length, 0) +
     (req.tools?.length ? JSON.stringify(req.tools).length : 0);

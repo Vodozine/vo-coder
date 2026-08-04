@@ -90,7 +90,7 @@ describe('OllamaProvider with extra endpoints', () => {
 });
 
 describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', () => {
-  const msg = (chars: number) => [{ content: 'x'.repeat(chars) }];
+  const msg = (chars: number): Array<{ content: string }> => [{ content: 'x'.repeat(chars) }];
 
   it('leaves the server default alone when the prompt fits', () => {
     expect(contextWindow(msg(1000), {})).toEqual({});
@@ -106,6 +106,12 @@ describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', (
     expect(contextWindow(msg(100), { tools: [{ big: 'y'.repeat(20000) }] })).toEqual({
       num_ctx: 8192,
     });
+  });
+
+  it('a pinned window is sent verbatim, so the loaded model is never evicted', () => {
+    // Sizing per request would reload the model — minutes on slow storage.
+    expect(contextWindow(msg(100), {}, 16384)).toEqual({ num_ctx: 16384 });
+    expect(contextWindow(msg(500000), {}, 4096)).toEqual({ num_ctx: 4096 });
   });
 
   it('keeps the model resident between messages', async () => {
