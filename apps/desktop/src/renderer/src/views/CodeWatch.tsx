@@ -254,6 +254,10 @@ export function CodeWatch() {
       void startWatch(activeProject.dir).then((err) => {
         if (err) setError(err);
       });
+    } else if (!activeProject?.dir && watchRoot) {
+      // Landing on a folder-less project must stop the previous project's scan —
+      // otherwise the old root keeps churning under an unrelated chat.
+      void stopWatch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, activeProject?.dir]);

@@ -277,6 +277,13 @@ function StatusCard({
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeProject = projects.find((p) => p.id === activeProjectId);
+  // General is folder-less by design — a folder there belongs to the CHAT, not
+  // the project, so the card reads/attaches the active session's own dir.
+  const isGeneral = activeProject?.id === 'general';
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  const sessionMetas = useStore((s) => s.sessionMetas);
+  const attachFolder = useStore((s) => s.attachFolder);
+  const activeMeta = sessionMetas.find((m) => m.id === activeSessionId);
 
   const config = useStore((s) => s.config);
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
@@ -362,7 +369,16 @@ function StatusCard({
               : 'no MCP servers connected (Settings → MCP servers)'
           }
         />
-        {activeProject && (
+        {activeProject && isGeneral && (
+          <StatusRow
+            state={activeMeta?.dir ? 'ok' : 'dim'}
+            label="folder"
+            detail={
+              activeMeta?.dir ?? 'generic chat — works without a folder unless you attach one'
+            }
+          />
+        )}
+        {activeProject && !isGeneral && (
           <StatusRow
             state={activeProject.dir ? 'ok' : 'warn'}
             label="folder"
@@ -373,7 +389,12 @@ function StatusCard({
           />
         )}
       </div>
-      {activeProject && !activeProject.dir && (
+      {isGeneral && activeMeta && !activeMeta.dir && (
+        <button className="send" onClick={() => void attachFolder()}>
+          Work in a folder…
+        </button>
+      )}
+      {activeProject && !isGeneral && !activeProject.dir && (
         <button
           className="send"
           onClick={() =>

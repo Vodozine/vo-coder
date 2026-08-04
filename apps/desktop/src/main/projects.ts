@@ -4,6 +4,9 @@ import { app } from 'electron';
 import type { HarnessMessage } from '@vo-coder/providers';
 import type { ChatSessionMeta, ProjectInfo, ProjectsData } from '../shared/ipc-contract';
 
+/** Stable id for the default generic home — its chats run folder-less. */
+export const GENERAL_PROJECT_ID = 'general';
+
 /**
  * Projects group chat sessions; both persist under userData so threads survive
  * restarts. projects.json holds the structure; each session's full message
@@ -46,6 +49,10 @@ export class ProjectStore {
   setDir(id: string, dir: string): boolean {
     const project = this.load().projects.find((p) => p.id === id);
     if (!project) return false;
+    // General is the generic home: its chats run folder-less unless the user
+    // points an individual chat at a folder (sessionSetDir). A project-level dir
+    // here would arm every new generic chat with a workspace it was never given.
+    if (project.id === GENERAL_PROJECT_ID) return false;
     project.dir = dir;
     this.persist();
     return true;
@@ -62,8 +69,16 @@ export class ProjectStore {
   ensureDefault(): void {
     const data = this.load();
     if (data.projects.length === 0) {
-      data.projects.push({ id: 'general', name: 'General', createdAt: Date.now() });
+      data.projects.push({ id: GENERAL_PROJECT_ID, name: 'General', createdAt: Date.now() });
       this.persist();
+    }
+    // Heal profiles written before General was fenced: a project-level dir here
+    // made every new generic chat scan and use that folder.
+    const general = data.projects.find((p) => p.id === GENERAL_PROJECT_ID);
+    if (general?.dir) {
+      delete general.dir;
+      this.persist();
+      console.log('[projects] removed project folder from General — generic chats run folder-less');
     }
   }
 
