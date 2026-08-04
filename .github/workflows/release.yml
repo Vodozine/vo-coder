@@ -1,3 +1,4 @@
+# Release builds for win/mac/linux. Tag v* or dispatch by hand.
 # Builds installers for all three platforms and attaches them to one GitHub
 # release (created as a draft; publish it once every platform has uploaded).
 # Trigger: push a v* tag, or run manually from the Actions tab.
