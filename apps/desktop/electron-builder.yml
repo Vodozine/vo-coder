@@ -48,8 +48,8 @@ mac:
         - x64
         - arm64
 linux:
-  # Default derives from the npm package name (@vo-coder/desktop) — the "@"
-  # is illegal in AppImage paths.
+  # Pinned so the binary name never tracks a package rename (the pre-rename
+  # name @vo-coder/desktop put an illegal "@" in AppImage paths).
   executableName: vo-coder
   target:
     - AppImage

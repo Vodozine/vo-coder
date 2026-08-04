@@ -13,9 +13,9 @@ it has been installed and tested locally and explicitly approved.
 ```powershell
 # from repo root
 npx tsc -b                              # compile workspace packages (dist/) first
-npm run typecheck -w @vo-coder/desktop  # must be clean
+npm run typecheck -w apps/desktop       # must be clean
 npm test                                # must be green
-npm run dist:test -w @vo-coder/desktop  # builds a testable installer, --publish never
+npm run dist:test -w apps/desktop       # builds a testable installer, --publish never
 ```
 
 The installer lands in `apps/desktop/release-local/`:

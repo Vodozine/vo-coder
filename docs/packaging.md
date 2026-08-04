@@ -69,7 +69,22 @@ In-app auto-update reads the public GitHub releases feed (`electron-builder.yml`
 have uploaded if the workflow left it as draft.
 
 Do **not** commit `apps/desktop/release*` artifacts (gitignored). CI builds are
-the source of truth for distributed installers.
+the source of truth for distributed installers — including Windows: a CI-built
+NSIS setup and a local build of the same commit produce identically-targeted
+installers (verified 2026-08-04 by extracting and installing a CI 1.2.8
+artifact).
+
+### Windows install directory
+
+The one-click per-user NSIS installer defaults to
+`%LOCALAPPDATA%\Programs\<name>`, where `<name>` is the sanitized
+**`package.json` `name`** of `apps/desktop`. `productName` only names the
+setup exe, shortcuts, and the uninstall entry — it does not pick the folder.
+Renaming the package therefore moves the install dir: builds before the
+v1.2.8 rename (`@vo-coder/desktop`) installed to `Programs\@vo-coderdesktop`;
+from v1.2.8 (`vo-coder`) the app lives in `Programs\vo-coder`. When the same
+appId is already installed, the installer reuses the registered
+`InstallLocation` under `HKCU\Software\<appId guid>` instead of the default.
 
 ## Commands (external terminal only)
 
@@ -78,10 +93,10 @@ this tree):
 
 ```bash
 # Local test NSIS package → apps/desktop/release-local/
-npm run dist:test -w @vo-coder/desktop
+npm run dist:test -w apps/desktop
 
 # Default output dir (electron-builder.yml → directories.output: release)
-npm run dist -w @vo-coder/desktop
+npm run dist -w apps/desktop
 ```
 
 `dist:test` is preferred for agent/local checks (`--publish never`, output

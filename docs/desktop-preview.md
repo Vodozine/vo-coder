@@ -25,7 +25,7 @@ What it does:
 2. Sets `VO_USERDATA` to a temp isolated profile
    (`%TEMP%/vo-coder-dev-preview/userdata`) so the dev shell does not fight the
    installed app's single-instance lock or corrupt real `userData`.
-3. Runs `npm run dev` → `@vo-coder/desktop` → `electron-vite dev -w`.
+3. Runs `npm run dev` → `vo-coder` (apps/desktop) → `electron-vite dev -w`.
 4. Leaves the process detached; a **native window** opens.
 
 ### Flags

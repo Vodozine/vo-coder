@@ -10,10 +10,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @vo-coder/desktop",
-    "build": "tsc -b && npm run build -w @vo-coder/desktop",
+    "dev": "npm run dev -w apps/desktop",
+    "build": "tsc -b && npm run build -w apps/desktop",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "tsc -b && npm run typecheck -w @vo-coder/desktop",
+    "typecheck": "tsc -b && npm run typecheck -w apps/desktop",
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "node scripts/preview-desktop.mjs",

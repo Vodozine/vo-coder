@@ -127,12 +127,12 @@ cd vo-coder
 npm install
 npx tsc -b                      # compile workspace packages
 npm run preview                 # native Electron window (preferred)
-# or: npm run dev -w @vo-coder/desktop
+# or: npm run dev -w apps/desktop
 ```
 
 `npm run preview` launches the **real Electron shell** with an isolated dev profile. Do not use a browser-only Vite server of the renderer — that is not the app. Details: [docs/desktop-preview.md](docs/desktop-preview.md).
 
-Package an installer: `npm run dist:test -w @vo-coder/desktop` → `apps/desktop/release-local/`.
+Package an installer: `npm run dist:test -w apps/desktop` → `apps/desktop/release-local/`.
 
 Official multi-platform builds (Windows NSIS, macOS DMG arm64+x64, Linux AppImage) run on GitHub Actions when a `v*` tag is pushed — see [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/packaging.md](docs/packaging.md).
 
