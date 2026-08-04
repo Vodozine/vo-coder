@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -12,9 +13,15 @@ import type { ToolSpec } from '@vo-coder/providers';
 
 /**
  * Built-in hands for agents working in a project folder: list/read/write files
- * and run commands, scoped strictly to the project directory. Every call still
- * passes the user's per-call permission prompt — the human approves, the agent
- * executes.
+ * and run commands. Every call still passes the user's per-call permission
+ * prompt — the human approves, the agent executes.
+ *
+ * On scope, precisely, because the difference matters when reviewing a grant:
+ * ws_list, ws_read and ws_write ARE confined to the project directory, links
+ * included (see guarded). ws_run is NOT: it takes an arbitrary command string
+ * and `cwd` is only where that command starts, so `cd .. && …` leaves the
+ * folder on the first character. Approving a command is approving a command,
+ * not approving it within a boundary.
  */
 
 const IGNORE_DIRS = new Set([
@@ -84,11 +91,30 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
   ];
 }
 
+/**
+ * Confine a relative path to the project folder.
+ *
+ * The lexical check alone was not enough: a symlink or directory junction sitting
+ * INSIDE the folder passes it while pointing anywhere on disk, and on Windows a
+ * junction needs no elevation to create. So the path is also resolved through
+ * its links before being trusted. The target itself often does not exist yet
+ * (ws_write creating a new file), so the deepest existing ancestor is what gets
+ * resolved. The root is resolved too, since the project folder may legitimately
+ * be reached through a link of its own.
+ */
 function guarded(dir: string, relPath: string): string {
-  const target = resolve(dir, relPath);
-  const rel = relative(dir, target);
+  const root = realpathSync(dir);
+  const target = resolve(root, relPath);
+  const rel = relative(root, target);
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Path "${relPath}" escapes the project folder.`);
+  }
+
+  let probe = target;
+  while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+  const realRel = relative(root, realpathSync(probe));
+  if (realRel !== '' && (realRel.startsWith('..') || isAbsolute(realRel))) {
+    throw new Error(`Path "${relPath}" escapes the project folder through a link.`);
   }
   return target;
 }
@@ -197,7 +223,14 @@ function runCommand(
   });
 }
 
-/** Fire-and-forget launch for GUI apps / servers that never exit on their own. */
+/**
+ * Fire-and-forget launch for GUI apps / servers that never exit on their own.
+ *
+ * Deliberately outlives the call, so it honours neither the run timeout nor the
+ * AbortSignal: stopping the agent does not stop a dev server it started for you.
+ * The pid is returned so the process can be stopped on purpose, which is the
+ * only handle anyone gets on it.
+ */
 function launchDetached(dir: string, command: string): { pid: number | undefined } {
   const child = spawn(command, {
     cwd: dir,
