@@ -37,6 +37,13 @@ export const MARKER_EXEMPT =
   /^scripts\/(edition-patterns|check-no-design|sync-free)\.mjs$|^\.githooks\/|^docs\/EDITIONS\.md$|^\.github\/workflows\/no-design\.yml$/;
 
 /**
+ * Pro-side workflow tooling. The Free edition neither has nor needs these:
+ * sync-free replays FROM Pro, and EDITIONS.md documents the Pro clone's
+ * workflow. Replaying edits to files base does not have conflicts every time.
+ */
+export const PRO_TOOLING_PATHS = /^scripts\/sync-free\.mjs$|^docs\/EDITIONS\.md$/;
+
+/**
  * First reason this CHANGE cannot go to the Free edition, or null. Identity
  * belongs here — replaying an identity diff would rebrand the Free app — but
  * NOT in whole-tree checks: identity files exist in both editions on purpose.
@@ -44,6 +51,7 @@ export const MARKER_EXEMPT =
 export function disqualifyPath(file) {
   if (DESIGN_PATHS.test(file)) return `Design file: ${file}`;
   if (IDENTITY_PATHS.test(file)) return `edition identity: ${file}`;
+  if (PRO_TOOLING_PATHS.test(file)) return `Pro-side tooling: ${file}`;
   return null;
 }
 
