@@ -60,8 +60,13 @@ export function initUpdater(getWindow: () => BrowserWindow | null, config: Confi
       return { state: 'error', message: friendlyUpdateError(err) };
     }
   });
+  // Only restart into an update that actually finished downloading. The UI only
+  // offers the button in the 'downloaded' state, so this is a backstop rather
+  // than a fix for a path anyone walks today: an unconditional quitAndInstall
+  // closes the app on any early or stale invocation, which reads as a crash.
+  let downloaded = false;
   ipcMain.handle(IPC.updateInstall, () => {
-    autoUpdater.quitAndInstall();
+    if (downloaded) autoUpdater.quitAndInstall();
   });
 
   if (!app.isPackaged) return;
@@ -72,9 +77,10 @@ export function initUpdater(getWindow: () => BrowserWindow | null, config: Confi
   autoUpdater.autoDownload = true;
   autoUpdater.on('update-available', (info) => send({ state: 'available', version: info.version }));
   autoUpdater.on('update-not-available', () => send({ state: 'none' }));
-  autoUpdater.on('update-downloaded', (info) =>
-    send({ state: 'downloaded', version: info.version }),
-  );
+  autoUpdater.on('update-downloaded', (info) => {
+    downloaded = true;
+    send({ state: 'downloaded', version: info.version });
+  });
   autoUpdater.on('error', (err) => send({ state: 'error', message: friendlyUpdateError(err) }));
   // First check shortly after launch; then every 4 hours while running.
   const autoCheck = () => {
