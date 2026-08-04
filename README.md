@@ -32,7 +32,7 @@ The design follows one metaphor all the way down: the **tool shed**. The harness
 
 And because an assistant should not be trapped in one window, Vodo works as one continuous entity across surfaces: the desktop chat, background **missions** running on schedules, your **Telegram** account when you're away from the machine — all sharing one **memory journal**, so "what was I working on last Monday?" has an answer no matter where you ask it.
 
-Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — you see every file write and command before it happens.
+Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — in a chat you see every file write and command before it happens. Missions are the deliberate exception: they run unattended, so approving the mission is what approves its work, and the prompt that creates one says so.
 
 ## The story
 

@@ -225,6 +225,14 @@ function PermissionModal() {
         </p>
         <code className="perm-tool">{prompt.name}</code>
         <pre className="perm-args">{JSON.stringify(prompt.args, null, 2)}</pre>
+        {prompt.name === 'mission_create' && (
+          <p className="perm-note">
+            Allowing this starts an <strong>unattended</strong> agent. Unless it was created with
+            autoApprove false, its own tool calls are approved automatically for the life of the
+            mission — including file writes and shell commands in the project folder — and a
+            mission with an interval keeps running on that schedule until you pause or delete it.
+          </p>
+        )}
         <div className="modal-actions">
           <button className="ghost" onClick={() => void respond(prompt.requestId, 'deny')}>
             Deny
