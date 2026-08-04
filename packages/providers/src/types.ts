@@ -17,6 +17,7 @@ export type ProviderId =
   | 'xai'
   | 'nvidia'
   | 'lmstudio'
+  | 'llamacpp'
   | (string & {});
 
 export interface ModelInfo {

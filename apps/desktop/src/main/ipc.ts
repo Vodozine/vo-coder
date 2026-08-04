@@ -809,7 +809,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // ---- capability registry + Vodo routing ----
   interface CatalogCache {
     records: ModelRecord[];
-    /** Models actually present on local servers (ollama/lmstudio). */
+    /** Models actually present on local servers (ollama/lmstudio/llamacpp). */
     installed: Record<string, string[]>;
   }
   let catalogPromise: Promise<CatalogCache> | null = null;
@@ -819,7 +819,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // ids keep their curated quality/footprint data on merge.
       const extra: ModelRecord[] = [];
       const installed: Record<string, string[]> = {};
-      for (const providerId of ['ollama', 'lmstudio'] as const) {
+      for (const providerId of ['ollama', 'lmstudio', 'llamacpp'] as const) {
         try {
           const provider = hub.registry().get(providerId);
           if (!provider) continue;
@@ -950,7 +950,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     for (const m of pricedRecords) {
       if (isExcluded(m)) continue;
       if (m.provider && registered.has(m.provider)) {
-        if (m.provider === 'ollama' || m.provider === 'lmstudio') {
+        if (m.provider === 'ollama' || m.provider === 'lmstudio' || m.provider === 'llamacpp') {
           if (installed[m.provider]?.includes(m.id)) eligible.push(m);
         } else if (m.provider === 'openrouter') {
           // Only route to ids that exist on OpenRouter right now.

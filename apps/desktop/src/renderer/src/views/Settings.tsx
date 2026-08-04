@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
-import type { AppConfig, TelegramInfo } from '../../../shared/ipc-contract';
+import type { AppConfig, LocalEndpoint, TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'nvidia'];
 /** Providers that can be flipped off without clearing credentials. */
 const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
@@ -1097,6 +1097,62 @@ function UpdatesSection() {
   );
 }
 
+/**
+ * One named extra local server (Ollama box or llama.cpp llama-server).
+ * The name becomes the "@name" suffix in that server's model ids — that suffix
+ * is how an agent pins its model to one specific GPU/box.
+ */
+function EndpointRow({
+  ep,
+  urlPlaceholder,
+  onChange,
+  onRemove,
+}: {
+  ep: LocalEndpoint;
+  urlPlaceholder: string;
+  onChange: (next: LocalEndpoint) => void;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const curName = name ?? ep.name;
+  const curUrl = url ?? ep.url;
+  const dirty = curName !== ep.name || curUrl !== ep.url;
+  return (
+    <div className={`field-row${ep.enabled ? '' : ' provider-off'}`}>
+      <input
+        className="endpoint-name"
+        value={curName}
+        placeholder="name"
+        title='Short name for this server — its models appear as "model@name"'
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button
+        type="button"
+        className={`provider-toggle ${ep.enabled ? 'on' : 'off'}`}
+        title="Off keeps the URL but excludes this server"
+        onClick={() => onChange({ ...ep, enabled: !ep.enabled })}
+      >
+        {ep.enabled ? 'On' : 'Off'}
+      </button>
+      <input value={curUrl} placeholder={urlPlaceholder} onChange={(e) => setUrl(e.target.value)} />
+      <button
+        disabled={!dirty}
+        onClick={() => {
+          onChange({ ...ep, name: curName.trim(), url: curUrl.trim() });
+          setName(null);
+          setUrl(null);
+        }}
+      >
+        Save
+      </button>
+      <button type="button" className="ghost" title="Remove this server" onClick={onRemove}>
+        ×
+      </button>
+    </div>
+  );
+}
+
 export function Settings() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -1105,6 +1161,14 @@ export function Settings() {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
 
   if (!config) return <div className="empty-state">Loading…</div>;
+
+  const ollamaExtras = config.ollamaExtraEndpoints ?? [];
+  const llamacppEps = config.llamacppEndpoints ?? [];
+  const nextName = (list: LocalEndpoint[]): string => {
+    let i = 2;
+    while (list.some((e) => e.name === `gpu${i}`)) i++;
+    return `gpu${i}`;
+  };
 
   return (
     <div className="settings settings-full">
@@ -1157,7 +1221,37 @@ export function Settings() {
           >
             Save
           </button>
+          <button
+            type="button"
+            className="ghost"
+            title="Add another Ollama server — one per GPU/box on your LAN"
+            onClick={() =>
+              void saveConfig({
+                ollamaExtraEndpoints: [
+                  ...ollamaExtras,
+                  { name: nextName(ollamaExtras), url: '', enabled: true },
+                ],
+              })
+            }
+          >
+            +
+          </button>
         </div>
+        {ollamaExtras.map((ep, i) => (
+          <EndpointRow
+            key={i}
+            ep={ep}
+            urlPlaceholder="http://192.168.1.20:11434"
+            onChange={(next) =>
+              void saveConfig({
+                ollamaExtraEndpoints: ollamaExtras.map((e, j) => (j === i ? next : e)),
+              })
+            }
+            onRemove={() =>
+              void saveConfig({ ollamaExtraEndpoints: ollamaExtras.filter((_, j) => j !== i) })
+            }
+          />
+        ))}
         <div
           className={`field-row${(config.disabledProviders ?? []).includes('lmstudio') ? ' provider-off' : ''}`}
         >
@@ -1191,9 +1285,66 @@ export function Settings() {
             Save
           </button>
         </div>
+        <div
+          className={`field-row${(config.disabledProviders ?? []).includes('llamacpp') ? ' provider-off' : ''}`}
+        >
+          <label>llama.cpp</label>
+          <button
+            type="button"
+            className={`provider-toggle ${(config.disabledProviders ?? []).includes('llamacpp') ? 'off' : 'on'}`}
+            title="Turn llama.cpp off without forgetting its servers"
+            onClick={() => {
+              const cur = config.disabledProviders ?? [];
+              const off = cur.includes('llamacpp');
+              void saveConfig({
+                disabledProviders: off
+                  ? cur.filter((p) => p !== 'llamacpp')
+                  : [...cur, 'llamacpp'],
+              });
+            }}
+          >
+            {(config.disabledProviders ?? []).includes('llamacpp') ? 'Off' : 'On'}
+          </button>
+          <span className="hint" style={{ flex: 1, margin: 0 }}>
+            llama-server boxes — OpenAI wire, URL ends in /v1
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            title="Add a llama.cpp server — usually one model on one GPU"
+            onClick={() =>
+              void saveConfig({
+                llamacppEndpoints: [
+                  ...llamacppEps,
+                  { name: nextName(llamacppEps), url: '', enabled: true },
+                ],
+              })
+            }
+          >
+            +
+          </button>
+        </div>
+        {llamacppEps.map((ep, i) => (
+          <EndpointRow
+            key={i}
+            ep={ep}
+            urlPlaceholder="http://192.168.1.20:8080/v1"
+            onChange={(next) =>
+              void saveConfig({
+                llamacppEndpoints: llamacppEps.map((e, j) => (j === i ? next : e)),
+              })
+            }
+            onRemove={() =>
+              void saveConfig({ llamacppEndpoints: llamacppEps.filter((_, j) => j !== i) })
+            }
+          />
+        ))}
         <p className="hint">
-          No keys needed — both are picked up automatically when their server is running. Off keeps
-          the URL but excludes the server from auto-routing.
+          No keys needed — local servers are picked up automatically when they are running. Off
+          keeps the URL but excludes the server from auto-routing. + adds more servers (one per
+          GPU/box on your LAN): their models appear as <code>model@name</code>, and an agent whose
+          model is pinned to <code>llama3:70b@gpu2</code> always runs on that box — a full GPU per
+          agent. llama.cpp endpoints speak the OpenAI API and usually serve one model each.
         </p>
       </section>
 

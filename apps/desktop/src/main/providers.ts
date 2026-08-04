@@ -1,5 +1,6 @@
 import {
   AnthropicProvider,
+  LlamaCppProvider,
   LmStudioProvider,
   NvidiaProvider,
   OllamaProvider,
@@ -8,8 +9,24 @@ import {
   ProviderRegistry,
   XaiProvider,
 } from '@vo-coder/providers';
+import type { LocalEndpoint } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
+
+/**
+ * Endpoint names become the "@name" suffix in model ids, so they must be
+ * clean slugs: no "@" (the separator), no spaces, lowercase. Applied at
+ * registration so a sloppy Settings entry can never poison model ids.
+ */
+export function endpointSlug(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function activeEndpoints(list: LocalEndpoint[] | undefined): Array<{ name: string; url: string }> {
+  return (list ?? [])
+    .filter((e) => e.enabled && e.url.trim() && endpointSlug(e.name))
+    .map((e) => ({ name: endpointSlug(e.name), url: e.url.trim() }));
+}
 
 /**
  * Builds a fresh registry on demand so key/config changes take effect on the
@@ -52,8 +69,19 @@ export class ProviderHub {
     const nvidiaKey = this.secrets.get('nvidia');
     if (on('nvidia') && nvidiaKey) reg.register(new NvidiaProvider({ apiKey: nvidiaKey }));
     // Local servers need no key; registered when enabled (they error helpfully if not running).
-    if (on('ollama')) reg.register(new OllamaProvider({ baseUrl: cfg.ollamaBaseUrl }));
+    if (on('ollama')) {
+      reg.register(
+        new OllamaProvider({
+          baseUrl: cfg.ollamaBaseUrl,
+          extraEndpoints: activeEndpoints(cfg.ollamaExtraEndpoints),
+        }),
+      );
+    }
     if (on('lmstudio')) reg.register(new LmStudioProvider({ baseURL: cfg.lmstudioBaseUrl }));
+    const llamacpp = activeEndpoints(cfg.llamacppEndpoints);
+    if (on('llamacpp') && llamacpp.length) {
+      reg.register(new LlamaCppProvider({ endpoints: llamacpp }));
+    }
     return reg;
   }
 }

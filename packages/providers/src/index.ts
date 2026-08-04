@@ -5,7 +5,9 @@ export type { ResolveDefaults, BoundModel } from './registry.js';
 export { AnthropicProvider } from './adapters/anthropic.js';
 export type { AnthropicProviderOptions } from './adapters/anthropic.js';
 export { OllamaProvider } from './adapters/ollama.js';
-export type { OllamaProviderOptions } from './adapters/ollama.js';
+export type { OllamaEndpoint, OllamaProviderOptions } from './adapters/ollama.js';
+export { LlamaCppProvider } from './adapters/llamacpp.js';
+export type { LlamaCppEndpoint, LlamaCppProviderOptions } from './adapters/llamacpp.js';
 export {
   LmStudioProvider,
   NvidiaProvider,

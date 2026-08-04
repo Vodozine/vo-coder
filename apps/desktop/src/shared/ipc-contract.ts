@@ -25,11 +25,26 @@ export interface VisionPointer {
   model: string;
 }
 
+/**
+ * A named extra local model server (one per GPU/box on the LAN). The name
+ * becomes the "@name" suffix in that endpoint's model ids, which is how an
+ * agent pins its model to a specific machine.
+ */
+export interface LocalEndpoint {
+  name: string;
+  url: string;
+  enabled: boolean;
+}
+
 export interface AppConfig {
   defaultProvider: ProviderId;
   defaultModel: string;
   ollamaBaseUrl: string;
   lmstudioBaseUrl: string;
+  /** Extra Ollama servers beyond ollamaBaseUrl; models list as "model@name". */
+  ollamaExtraEndpoints: LocalEndpoint[];
+  /** llama.cpp llama-server endpoints (OpenAI wire, url ends in /v1; usually one model per server). */
+  llamacppEndpoints: LocalEndpoint[];
   systemPrompt: string;
   agents: AgentSpec[];
   mcpServers: McpServerConfig[];
@@ -119,6 +134,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultModel: 'claude-sonnet-5',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   lmstudioBaseUrl: 'http://127.0.0.1:1234/v1',
+  ollamaExtraEndpoints: [],
+  llamacppEndpoints: [],
   systemPrompt:
     "You are Vodo, Vo-Coder's coordinator agent. Be direct, concrete, and honest about uncertainty. It's fine to say you don't understand and ask — that's faster than confident-but-wrong.",
   agents: [],

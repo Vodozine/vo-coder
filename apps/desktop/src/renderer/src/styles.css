@@ -562,6 +562,14 @@ select:focus {
 .field-row input {
   flex: 1;
 }
+/* Named extra local endpoints: the name input sits where the label would,
+   same width, so endpoint rows align under their parent server row. */
+.field-row input.endpoint-name {
+  flex: none;
+  width: 110px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
 
 .system-prompt {
   width: 100%;

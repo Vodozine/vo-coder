@@ -8,9 +8,21 @@ import type {
   ProviderEvent,
 } from '../types.js';
 
+export interface OllamaEndpoint {
+  /** Short name; becomes the "@name" suffix in this endpoint's model ids. */
+  name: string;
+  url: string;
+}
+
 export interface OllamaProviderOptions {
   /** Defaults to http://127.0.0.1:11434 */
   baseUrl?: string;
+  /**
+   * Additional named servers (one per GPU/box). Their models list as
+   * "model@name" and requests carrying that suffix go to that server, so an
+   * agent pinned to "llama3:70b@gpu2" always runs there.
+   */
+  extraEndpoints?: OllamaEndpoint[];
   /** Injectable for fixture tests — no network. */
   fetch?: typeof fetch;
 }
@@ -32,30 +44,68 @@ interface OllamaChatChunk {
 export class OllamaProvider implements ChatProvider {
   readonly id = 'ollama' as const;
   private baseUrl: string;
+  /** name → url. The primary server has no name and no suffix. */
+  private extras: Map<string, string>;
   private fetchFn: typeof fetch;
 
   constructor(opts: OllamaProviderOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? 'http://127.0.0.1:11434').replace(/\/+$/, '');
+    this.extras = new Map(
+      (opts.extraEndpoints ?? [])
+        .filter((e) => e.name && e.url)
+        .map((e) => [e.name, e.url.replace(/\/+$/, '')]),
+    );
     this.fetchFn = opts.fetch ?? fetch;
   }
 
+  /**
+   * Ollama tags never contain "@", so a trailing "@name" can only be an
+   * endpoint pin. Unknown names fall back to the primary server rather than
+   * erroring, so a stale pin still answers (Ollama then 404s the bare tag with
+   * its own clear message if the model truly is not there).
+   */
+  private resolve(modelId: string): { model: string; url: string; label: string } {
+    const at = modelId.lastIndexOf('@');
+    if (at > 0) {
+      const url = this.extras.get(modelId.slice(at + 1));
+      if (url) return { model: modelId.slice(0, at), url, label: ` (${modelId.slice(at + 1)})` };
+    }
+    return { model: modelId, url: this.baseUrl, label: '' };
+  }
+
   async listModels(): Promise<ModelInfo[]> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/tags`);
-    if (!res.ok) throw new Error(`Ollama returned ${res.status} listing models`);
-    const json = (await res.json()) as { models?: Array<{ name: string }> };
-    return (json.models ?? []).map((m) => ({
-      id: m.name,
-      provider: this.id,
-      displayName: m.name,
-    }));
+    const endpoints: Array<{ suffix: string; url: string }> = [
+      { suffix: '', url: this.baseUrl },
+      ...[...this.extras].map(([name, url]) => ({ suffix: `@${name}`, url })),
+    ];
+    const settled = await Promise.allSettled(
+      endpoints.map(async ({ suffix, url }) => {
+        const res = await this.fetchFn(`${url}/api/tags`);
+        if (!res.ok) throw new Error(`Ollama returned ${res.status} listing models`);
+        const json = (await res.json()) as { models?: Array<{ name: string }> };
+        return (json.models ?? []).map((m) => ({
+          id: `${m.name}${suffix}`,
+          provider: this.id,
+          displayName: `${m.name}${suffix}`,
+        }));
+      }),
+    );
+    const models = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+    // Every endpoint down → surface the primary's failure like before; any
+    // endpoint answering keeps the provider alive (LAN boxes come and go).
+    if (!models.length && settled[0]?.status === 'rejected') {
+      throw (settled[0] as PromiseRejectedResult).reason;
+    }
+    return models;
   }
 
   async *stream(
     req: ChatRequest,
     opts: { signal: AbortSignal },
   ): AsyncIterable<ProviderEvent> {
+    const target = this.resolve(req.model);
     const body = {
-      model: req.model,
+      model: target.model,
       messages: toOllamaMessages(req.system, req.messages),
       stream: true,
       ...(req.thinking?.enabled ? { think: true } : {}),
@@ -79,7 +129,7 @@ export class OllamaProvider implements ChatProvider {
 
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.baseUrl}/api/chat`, {
+      res = await this.fetchFn(`${target.url}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -91,7 +141,7 @@ export class OllamaProvider implements ChatProvider {
         : {
             type: 'error',
             error: networkError(
-              `Could not reach Ollama at ${this.baseUrl} — is it running? (${messageOf(err)})`,
+              `Could not reach Ollama${target.label} at ${target.url} — is it running? (${messageOf(err)})`,
             ),
           };
       return;

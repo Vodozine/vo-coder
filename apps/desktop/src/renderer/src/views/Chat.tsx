@@ -130,7 +130,7 @@ function ContextChip({
   );
 }
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'openai', 'openrouter', 'xai', 'nvidia'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'nvidia'];
 
 /** Inline render of a generated image — pixels come over IPC, never tokens. */
 function GeneratedImage({ path }: { path: string }) {
@@ -286,7 +286,7 @@ function StatusCard({
   const activeMeta = sessionMetas.find((m) => m.id === activeSessionId);
 
   const config = useStore((s) => s.config);
-  const isLocal = provider === 'ollama' || provider === 'lmstudio';
+  const isLocal = provider === 'ollama' || provider === 'lmstudio' || provider === 'llamacpp';
   const keyOk = !!secretStatus[provider];
   // Grok login (subscription OAuth) is valid xAI auth without an API key.
   const authOk = keyOk || (provider === 'xai' && xaiOauthConnected);
@@ -309,7 +309,10 @@ function StatusCard({
     providerState = listUsable ? 'ok' : 'bad';
     providerDetail = listUsable
       ? `server reachable — ${models.length} model(s) installed`
-      : (modelsError ?? 'server not reachable — is it running?');
+      : (modelsError ??
+        (provider === 'llamacpp'
+          ? 'no llama.cpp server reachable — add or enable one in Settings'
+          : 'server not reachable — is it running?'));
   } else if (provider === 'xai') {
     providerState = authOk ? 'ok' : 'bad';
     if (xaiOauthConnected && keyOk) {

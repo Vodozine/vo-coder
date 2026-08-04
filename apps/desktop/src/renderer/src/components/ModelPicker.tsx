@@ -135,7 +135,10 @@ export function ModelPicker({
         outPrice: valid ? outPrice : undefined,
         quality: recLoose?.quality,
         local:
-          recLoose?.estMemGb !== undefined || provider === 'ollama' || provider === 'lmstudio',
+          recLoose?.estMemGb !== undefined ||
+          provider === 'ollama' ||
+          provider === 'lmstudio' ||
+          provider === 'llamacpp',
         fits: recLoose?.fit?.fits,
         supportsVision: recLoose?.supportsVision ?? m.supportsVision,
         outputsImage: recLoose?.outputsImage === true,

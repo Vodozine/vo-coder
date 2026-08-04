@@ -33,6 +33,13 @@ export class ConfigStore {
         if (!Array.isArray(this.cache.disabledProviders)) {
           this.cache.disabledProviders = [];
         }
+        // Older configs predate multi-endpoint local servers.
+        if (!Array.isArray(this.cache.ollamaExtraEndpoints)) {
+          this.cache.ollamaExtraEndpoints = [];
+        }
+        if (!Array.isArray(this.cache.llamacppEndpoints)) {
+          this.cache.llamacppEndpoints = [];
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }
