@@ -9,19 +9,31 @@ function AgentForm({
   initial,
   mcpServerNames,
   defaultProvider,
+  localServers,
   onSave,
   onCancel,
 }: {
   initial: AgentSpec | null;
   mcpServerNames: string[];
   defaultProvider: string;
+  /** Named extra local endpoints per provider — the "@name" model-id suffixes. */
+  localServers: { ollama: string[]; llamacpp: string[] };
   onSave: (spec: AgentSpec) => void;
   onCancel: () => void;
 }) {
+  const namesFor = (prov: string): string[] =>
+    prov === 'ollama' ? localServers.ollama : prov === 'llamacpp' ? localServers.llamacpp : [];
+
   const [name, setName] = useState(initial?.name ?? '');
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? '');
   const [provider, setProvider] = useState(initial?.provider ?? '');
   const [model, setModel] = useState(initial?.model ?? '');
+  const [server, setServer] = useState(() => {
+    const id = initial?.model ?? '';
+    const at = id.lastIndexOf('@');
+    const s = at > 0 ? id.slice(at + 1) : '';
+    return namesFor(initial?.provider ?? defaultProvider).includes(s) ? s : '';
+  });
   const [servers, setServers] = useState<string[]>(initial?.mcpServers ?? []);
   const [thinking, setThinking] = useState(initial?.thinking?.enabled ?? false);
   const [thinkingVisibility, setThinkingVisibility] = useState(
@@ -30,6 +42,31 @@ function AgentForm({
   const [injectionMode, setInjectionMode] = useState(initial?.injectionMode ?? 'queue');
   const [routingHints, setRoutingHints] = useState(initial?.routingHints ?? '');
   const effectiveProvider = provider || defaultProvider;
+
+  // Which local box an ollama/llamacpp agent runs on. "" = the main Ollama
+  // server (or "any" for llama.cpp, which has no unnamed primary). The truth
+  // lives in the model id's "@name" suffix; this select reads and writes it.
+  const serverNames = namesFor(effectiveProvider);
+  const activeServer = serverNames.includes(server) ? server : '';
+  const serverOf = (id: string): string => {
+    const at = id.lastIndexOf('@');
+    const s = at > 0 ? id.slice(at + 1) : '';
+    return serverNames.includes(s) ? s : '';
+  };
+  const baseOf = (id: string): string => {
+    const s = serverOf(id);
+    return s ? id.slice(0, id.length - s.length - 1) : id;
+  };
+  const changeServer = (s: string) => {
+    setServer(s);
+    if (model) setModel(s ? `${baseOf(model)}@${s}` : baseOf(model));
+  };
+  const modelFilter =
+    effectiveProvider === 'ollama' && serverNames.length > 0
+      ? (id: string) => serverOf(id) === activeServer
+      : effectiveProvider === 'llamacpp' && activeServer
+        ? (id: string) => serverOf(id) === activeServer
+        : undefined;
 
   const toggleServer = (s: string) =>
     setServers((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -42,7 +79,13 @@ function AgentForm({
       </div>
       <div className="field-row">
         <label>provider</label>
-        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+        <select
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setServer('');
+          }}
+        >
           {PROVIDERS.map((p) => (
             <option key={p} value={p}>
               {p || '(app default)'}
@@ -50,13 +93,36 @@ function AgentForm({
           ))}
         </select>
       </div>
+      {serverNames.length > 0 && (
+        <div className="field-row">
+          <label>server</label>
+          <select
+            value={activeServer}
+            onChange={(e) => changeServer(e.target.value)}
+            title='Which box this agent runs on — a model pinned to "model@name" always uses that server'
+          >
+            <option value="">
+              {effectiveProvider === 'ollama' ? 'main server' : '(any server)'}
+            </option>
+            {serverNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="field-row">
         <label>model</label>
         <ModelPicker
           provider={effectiveProvider}
           value={model}
-          onChange={setModel}
+          onChange={(id) => {
+            setModel(id);
+            setServer(serverOf(id));
+          }}
           placeholder={provider ? 'pick a model (required)' : '(app default)'}
+          filterId={modelFilter}
         />
       </div>
       <div className="field-row">
@@ -218,6 +284,10 @@ export function Agents() {
           initial={editing === 'new' ? null : editing}
           mcpServerNames={config.mcpServers.map((s) => s.name)}
           defaultProvider={config.defaultProvider}
+          localServers={{
+            ollama: (config.ollamaExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
+            llamacpp: (config.llamacppEndpoints ?? []).map((e) => e.name).filter(Boolean),
+          }}
           onSave={save}
           onCancel={() => setEditing(null)}
         />

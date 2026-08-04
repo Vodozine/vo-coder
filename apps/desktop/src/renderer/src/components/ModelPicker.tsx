@@ -31,12 +31,15 @@ export function ModelPicker({
   onChange,
   placeholder,
   filter = 'all',
+  filterId,
 }: {
   provider: string;
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
   filter?: ModelPickerFilter;
+  /** Narrow the list by id — e.g. to one local server's "@name" models. */
+  filterId?: (id: string) => boolean;
 }) {
   const catalog = useStore((s) => s.catalog);
   // Grok login registers xAI without an API key — re-fetch when that flips.
@@ -145,6 +148,8 @@ export function ModelPicker({
       };
     });
 
+    if (filterId) list = list.filter((r) => filterId(r.id));
+
     if (filter === 'vision') {
       // Prefer positively vision-capable; keep unknown live ids (provider may
       // list models the seed doesn't annotate) so the picker stays complete.
@@ -176,7 +181,7 @@ export function ModelPicker({
       );
     }
     return filtered;
-  }, [models, catalog, query, byPrice, provider, filter, xaiOauthConnected]);
+  }, [models, catalog, query, byPrice, provider, filter, filterId, xaiOauthConnected]);
 
   const price = (r: Row) => {
     if (r.local) return 'local · $0';
