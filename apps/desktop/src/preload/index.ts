@@ -26,6 +26,7 @@ const api: VoApi = {
   setSecret: (provider, value) => ipcRenderer.invoke(IPC.setSecret, provider, value),
   secretStatus: () => ipcRenderer.invoke(IPC.secretStatus),
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
+  modelWarm: (provider, model) => ipcRenderer.invoke(IPC.modelWarm, provider, model),
   chatSend: (sessionId, parts, override) =>
     ipcRenderer.invoke(IPC.chatSend, sessionId, parts, override),
   chatStop: (sessionId) => ipcRenderer.invoke(IPC.chatStop, sessionId),

@@ -140,6 +140,27 @@ export class OllamaProvider implements ChatProvider {
     return models;
   }
 
+  /**
+   * Load the model and return — Ollama treats a request with no messages as
+   * "make this resident". Sent with the SAME keep_alive and context window a
+   * real turn would use, because a mismatch on either would just reload it
+   * again and undo the warm-up.
+   */
+  async warm(modelId: string): Promise<void> {
+    const target = this.resolve(modelId);
+    await this.fetchFn(`${target.url}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: target.model,
+        messages: [],
+        stream: false,
+        keep_alive: KEEP_ALIVE,
+        ...(target.contextTokens ? { options: { num_ctx: target.contextTokens } } : {}),
+      }),
+    });
+  }
+
   async *stream(
     req: ChatRequest,
     opts: { signal: AbortSignal },

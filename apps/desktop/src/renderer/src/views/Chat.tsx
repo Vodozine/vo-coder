@@ -131,6 +131,8 @@ function ContextChip({
 }
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'nvidia'];
+/** Backends where becoming ready is expensive enough to be worth pre-loading. */
+const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp']);
 
 /** Inline render of a generated image — pixels come over IPC, never tokens. */
 function GeneratedImage({ path }: { path: string }) {
@@ -695,6 +697,19 @@ export function Chat() {
     if (!pinToBottomRef.current) return;
     scrollToBottom();
   }, [messages]);
+
+  // A local model has to be read off disk before it can answer — up to a
+  // minute for a big one. Start that the moment the agent is chosen so the
+  // load overlaps with the user typing, instead of beginning after Send.
+  // Mirrors how the real turn resolves provider+model, or it would warm the
+  // wrong instance and gain nothing.
+  const warmAgent = config?.agents.find((a) => a.id === activeAgentId);
+  const warmProvider = warmAgent?.provider ?? config?.defaultProvider ?? '';
+  const warmModel = warmAgent?.model ?? config?.defaultModel ?? '';
+  useEffect(() => {
+    if (!LOCAL_PROVIDERS.has(warmProvider) || !warmModel) return;
+    void window.vo.modelWarm(warmProvider, warmModel).catch(() => undefined);
+  }, [warmProvider, warmModel]);
 
   if (!config) return <div className="empty-state">Loading…</div>;
 

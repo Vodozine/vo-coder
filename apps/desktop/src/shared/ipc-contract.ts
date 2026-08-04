@@ -370,6 +370,8 @@ export interface VoApi {
   setSecret(provider: string, value: string): Promise<Record<string, string | null>>;
   secretStatus(): Promise<Record<string, string | null>>;
   listModels(provider: string): Promise<ModelInfo[]>;
+  /** Make a local model resident before the user sends. Never throws. */
+  modelWarm(provider: string, model: string): Promise<void>;
   chatSend(
     sessionId: string,
     parts: UserPart[],
@@ -515,6 +517,7 @@ export const IPC = {
   setSecret: 'secrets:set',
   secretStatus: 'secrets:status',
   listModels: 'models:list',
+  modelWarm: 'models:warm',
   chatSend: 'chat:send',
   chatStop: 'chat:stop',
   chatReset: 'chat:reset',

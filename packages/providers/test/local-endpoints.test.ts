@@ -130,6 +130,29 @@ describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', (
     expect(body.keep_alive).toBe('30m');
   });
 
+  it('warms the pinned endpoint with the same keep_alive and window a turn uses', async () => {
+    let url = '';
+    let body: { model?: string; messages?: unknown[]; keep_alive?: string; options?: unknown } = {};
+    const p = new OllamaProvider({
+      extraEndpoints: [
+        { name: 'gpu2', url: 'http://192.168.1.20:11434', contextTokens: 16384 },
+      ],
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        url = String(input);
+        body = JSON.parse(String(init?.body));
+        return new Response('{}', { headers: { 'content-type': 'application/json' } });
+      }) as unknown as typeof fetch,
+    });
+    await p.warm('llama3:70b@gpu2');
+    expect(url).toBe('http://192.168.1.20:11434/api/chat');
+    expect(body.model).toBe('llama3:70b');
+    // No messages = "just make it resident". A different window or keep_alive
+    // than the real turn would reload the model and waste the warm-up.
+    expect(body.messages).toEqual([]);
+    expect(body.keep_alive).toBe('30m');
+    expect(body.options).toEqual({ num_ctx: 16384 });
+  });
+
   it('claims a stall budget large enough to cover model load + prefill', () => {
     expect(new OllamaProvider().stallTimeoutMs).toBeGreaterThanOrEqual(300_000);
     expect(new LlamaCppProvider({ endpoints: [] }).stallTimeoutMs).toBeGreaterThanOrEqual(300_000);

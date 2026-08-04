@@ -455,6 +455,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return secrets.status();
   });
   ipcMain.handle(IPC.secretStatus, () => secrets.status());
+  // Loading a local model reads gigabytes off disk — a minute of silence
+  // before the first token. Starting that when the user PICKS the agent, not
+  // when they send, hides it behind their typing. Best-effort by design: a
+  // sleeping box or an unknown model must never surface an error here.
+  const warming = new Set<string>();
+  ipcMain.handle(IPC.modelWarm, async (_e, providerId: string, model: string) => {
+    const key = `${providerId}/${model}`;
+    if (warming.has(key)) return;
+    const provider = hub.registry().get(providerId);
+    if (!provider?.warm) return;
+    warming.add(key);
+    try {
+      await provider.warm(model);
+    } catch {
+      /* the real request will report anything that matters */
+    } finally {
+      warming.delete(key);
+    }
+  });
   ipcMain.handle(IPC.listModels, async (_e, providerId: string) => {
     const provider = hub.registry().get(providerId);
     if (!provider) {

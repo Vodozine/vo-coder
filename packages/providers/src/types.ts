@@ -130,6 +130,12 @@ export interface ChatProvider {
    * older GPU is silent for minutes and needs its own, much larger budget.
    */
   readonly stallTimeoutMs?: number;
+  /**
+   * Ask the backend to make this model ready without generating anything.
+   * Only meaningful where readiness is expensive and observable — a local
+   * server that must read gigabytes off disk before its first token.
+   */
+  warm?(model: string): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   stream(req: ChatRequest, opts: { signal: AbortSignal }): AsyncIterable<ProviderEvent>;
 }
