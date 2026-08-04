@@ -13,7 +13,7 @@
  * Exit 0 = clean. Exit 1 = refused, with the file or line named.
  */
 import { execFileSync } from 'node:child_process';
-import { disqualifyContent, disqualifyPath, disqualifyTreePath } from './edition-patterns.mjs';
+import { disqualifyContent, disqualifyTreePath } from './edition-patterns.mjs';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
@@ -46,7 +46,10 @@ if (process.argv[2] === '--tree') {
 
   const files = git('diff', '--name-only', `${base}..${head}`).split('\n').filter(Boolean);
   for (const file of files) {
-    const why = disqualifyPath(file);
+    // Design only. The identity/tooling fences belong to the SYNC classifier —
+    // they stop replays from Pro, but base legitimately edits its own
+    // package.json, README and LICENSE (its version bumps live there).
+    const why = disqualifyTreePath(file);
     if (why) {
       reasons.push(why);
       continue;
