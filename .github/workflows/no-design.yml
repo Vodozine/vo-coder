@@ -1,0 +1,38 @@
+# Refuse Design code in the Free edition.
+#
+# The local push hook can be bypassed by any clone that never installed it —
+# which is every fresh clone, since .git/hooks is not carried by `git clone`.
+# This check runs on GitHub instead, so it holds for everyone with push access
+# and for every contributor's pull request.
+#
+# It is a no-op on the Pro repo, which is supposed to contain Design.
+name: No Design code
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  check:
+    if: github.repository == 'Vodozine/vo-coder'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the change for Design code
+        if: github.event_name == 'pull_request'
+        run: |
+          node scripts/check-no-design.mjs \
+            "origin/${{ github.base_ref }}" \
+            "${{ github.event.pull_request.head.sha }}"
+
+      - name: Check the whole tree for Design files
+        if: github.event_name == 'push'
+        run: node scripts/check-no-design.mjs --tree "${{ github.sha }}"

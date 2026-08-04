@@ -10,3 +10,7 @@ coverage/
 *.local
 .env
 .vite/
+scripts/.tmp-store/
+scripts/.design-scene-store.mjs
+designs/
+tsc-out*.txt

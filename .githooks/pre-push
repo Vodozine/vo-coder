@@ -1,0 +1,74 @@
+#!/bin/sh
+# Refuse to publish the closed Design suite to the public repo.
+#
+# Pushing Pro's branch to the Free repo (github.com/Vodozine/vo-coder) is the one
+# mistake here that cannot be undone by a later commit: the objects stay in the
+# public repo's history and in every clone and fork made meanwhile.
+#
+# Two independent checks, because the first can be defeated by renaming a branch
+# and the second cannot:
+#   1. only `base` may travel to a public remote
+#   2. nothing carrying Design may travel there, whatever the branch is called
+#
+# Check 2 delegates to scripts/check-no-design.mjs so the rules live in exactly
+# one place (scripts/edition-patterns.mjs) and cannot drift from the sync script
+# or the public repo's CI. If that check cannot run, the push is REFUSED — a
+# guard that fails open is not a guard.
+#
+# git passes the remote name as $1, its URL as $2, and lines of
+#   <local ref> <local sha> <remote ref> <remote sha>
+# on stdin.
+
+remote_name="$1"
+remote_url="$2"
+
+# Private remote: nothing to protect against.
+case "$remote_url" in
+  *Vo-Coder-Pro*) exit 0 ;;
+esac
+
+# Only guard remotes that are (or claim to be) the public Free repo.
+case "$remote_name$remote_url" in
+  *vo-coder.git*|*Vodozine/vo-coder*|*free*) ;;
+  *) exit 0 ;;
+esac
+
+repo_root=$(git rev-parse --show-toplevel)
+zero=$(git hash-object --stdin </dev/null | tr '[0-9a-f]' '0')
+
+fail() {
+  echo "" >&2
+  echo "BLOCKED: refusing to push to the public repo ($remote_name)." >&2
+  echo "  $1" >&2
+  echo "" >&2
+  echo "  The public repo is the Free edition. Only 'base' belongs there, and it" >&2
+  echo "  must never contain the Design suite. Use:  npm run sync:to-free" >&2
+  echo "" >&2
+  exit 1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_ref" ] && continue
+  [ "$local_sha" = "$zero" ] && continue          # branch deletion
+
+  # --- check 1: branch identity -------------------------------------------
+  case "$local_ref" in
+    refs/heads/base) ;;
+    *) fail "'$local_ref' is not 'base'." ;;
+  esac
+
+  # --- check 2: content, whatever the branch is called ---------------------
+  if ! command -v node >/dev/null 2>&1; then
+    fail "node is unavailable, so the Design check cannot run. Refusing rather than guessing."
+  fi
+
+  if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha" 2>/dev/null; then
+    node "$repo_root/scripts/check-no-design.mjs" --tree "$local_sha" >/dev/null 2>&1 \
+      || fail "$(node "$repo_root/scripts/check-no-design.mjs" --tree "$local_sha" 2>&1 | sed -n '3,6p' | tr '\n' ' ')"
+  else
+    node "$repo_root/scripts/check-no-design.mjs" "$remote_sha" "$local_sha" >/dev/null 2>&1 \
+      || fail "$(node "$repo_root/scripts/check-no-design.mjs" "$remote_sha" "$local_sha" 2>&1 | sed -n '3,6p' | tr '\n' ' ')"
+  fi
+done
+
+exit 0
