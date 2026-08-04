@@ -43,6 +43,16 @@ export interface UiMessage {
   segments?: Segment[];
   error?: string;
   usage?: { inputTokens: number; outputTokens: number };
+  /**
+   * Milliseconds spent actually producing tokens, summed across the turn's
+   * streams. Measured from the first delta of each stream to its last, so
+   * model loading, prompt processing and tool execution — none of which
+   * produce tokens — stay out of the rate.
+   */
+  genMs?: number;
+  /** Open stream's first/last delta; folded into genMs when it ends. */
+  genStart?: number;
+  genLast?: number;
   streaming: boolean;
   aborted?: boolean;
 }
@@ -943,6 +953,16 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       return session;
     });
   };
+  /** Fold an open stream's delta span into the turn's generation time. */
+  const sealGen = (m: UiMessage): UiMessage =>
+    m.genStart !== undefined && m.genLast !== undefined
+      ? {
+          ...m,
+          genMs: (m.genMs ?? 0) + (m.genLast - m.genStart),
+          genStart: undefined,
+          genLast: undefined,
+        }
+      : m;
   const appendText = (kind: 'text' | 'thinking', text: string): void => {
     patchDraft((m) => {
       const segments = [...(m.segments ?? [])];
@@ -952,7 +972,8 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       } else {
         segments.push({ kind, text });
       }
-      return { ...m, segments };
+      const now = Date.now();
+      return { ...m, segments, genStart: m.genStart ?? now, genLast: now };
     });
   };
   const patchTool = (
@@ -1004,9 +1025,9 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       }));
       break;
     case 'done':
-      if (event.stopReason === 'aborted') {
-        patchDraft((m) => ({ ...m, aborted: true }));
-      }
+      // Each stream of the turn ends here — bank its generation time before
+      // the next one (after a tool call) starts its own span.
+      patchDraft((m) => sealGen(event.stopReason === 'aborted' ? { ...m, aborted: true } : m));
       break;
     case 'error':
       patchDraft((m) => ({ ...m, error: event.error.message }));
@@ -1030,7 +1051,8 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
           };
         });
       } else if (event.status === 'idle') {
-        patchDraft((m) => ({ ...m, streaming: false }));
+        // Seal too: a turn cut short (abort, error) may never reach 'done'.
+        patchDraft((m) => sealGen({ ...m, streaming: false }));
         patchSession((session) => ({ ...session, streaming: false }));
         // A finished review run means the proposal is on screen — show the
         // Approve / Revise / Don't accept pill.

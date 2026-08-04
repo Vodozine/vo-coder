@@ -199,6 +199,20 @@ function WaitingBubble() {
   );
 }
 
+/**
+ * Output tokens per second of actual generation — the number people compare
+ * GPUs with. Model loading, prompt processing and tool runs are excluded
+ * (see UiMessage.genMs), so this is the model's speed, not the turn's
+ * wall-clock. Hidden for spans too short to measure honestly.
+ */
+function tokensPerSec(m: UiMessage): string | null {
+  const out = m.usage?.outputTokens ?? 0;
+  const ms = m.genMs ?? 0;
+  if (out < 2 || ms < 300) return null;
+  const rate = out / (ms / 1000);
+  return rate >= 10 ? rate.toFixed(0) : rate.toFixed(1);
+}
+
 function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
@@ -242,6 +256,7 @@ function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolea
       {m.usage && (
         <div className="meta">
           {m.usage.inputTokens} in · {m.usage.outputTokens} out
+          {tokensPerSec(m) !== null && ` · ${tokensPerSec(m)} tok/s`}
         </div>
       )}
     </>
