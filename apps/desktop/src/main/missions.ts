@@ -110,6 +110,11 @@ export class MissionManager {
       objective,
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(interval ? { intervalMinutes: interval } : {}),
+      // Unattended by design: nobody is watching a scheduled 3am run, and an
+      // unanswered request resolves to deny, so a mission that asks is a mission
+      // that stalls. The grant is therefore real and wide, which is exactly why
+      // the creation prompt spells it out to the human rather than only to the
+      // model (see PermissionModal).
       autoApprove: input.autoApprove ?? true,
       status: 'idle',
       createdAt: Date.now(),
@@ -168,8 +173,10 @@ export class MissionManager {
         description:
           'Create a background mission — an objective pursued autonomously in its own agent instance, ' +
           'so it never blocks the current conversation. One-shot by default; pass intervalMinutes to loop ' +
-          '(e.g. "check X every hour"). Runs are auto-approved. Use when the user asks for ongoing, ' +
-          'scheduled, or long-running work.',
+          '(e.g. "check X every hour"). A mission runs unattended, so its own tool calls are auto-approved ' +
+          'for the life of the mission — file writes and shell commands included — unless autoApprove is ' +
+          'false. Say so plainly when you offer one. Use when the user asks for ongoing, scheduled, or ' +
+          'long-running work.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -185,6 +192,13 @@ export class MissionManager {
             intervalMinutes: {
               type: 'number',
               description: `Repeat every N minutes (min ${MIN_INTERVAL_MIN}); omit to run once`,
+            },
+            autoApprove: {
+              type: 'boolean',
+              description:
+                'Auto-approve the mission\'s tool calls (default true, since nobody is watching a ' +
+                'background run). Pass false to make it ask instead — only useful when a human is ' +
+                'reachable, e.g. over Telegram, since an unanswered request is denied.',
             },
           },
           required: ['title', 'objective'],
@@ -230,6 +244,7 @@ export class MissionManager {
             objective: String(a.objective ?? ''),
             ...(projectId ? { projectId } : {}),
             ...(a.intervalMinutes ? { intervalMinutes: Number(a.intervalMinutes) } : {}),
+            ...(a.autoApprove === undefined ? {} : { autoApprove: Boolean(a.autoApprove) }),
           });
           return {
             content:

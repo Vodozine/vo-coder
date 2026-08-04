@@ -6,8 +6,14 @@ import { dirname, join } from 'node:path';
  * API keys encrypted with the OS keychain (DPAPI / Keychain / kwallet+libsecret)
  * via Electron safeStorage. The renderer never sees raw values — only masked
  * status strings. If OS encryption is unavailable (some Linux setups), values
- * fall back to base64 with a logged warning; a consent path lands in a later
- * phase.
+ * fall back to base64 with a logged warning; that fallback now re-encrypts
+ * itself on the first read once encryption is available again.
+ *
+ * Worth being precise about the guarantee, since "OS keychain" can suggest more
+ * than it delivers: safeStorage binds to the USER ACCOUNT, not to this app. Any
+ * process running as the same user can decrypt this file. It protects the keys
+ * at rest from other accounts and from someone copying the file off the disk;
+ * it is not a defence against something already running as you.
  */
 export class SecretStore {
   private path = join(app.getPath('userData'), 'secrets.json');
@@ -47,7 +53,15 @@ export class SecretStore {
     if (!stored) return null;
     try {
       if (stored.startsWith('plain:')) {
-        return Buffer.from(stored.slice(6), 'base64').toString('utf8');
+        const value = Buffer.from(stored.slice(6), 'base64').toString('utf8');
+        // A value written while OS encryption was unavailable would otherwise
+        // stay readable forever, long after encryption came back. Heal it on
+        // first read instead of leaving a permanent downgrade behind.
+        if (value && safeStorage.isEncryptionAvailable()) {
+          console.warn(`[secrets] re-encrypting previously obfuscated key for ${provider}`);
+          this.set(provider, value);
+        }
+        return value;
       }
       return safeStorage.decryptString(Buffer.from(stored, 'base64'));
     } catch (err) {

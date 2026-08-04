@@ -1,3 +1,5 @@
+import { randomBytes, randomInt } from 'node:crypto';
+
 import { AgentSession, type PermissionDecision } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { TelegramInfo } from '../shared/ipc-contract';
@@ -19,6 +21,7 @@ import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 const POLL_TIMEOUT_SEC = 50;
 const RETRY_DELAY_MS = 5_000;
 const PAIR_CODE_TTL_MS = 10 * 60_000;
+const MAX_PAIR_ATTEMPTS = 5;
 const PERMISSION_TIMEOUT_MS = 4 * 60_000;
 const CHUNK = 3_900;
 
@@ -66,9 +69,14 @@ export class TelegramBridge {
   private offset = 0;
   private botUsername?: string;
   private lastError?: string;
-  private pairCode: { code: string; expiresAt: number } | null = null;
+  private pairCode: { code: string; expiresAt: number; failures: number } | null = null;
   private chats = new Map<number, ChatState>();
-  private pendingPerms = new Map<string, (d: PermissionDecision) => void>();
+  // Each pending request remembers the chat that raised it, so an approval can
+  // only come back from that same chat rather than from any paired one.
+  private pendingPerms = new Map<
+    string,
+    { chatId: number; resolve: (d: PermissionDecision) => void }
+  >();
   private permSeq = 0;
 
   constructor(
@@ -101,9 +109,15 @@ export class TelegramBridge {
     this.changed();
   }
 
+  /**
+   * Pairing is the whole perimeter — a paired chat can drive the agent — so the
+   * code comes from the CSPRNG rather than Math.random (xorshift128+, and
+   * predictable from prior output), and it burns after a handful of wrong
+   * guesses instead of standing until its TTL.
+   */
   generatePairCode(): { code: string; expiresInSec: number } {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    this.pairCode = { code, expiresAt: Date.now() + PAIR_CODE_TTL_MS };
+    const code = String(randomInt(100000, 1000000));
+    this.pairCode = { code, expiresAt: Date.now() + PAIR_CODE_TTL_MS, failures: 0 };
     return { code, expiresInSec: PAIR_CODE_TTL_MS / 1000 };
   }
 
@@ -203,10 +217,12 @@ export class TelegramBridge {
       const match = /^perm:([^:]+):(allow|deny)$/.exec(cb.data ?? '');
       const chatId = cb.message?.chat.id;
       if (match && chatId !== undefined && this.isPaired(chatId)) {
-        const resolve = this.pendingPerms.get(match[1]!);
-        if (resolve) {
+        const pending = this.pendingPerms.get(match[1]!);
+        // Bound to its origin chat: with two paired phones, one must not be able
+        // to answer a prompt raised on the other.
+        if (pending && pending.chatId === chatId) {
           this.pendingPerms.delete(match[1]!);
-          resolve(match[2] as PermissionDecision);
+          pending.resolve(match[2] as PermissionDecision);
           void this.api('answerCallbackQuery', {
             callback_query_id: cb.id,
             text: match[2] === 'allow' ? 'Allowed ✓' : 'Denied ✕',
@@ -226,7 +242,17 @@ export class TelegramBridge {
     if (!this.isPaired(chatId)) {
       const codeAttempt = /^\/start\s+(\d{6})$/.exec(text)?.[1] ?? /^(\d{6})$/.exec(text)?.[1];
       if (codeAttempt && this.pairCode && Date.now() < this.pairCode.expiresAt) {
-        if (codeAttempt === this.pairCode.code) {
+        if (codeAttempt !== this.pairCode.code) {
+          // Wrong guess: burn the code well before six digits can be walked.
+          if (++this.pairCode.failures >= MAX_PAIR_ATTEMPTS) {
+            this.pairCode = null;
+            await this.sendText(
+              chatId,
+              'That code is wrong, and too many attempts have been made. Generate a fresh code in Vo-Coder and try again.',
+            );
+            return;
+          }
+        } else {
           this.pairCode = null;
           const cfg = this.config.get();
           const name = msg.chat.username ?? msg.chat.first_name;
@@ -371,8 +397,8 @@ export class TelegramBridge {
     // replies instructively instead of a dead Allow/Deny exchange.
     if (mode === 'auto' || mode === 'plan') return Promise.resolve('allow');
     return new Promise((resolve) => {
-      const id = `tg${++this.permSeq}`;
-      this.pendingPerms.set(id, resolve);
+      const id = `tg${++this.permSeq}_${randomBytes(4).toString('hex')}`;
+      this.pendingPerms.set(id, { chatId, resolve });
       const argsText = JSON.stringify(args ?? {}, null, 1);
       void this.api('sendMessage', {
         chat_id: chatId,

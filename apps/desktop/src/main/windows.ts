@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
 
 export function createMainWindow(): BrowserWindow {
@@ -21,12 +21,32 @@ export function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
       contextIsolation: true,
+      // Not an oversight, and not free to flip: Electron cannot load an ESM
+      // preload (.mjs) into a sandboxed renderer, so sandbox:true would break
+      // the bridge entirely. Context isolation and nodeIntegration:false still
+      // stand between the page and Node, and the guards below keep the renderer
+      // on its own content, which is what carries the weight here.
       sandbox: false,
       nodeIntegration: false,
     },
   });
 
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
+
+  // The renderer holds a ~90-channel bridge, including a PTY and MCP server
+  // registration, so nothing else may ever inherit this preload. Anything that
+  // wants a browser gets the real one instead.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    const staysHome = devUrl ? url.startsWith(devUrl) : url.startsWith('file://');
+    if (staysHome) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+  });
+
   if (devUrl) {
     void win.loadURL(devUrl);
   } else {

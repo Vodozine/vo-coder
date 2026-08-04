@@ -1030,6 +1030,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     ...mcp.toolsFor(undefined),
   ];
   const remoteExecute = (name: string, args: unknown, dir?: string, projectId?: string) => {
+    // MCP tools are namespaced "<server>__<tool>", and the separator is barred
+    // from raw names, so the double underscore is a reliable marker. Check it
+    // FIRST: a server named "ws" or "web" would otherwise produce ws__read /
+    // web__search, match the prefix tests below, and be misrouted into the
+    // built-in executor instead of reaching its own server.
+    if (name.includes('__')) return mcp.call(name, args);
     if (name.startsWith('ws_')) {
       return dir
         ? executeWorkspaceTool(dir, name, args)
