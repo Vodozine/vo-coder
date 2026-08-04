@@ -1098,6 +1098,49 @@ function UpdatesSection() {
 }
 
 /**
+ * Context windows a local server can be pinned to. The ceiling is the model's
+ * trained context (128k–256k on current Gemma/Qwen), but the KV cache grows
+ * with it — a window far past what the prompt needs buys nothing and can push
+ * layers off the GPU.
+ */
+const CTX_CHOICES: Array<[number, string]> = [
+  [0, 'ctx auto'],
+  [4096, '4k'],
+  [8192, '8k'],
+  [16384, '16k'],
+  [32768, '32k'],
+  [65536, '64k'],
+  [131072, '128k'],
+  [262144, '256k'],
+];
+
+function ContextSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (tokens: number | undefined) => void;
+}) {
+  return (
+    <select
+      value={String(value)}
+      title={
+        'Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs ' +
+        'from the loaded model reloads it on every request. Bigger windows need more VRAM for the ' +
+        'KV cache; past what the prompt needs they only cost memory.'
+      }
+      onChange={(e) => onChange(Number(e.target.value) || undefined)}
+    >
+      {CTX_CHOICES.map(([tokens, label]) => (
+        <option key={tokens} value={tokens}>
+          {label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
  * One named extra local server (Ollama box or llama.cpp llama-server).
  * The name becomes the "@name" suffix in that server's model ids — that suffix
  * is how an agent pins its model to one specific GPU/box.
@@ -1137,17 +1180,7 @@ function EndpointRow({
         {ep.enabled ? 'On' : 'Off'}
       </button>
       <input value={curUrl} placeholder={urlPlaceholder} onChange={(e) => setUrl(e.target.value)} />
-      <select
-        value={String(ctx)}
-        title="Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs from the loaded model reloads it on every request."
-        onChange={(e) => onChange({ ...ep, contextTokens: Number(e.target.value) || undefined })}
-      >
-        <option value="0">ctx auto</option>
-        <option value="4096">4k</option>
-        <option value="8192">8k</option>
-        <option value="16384">16k</option>
-        <option value="32768">32k</option>
-      </select>
+      <ContextSelect value={ctx} onChange={(t) => onChange({ ...ep, contextTokens: t })} />
       <button
         disabled={!dirty}
         onClick={() => {
@@ -1227,19 +1260,10 @@ export function Settings() {
             value={ollamaUrl ?? config.ollamaBaseUrl}
             onChange={(e) => setOllamaUrl(e.target.value)}
           />
-          <select
-            value={String(config.ollamaContextTokens ?? 0)}
-            title="Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs from the loaded model reloads it on every request."
-            onChange={(e) =>
-              void saveConfig({ ollamaContextTokens: Number(e.target.value) || undefined })
-            }
-          >
-            <option value="0">ctx auto</option>
-            <option value="4096">4k</option>
-            <option value="8192">8k</option>
-            <option value="16384">16k</option>
-            <option value="32768">32k</option>
-          </select>
+          <ContextSelect
+            value={config.ollamaContextTokens ?? 0}
+            onChange={(t) => void saveConfig({ ollamaContextTokens: t })}
+          />
           <button
             disabled={ollamaUrl === null || ollamaUrl === config.ollamaBaseUrl}
             onClick={() => void saveConfig({ ollamaBaseUrl: ollamaUrl ?? config.ollamaBaseUrl })}
