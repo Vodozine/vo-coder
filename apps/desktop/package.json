@@ -1,5 +1,5 @@
 {
-  "name": "@vo-coder/desktop",
+  "name": "vo-coder",
   "version": "1.2.8",
   "private": true,
   "description": "Vo-Coder desktop shell — provider-agnostic agent harness",
