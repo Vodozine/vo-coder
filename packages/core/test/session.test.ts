@@ -339,6 +339,49 @@ describe('stall watchdog', () => {
     expect(session.getStatus()).toBe('idle');
   });
 
+  it('honours a provider that declares its own budget (local servers prefill in silence)', async () => {
+    let aborted = false;
+    const provider: ChatProvider = {
+      id: 'fake-local',
+      // Far longer than the harness default: a local GPU loading weights and
+      // reading a long prompt sends nothing for minutes and is NOT stalled.
+      stallTimeoutMs: 60_000,
+      listModels: async () => [],
+      stream: async function* (_req, opts) {
+        // Silent past the 120s default's scaled-down stand-in, then answers.
+        await new Promise((r) => setTimeout(r, 60));
+        if (opts.signal.aborted) {
+          aborted = true;
+          return;
+        }
+        yield { type: 'text_delta', text: 'took a while' } as ProviderEvent;
+        yield { type: 'done', stopReason: 'end_turn' } as ProviderEvent;
+      },
+    };
+    const { session, events, done } = makeSession(provider);
+    session.send('hello');
+    await done;
+    expect(aborted).toBe(false);
+    expect(events.find((e) => e.type === 'error')).toBeUndefined();
+    expect(events.some((e) => e.type === 'text_delta' && e.text === 'took a while')).toBe(true);
+  });
+
+  it('an explicit option still overrides the provider budget', async () => {
+    const provider: ChatProvider = {
+      id: 'fake-local',
+      stallTimeoutMs: 60_000,
+      listModels: async () => [],
+      stream: async function* (_req, opts) {
+        await new Promise<void>((resolve) => opts.signal.addEventListener('abort', () => resolve()));
+      },
+    };
+    const { session, events, done } = makeSession(provider, { stallTimeoutMs: 40 });
+    session.send('hello');
+    await done;
+    const err = events.find((e) => e.type === 'error');
+    expect(err && err.type === 'error' ? err.error.message : '').toMatch(/stalled/);
+  });
+
   it('hollow keep-alive deltas do not keep a dead turn alive', async () => {
     const provider: ChatProvider = {
       id: 'fake',

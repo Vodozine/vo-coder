@@ -1,4 +1,5 @@
 import type { ChatProvider, ChatRequest, ModelInfo, ProviderEvent } from '../types.js';
+import { LOCAL_STALL_TIMEOUT_MS } from './ollama.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
 
 export interface LlamaCppEndpoint {
@@ -24,6 +25,7 @@ export interface LlamaCppProviderOptions {
  */
 export class LlamaCppProvider implements ChatProvider {
   readonly id = 'llamacpp' as const;
+  readonly stallTimeoutMs = LOCAL_STALL_TIMEOUT_MS;
   private clients = new Map<string, OpenAICompatibleProvider>();
 
   constructor(opts: LlamaCppProviderOptions) {

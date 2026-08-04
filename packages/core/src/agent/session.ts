@@ -78,7 +78,11 @@ export interface AgentSessionOptions {
     messages: readonly HarnessMessage[],
     bound: BoundModel,
   ) => HarnessMessage[];
-  /** Ms of provider silence before the run is declared stalled. Default 120s. */
+  /**
+   * Ms of provider silence before the run is declared stalled. Overrides
+   * everything; unset lets each provider state its own budget (local servers
+   * need minutes) before falling back to 120s.
+   */
   stallTimeoutMs?: number;
 }
 
@@ -288,7 +292,7 @@ export class AgentSession {
             },
             { signal: ac.signal },
           ),
-          this.opts.stallTimeoutMs ?? STALL_TIMEOUT_MS,
+          this.opts.stallTimeoutMs ?? bound.provider.stallTimeoutMs ?? STALL_TIMEOUT_MS,
           () => ac.abort(),
         )) {
           this.opts.emit(this.id, event);

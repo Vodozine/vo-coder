@@ -41,8 +41,23 @@ interface OllamaChatChunk {
   error?: string;
 }
 
+/**
+ * A local server answers nothing while it loads weights and prefills the
+ * prompt — on an older card (P4/P40 class) with a few thousand tokens of
+ * agent prompt that is minutes, not seconds. Shared by every local adapter.
+ */
+export const LOCAL_STALL_TIMEOUT_MS = 600_000;
+
+/**
+ * Keep the model resident between messages. Ollama's own default unloads
+ * after 5 minutes, so a chat resumed after a coffee break pays the whole
+ * load again — the single biggest source of "why is it so slow".
+ */
+const KEEP_ALIVE = '30m';
+
 export class OllamaProvider implements ChatProvider {
   readonly id = 'ollama' as const;
+  readonly stallTimeoutMs = LOCAL_STALL_TIMEOUT_MS;
   private baseUrl: string;
   /** name → url. The primary server has no name and no suffix. */
   private extras: Map<string, string>;
@@ -109,6 +124,7 @@ export class OllamaProvider implements ChatProvider {
       model: target.model,
       messages,
       stream: true,
+      keep_alive: KEEP_ALIVE,
       ...(req.thinking?.enabled ? { think: true } : {}),
       ...(req.tools?.length
         ? {

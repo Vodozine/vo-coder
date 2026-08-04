@@ -123,6 +123,13 @@ export type ProviderEvent =
 
 export interface ChatProvider {
   readonly id: ProviderId;
+  /**
+   * How long this provider may legitimately produce NOTHING before a run is
+   * declared stalled. Cloud APIs answer in seconds, so the harness default is
+   * tight; a local server loading weights and prefilling a long prompt on an
+   * older GPU is silent for minutes and needs its own, much larger budget.
+   */
+  readonly stallTimeoutMs?: number;
   listModels(): Promise<ModelInfo[]>;
   stream(req: ChatRequest, opts: { signal: AbortSignal }): AsyncIterable<ProviderEvent>;
 }

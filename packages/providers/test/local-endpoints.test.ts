@@ -108,6 +108,27 @@ describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', (
     });
   });
 
+  it('keeps the model resident between messages', async () => {
+    let body: { keep_alive?: string } = {};
+    const p = new OllamaProvider({
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body)) as { keep_alive?: string };
+        return new Response(fixture('ollama-basic.ndjson.txt'), {
+          headers: { 'content-type': 'application/x-ndjson' },
+        });
+      }) as unknown as typeof fetch,
+    });
+    await collect(p, { model: 'llama3.2', messages: [userText('hi')] });
+    // Ollama's own default unloads after 5 minutes; a resumed chat would then
+    // pay the whole model load again.
+    expect(body.keep_alive).toBe('30m');
+  });
+
+  it('claims a stall budget large enough to cover model load + prefill', () => {
+    expect(new OllamaProvider().stallTimeoutMs).toBeGreaterThanOrEqual(300_000);
+    expect(new LlamaCppProvider({ endpoints: [] }).stallTimeoutMs).toBeGreaterThanOrEqual(300_000);
+  });
+
   it('is sent on the wire for an agent-sized prompt', async () => {
     let sawOptions: { num_ctx?: number } = {};
     const p = new OllamaProvider({

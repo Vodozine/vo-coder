@@ -295,6 +295,9 @@ export class NvidiaProvider extends OpenAICompatibleProvider {
 
 /** LM Studio's local server speaks the OpenAI wire format; no real key needed. */
 export class LmStudioProvider extends OpenAICompatibleProvider {
+  /** Local: silent while loading the model and prefilling — see the Ollama note. */
+  readonly stallTimeoutMs = 600_000;
+
   constructor(opts: Partial<OpenAICompatibleOptions> = {}) {
     super('lmstudio', {
       apiKey: opts.apiKey ?? 'lm-studio',

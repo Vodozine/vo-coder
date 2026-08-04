@@ -175,6 +175,30 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
   );
 }
 
+/**
+ * A local server sends nothing while it loads the model and reads the prompt —
+ * minutes on an older GPU. A bare "…" reads as a hang, so once the wait stops
+ * looking instant, say what is happening and count.
+ */
+function WaitingBubble() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <>
+      <div className="bubble pulse">…</div>
+      {secs >= 8 && (
+        <div className="meta">
+          {secs}s — waiting for the first token. Local servers load the model and read the whole
+          prompt before answering; the GPU is busy even though nothing has arrived yet.
+        </div>
+      )}
+    </>
+  );
+}
+
 function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
@@ -200,7 +224,7 @@ function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolea
           </div>
         );
       })}
-      {m.streaming && (m.segments ?? []).length === 0 && <div className="bubble pulse">…</div>}
+      {m.streaming && (m.segments ?? []).length === 0 && <WaitingBubble />}
       {!m.streaming &&
         !m.error &&
         !m.aborted &&
