@@ -185,6 +185,11 @@ export class SessionManager {
     return 0;
   }
 
+  /** Agents available to share work with — below two there is no group. */
+  private teamSize(): number {
+    return this.deps.config.get().agents.length;
+  }
+
   /** Window-as-buffer briefing, appended to the prompt when assembly is on. */
   private assemblyNote(sessionId: string): string {
     const projectId = this.assembleEnabled(sessionId);
@@ -218,6 +223,22 @@ export class SessionManager {
         'links); map_update corrects it. image_generate renders images with the configured image ' +
         "model into the project's designs/ folder — use it for mockups, icons, art."
       : '';
+    // Coordinating is the default agent's job, not a specialist's: a member
+    // already inside a group must get on with its own part rather than
+    // splitting it again. The judgement is deliberately left to the model —
+    // whether a job has genuinely independent parts is reasoning about the
+    // work, not something a keyword rule can decide.
+    const teamNote =
+      this.deps.builtins && spec.id === 'default' && this.teamSize() >= 2
+        ? '\n\nYOU HAVE A TEAM. Before starting anything substantial, think about whether the job ' +
+          'has parts that could be done AT THE SAME TIME — different files, different components, ' +
+          'research alongside implementation, tests alongside the feature. If it does, call ' +
+          'group_start with those parts: each goes to a different agent and they work in ' +
+          'parallel, which finishes sooner than you doing them one after another. Then say who ' +
+          'is doing what and let them work — do not redo their parts yourself. If the work is ' +
+          'sequential (each step needs the previous one), or small, just do it. Say briefly why ' +
+          'when you decide not to split something big.'
+        : '';
     const assembly = this.assemblyNote(sessionId);
     const planNote =
       this.deps.config.get().approvalMode === 'plan'
@@ -227,8 +248,11 @@ export class SessionManager {
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
     if (!dir) {
-      return builtinNote || assembly || planNote
-        ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${assembly}${planNote}` }
+      return builtinNote || teamNote || assembly || planNote
+        ? {
+            ...spec,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${teamNote}${assembly}${planNote}`,
+          }
         : spec;
     }
     // A folder attached directly to the chat is an INSPECTION surface (catalog
@@ -255,7 +279,7 @@ export class SessionManager {
           `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
-          `${builtinNote}${assembly}${planNote}`,
+          `${builtinNote}${teamNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -279,7 +303,7 @@ export class SessionManager {
         `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}${assembly}${planNote}`,
+        `${builtinNote}${teamNote}${assembly}${planNote}`,
     };
   }
 

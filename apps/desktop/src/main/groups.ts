@@ -1,5 +1,5 @@
 import { assignTasks } from '@vo-coder/core';
-import type { AgentSpec } from '@vo-coder/providers';
+import type { AgentSpec, ToolSpec } from '@vo-coder/providers';
 import type { GroupMember, GroupRun } from '../shared/ipc-contract';
 
 /** More than this and nobody can follow what is happening. */
@@ -12,6 +12,75 @@ export interface GroupDeps {
   createSession: (projectId: string, agentId: string, title: string, groupId: string) => string;
   send: (sessionId: string, text: string) => void;
   addGroup: (group: GroupRun) => void;
+}
+
+/**
+ * Vodo's own way to parallelise. The coordinator is already reasoning about
+ * the job when it decides "these three pieces don't depend on each other" —
+ * so it passes the split it has already made, and the code decides WHICH
+ * agent gets each piece. A tool rather than an interceptor: it costs nothing
+ * on messages that don't split, and the coordinator narrates the decision in
+ * the thread instead of the user's message vanishing into a silent fan-out.
+ */
+export function groupToolSpecs(): ToolSpec[] {
+  return [
+    {
+      name: 'group_start',
+      description:
+        'Run independent parts of a job at the same time, each on a different agent, instead of ' +
+        'doing them one after another. Use it when a task genuinely splits — separate files, ' +
+        'separate components, research plus implementation — and the parts do NOT depend on each ' +
+        "other finishing first. Do not use it for sequential work or trivial edits. Each part's " +
+        'agent gets its own chat and works in parallel; you keep coordinating and pull the ' +
+        'results together.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'The shared goal, one sentence' },
+          parts: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              '2-8 independent parts. Each is an instruction to the person doing it and must ' +
+              'carry enough context to act on alone.',
+          },
+        },
+        required: ['goal', 'parts'],
+      },
+    },
+  ];
+}
+
+export async function executeGroupTool(
+  args: unknown,
+  deps: GroupDeps,
+  projectId?: string,
+): Promise<{ content: string; isError?: boolean }> {
+  const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
+  const goal = typeof a.goal === 'string' ? a.goal.trim() : '';
+  const parts = Array.isArray(a.parts)
+    ? a.parts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    : [];
+  if (!projectId) {
+    return { content: 'A group needs a project — this chat has none.', isError: true };
+  }
+  if (!goal || parts.length < 2) {
+    return {
+      content:
+        'group_start needs a goal and at least 2 independent parts. If the work is sequential, ' +
+        'just do it yourself.',
+      isError: true,
+    };
+  }
+  const result = await startGroup(deps, projectId, '', goal, parts.slice(0, MAX_GROUP_MEMBERS));
+  if (!result.ok) return { content: result.error, isError: true };
+  return {
+    content:
+      `Started ${result.group.members.length} agents in parallel:\n` +
+      result.group.members.map((m) => `- ${m.agentName}: ${m.task}`).join('\n') +
+      '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
+      'is doing what, then wait for their results rather than doing the work yourself.',
+  };
 }
 
 /**
@@ -97,6 +166,8 @@ export async function startGroup(
   projectId: string,
   coordinatorId: string,
   goal: string,
+  /** A split the caller already made (Vodo's own) — skips asking a model. */
+  parts?: string[],
 ): Promise<{ ok: true; group: GroupRun } | { ok: false; error: string }> {
   const agents = deps.agents();
   if (!agents.length) {
@@ -109,7 +180,9 @@ export async function startGroup(
   }
   if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
 
-  const plan = await planGroup(goal, agents, deps.complete);
+  const plan = parts?.length
+    ? assignTasks(parts, agents)
+    : await planGroup(goal, agents, deps.complete);
   if (!plan.length) return { ok: false, error: 'Could not split that into work.' };
 
   const groupId = `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;

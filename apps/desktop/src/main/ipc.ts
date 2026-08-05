@@ -54,7 +54,7 @@ import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
-import { startGroup } from './groups';
+import { executeGroupTool, groupToolSpecs, startGroup } from './groups';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
 import { VoiceHost } from './voice';
@@ -191,6 +191,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...journal.toolSpecs(),
       ...(bank?.toolSpecs() ?? []),
       ...(missionsRef?.toolSpecs() ?? []),
+      ...groupToolSpecs(),
     ],
     execute: (name: string, args: unknown, ctx?: { projectId?: string; dir?: string }) => {
       // The chat's folder: an attached/session dir when the caller passes one,
@@ -206,6 +207,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       }
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
+      }
+      if (name === 'group_start') {
+        return executeGroupTool(args, {
+          agents: () => config.get().agents,
+          complete: completeCheap,
+          createSession: (pid, agentId, title, groupId) =>
+            projects.createSession(pid, agentId, title, groupId).id,
+          send: (sid, body) => {
+            void sessions.send(sid, [{ type: 'text', text: body }]);
+          },
+          addGroup: (group) => {
+            projects.addGroup(group);
+            broadcastProjects();
+          },
+        }, ctx?.projectId);
       }
       if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
@@ -699,6 +715,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           const agents = config.get().agents;
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
+
           let match = matchAgentForMessage(text, agents, {
             always: mode === 'agents-only',
             hasImage: needsVision,

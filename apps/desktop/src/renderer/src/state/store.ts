@@ -179,6 +179,8 @@ interface AppState {
   /** Verdict pill: approve applies the fixes, reject declines, clear dismisses. */
   resolveReview(verdict: 'approve' | 'reject' | 'clear'): Promise<void>;
   send(text: string): Promise<void>;
+  /** Text-only send/inject into one group member's session. */
+  sendToMember(sessionId: string, text: string): Promise<void>;
   stop(): Promise<void>;
   saveConfig(patch: Partial<AppConfig>): Promise<void>;
   saveAgents(agents: AgentSpec[]): Promise<void>;
@@ -677,6 +679,30 @@ export const useStore = create<AppState>((set, get) => ({
           'in one line.',
       );
     }
+  },
+
+  /**
+   * Text-only send into a specific session — what a group pane needs to
+   * redirect one member. Deliberately self-contained rather than reusing the
+   * main composer path: no attachments, no active-session coupling, and it
+   * injects instead of failing when that member is mid-run.
+   */
+  async sendToMember(sessionId, text) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const userMsg: UiMessage = { id: nextId++, role: 'user', text: trimmed, streaming: false };
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          ...(s.sessions[sessionId] ?? emptySession()),
+          messages: [...(s.sessions[sessionId]?.messages ?? []), userMsg],
+        },
+      },
+    }));
+    const parts: UserPart[] = [{ type: 'text', text: trimmed }];
+    if (get().sessions[sessionId]?.streaming) await window.vo.chatInject(sessionId, parts);
+    else await window.vo.chatSend(sessionId, parts);
   },
 
   async send(text) {

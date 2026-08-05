@@ -85,7 +85,7 @@ function GroupPane({ member }: { member: GroupMember }) {
   const session = useStore((s) => s.sessions[member.sessionId]);
   const primeSession = useStore((s) => s.primeSession);
   const openSession = useStore((s) => s.openSession);
-  const sendToSession = useStore((s) => s.sendToSession);
+  const sendToMember = useStore((s) => s.sendToMember);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -140,7 +140,7 @@ function GroupPane({ member }: { member: GroupMember }) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || !input.trim()) return;
-            void sendToSession(member.sessionId, input);
+            void sendToMember(member.sessionId, input);
             setInput('');
           }}
         />
