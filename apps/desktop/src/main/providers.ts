@@ -111,7 +111,15 @@ export class ProviderHub {
         }),
       );
     }
-    if (on('lmstudio')) reg.register(new LmStudioProvider({ baseURL: cfg.lmstudioBaseUrl }));
+    // LM Studio speaks OpenAI wire under /v1 — people paste the bare
+    // host:port from the app's UI, and every call then 404s (no model list,
+    // no chat). Normalize once here instead of failing quietly.
+    if (on('lmstudio')) {
+      const lmBase = (cfg.lmstudioBaseUrl || 'http://127.0.0.1:1234/v1').replace(/\/+$/, '');
+      reg.register(
+        new LmStudioProvider({ baseURL: /\/v\d+$/.test(lmBase) ? lmBase : `${lmBase}/v1` }),
+      );
+    }
     const llamacpp = activeEndpoints(cfg.llamacppEndpoints);
     if (on('llamacpp') && llamacpp.length) {
       reg.register(new LlamaCppProvider({ endpoints: llamacpp }));
