@@ -489,6 +489,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // before the first token. Starting that when the user PICKS the agent, not
   // when they send, hides it behind their typing. Best-effort by design: a
   // sleeping box or an unknown model must never surface an error here.
+  /** Who Vodo handed each conversation to lately — breaks routing ties only. */
+  const recentAgents = new Map<string, string[]>();
   const warming = new Set<string>();
   ipcMain.handle(IPC.modelWarm, async (_e, providerId: string, model: string) => {
     const key = `${providerId}/${model}`;
@@ -716,9 +718,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
 
+          const recent = recentAgents.get(sessionId) ?? [];
           let match = matchAgentForMessage(text, agents, {
             always: mode === 'agents-only',
             hasImage: needsVision,
+            recent,
           });
           // "My agents first" + a WORK request in a project: if no keyword
           // hit, still hand it to the user's best agent — you built staff so
@@ -728,7 +732,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           // must hand the job over to catalog routing, not absorb it by being
           // the only staff around.
           if (!match && mode === 'agents' && builderMode && looksLikeWorkRequest(text) && agents.length > 0) {
-            const top = rankAgents(text, agents, { hasImage: needsVision })[0];
+            const top = rankAgents(text, agents, { hasImage: needsVision, recent })[0];
             if (top && top.score > 0) {
               match = {
                 agent: top.agent,
@@ -785,6 +789,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
           if (match) {
             specOverride = match.agent;
+            // Remember who just worked so a tie next turn goes elsewhere.
+            // Bounded: only the last few matter, and a real match ignores it.
+            recentAgents.set(
+              sessionId,
+              [...recent.filter((id) => id !== match!.agent.id), match.agent.id].slice(-4),
+            );
             const handoff = `handed to ${match.agent.name} (matched: ${match.matched.join(', ')})`;
             if (!match.agent.model) {
               const pick = await routeForVodo(parts, historyHasImages, builderMode).catch(

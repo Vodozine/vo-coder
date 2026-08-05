@@ -22,6 +22,31 @@ const agents: AgentSpec[] = [
   },
 ];
 
+describe('score ties rotate instead of freezing on the oldest agent', () => {
+  // "agents only" drops the threshold to 0, so a message with no hint hit
+  // ties everybody — and creation order used to hand it to the same agent
+  // every single time, which is why work never moved.
+  const tieText = 'ok go ahead';
+
+  it('picks a different agent once one has just worked', () => {
+    const first = matchAgentForMessage(tieText, agents, { always: true });
+    expect(first?.agent.id).toBe('a1');
+    const second = matchAgentForMessage(tieText, agents, {
+      always: true,
+      recent: [first!.agent.id],
+    });
+    expect(second?.agent.id).not.toBe('a1');
+  });
+
+  it('a real match still beats recency — a specialist keeps its subject', () => {
+    const match = matchAgentForMessage('snapshot the proxmox vm', agents, {
+      always: true,
+      recent: ['a1'],
+    });
+    expect(match?.agent.id).toBe('a1');
+  });
+});
+
 describe('assignTasks — a group means several specialists actually work', () => {
   it('gives each task its best fit and does not hand them all to one agent', () => {
     const plan = assignTasks(

@@ -841,6 +841,16 @@ export function Chat() {
             </option>
           ))}
         </select>
+        {/* Picking an agent talks to it DIRECTLY — routing, delegation and
+            group projects all belong to Vodo, and nothing used to say so. */}
+        {activeAgentId !== 'default' && (config.routeMode ?? 'auto') !== 'off' && (
+          <span
+            className="meta"
+            title="This chat goes straight to this agent. Vodo is not routing it, so it will not pick a model, hand work to another agent, or split it across the team — switch to Vodo for that."
+          >
+            direct — Vodo not routing
+          </span>
+        )}
         {usingDefaults ? (
           <>
             <select

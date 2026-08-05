@@ -23,6 +23,14 @@ export interface RankOpts {
    * works; that's the user calling it directly.
    */
   hasImage?: boolean;
+  /**
+   * Agents that have run recently in this conversation, oldest first. Used
+   * only to break SCORE TIES — a real keyword or name match still decides, so
+   * a specialist keeps its own subject. Without this, "agents only" (whose
+   * threshold is 0) hands every unmatched message to whichever agent was
+   * created first, forever.
+   */
+  recent?: string[];
 }
 
 /** Words that only signal a vision job when a photo is actually on the table. */
@@ -89,9 +97,16 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
 
     return { agent, matched: [...new Set(matched)], score };
   });
-  // Stable sort keeps creation order on ties — the user's first agent is the
-  // implicit generalist.
-  return ranked.sort((a, b) => b.score - a.score);
+  // Ties used to fall to creation order FOREVER, which is why one agent
+  // appeared to own every project: in "agents only" the threshold is 0, so
+  // any message without a hint hit ties everybody at zero and the first agent
+  // in the list won every time. Break ties by who worked least recently
+  // instead — a real signal still decides, but a coin-flip rotates.
+  const recency = (id: string) => {
+    const i = opts.recent?.indexOf(id) ?? -1;
+    return i === -1 ? -1 : opts.recent!.length - i; // higher = more recent
+  };
+  return ranked.sort((a, b) => b.score - a.score || recency(a.agent.id) - recency(b.agent.id));
 }
 
 /**
