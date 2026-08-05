@@ -11,7 +11,7 @@
 
 /** Files that exist only in the Pro edition. */
 export const DESIGN_PATHS =
-  /^apps\/desktop\/fonts\/|^apps\/desktop\/src\/renderer\/src\/design\/|^apps\/desktop\/src\/renderer\/src\/views\/Design\.tsx$|^apps\/desktop\/src\/renderer\/src\/design-mockup-dieline\.css$|^apps\/desktop\/src\/main\/(design-tools|design-scene-store|html-to-design|html-dom-edit|html-dom-write|html-text-rewrite|live-edit-overlay|web-project|image-size)\.ts$|^apps\/desktop\/src\/shared\/design-document\.ts$|^apps\/desktop\/scripts\/test-(html-dom-edit|inpaint-mask|dom-write|html-text-rewrite|web-scaffold)\.|^apps\/desktop\/scripts\/(_patch-design|patch-design|patch-html-live|patch-text-sync|fix-dom-write|fix-panel-sourcesrc|fix-sync-sourcesrc|verify-wiring)/;
+  /^apps\/desktop\/src\/main\/claude-sub-provider\.ts$|^apps\/desktop\/fonts\/|^apps\/desktop\/src\/renderer\/src\/design\/|^apps\/desktop\/src\/renderer\/src\/views\/Design\.tsx$|^apps\/desktop\/src\/renderer\/src\/design-mockup-dieline\.css$|^apps\/desktop\/src\/main\/(design-tools|design-scene-store|html-to-design|html-dom-edit|html-dom-write|html-text-rewrite|live-edit-overlay|web-project|image-size)\.ts$|^apps\/desktop\/src\/shared\/design-document\.ts$|^apps\/desktop\/scripts\/test-(html-dom-edit|inpaint-mask|dom-write|html-text-rewrite|web-scaffold)\.|^apps\/desktop\/scripts\/(_patch-design|patch-design|patch-html-live|patch-text-sync|fix-dom-write|fix-panel-sourcesrc|fix-sync-sourcesrc|verify-wiring)/;
 
 /**
  * Files carrying an EDITION's own identity. Replaying these would rename the
@@ -26,7 +26,7 @@ export const IDENTITY_PATHS =
  * ipc.ts alone holds roughly 2,000 lines of it.
  */
 export const DESIGN_MARKERS =
-  /DesignHub|designHub|IPC\.design|design:[a-zA-Z]|LIVE_EDIT_OVERLAY|live-edit-overlay|design-tools|DESIGN_SYSTEM_PROMPT|vo-edit=1/;
+  /DesignHub|designHub|IPC\.design|design:[a-zA-Z]|LIVE_EDIT_OVERLAY|live-edit-overlay|design-tools|DESIGN_SYSTEM_PROMPT|vo-edit=1|CLAUDE_SUB_PERSONAL|ClaudeSubscriptionProvider|claude-sub/;
 
 /**
  * The guards themselves name every Design module, so a naive content scan would
