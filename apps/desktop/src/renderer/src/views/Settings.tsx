@@ -668,7 +668,13 @@ function ImageModelSection() {
       <h2>Image model</h2>
       <p className="hint">
         Powers the image_generate tool — agents render mockups, icons, and art straight into the
-        project's designs/ folder and the chat. Pick an image-output model.
+        project&apos;s designs/ folder and the chat. Quality is entirely this model: Google&apos;s
+        <strong> Nano Banana</strong> family on OpenRouter leads for detail and readable
+        lettering (<code>google/gemini-3-pro-image-preview</code> for the best results,{' '}
+        <code>google/gemini-3.1-flash-image</code> for nearly as good and much cheaper);{' '}
+        <strong>OpenAI gpt-image-1</strong> is the closest alternative; <strong>Flux</strong>{' '}
+        models suit painterly art; <strong>Grok Imagine</strong> (xAI) comes free with a Grok
+        subscription but is weakest on fine detail and text.
       </p>
       <div className="field-row">
         <label>provider</label>
