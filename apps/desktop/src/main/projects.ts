@@ -125,6 +125,8 @@ export class ProjectStore {
     agentId = 'default',
     title?: string,
     groupId?: string,
+    /** Attach a working folder at birth — group members inherit the coordinator's. */
+    dir?: string,
   ): ChatSessionMeta {
     const meta: ChatSessionMeta = {
       id: `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
@@ -134,6 +136,7 @@ export class ProjectStore {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ...(groupId ? { groupId } : {}),
+      ...(dir ? { dir } : {}),
     };
     this.load().sessions.push(meta);
     this.persist();

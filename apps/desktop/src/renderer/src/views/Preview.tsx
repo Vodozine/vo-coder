@@ -9,6 +9,13 @@ import { CodeWatch } from './CodeWatch';
 
 function BrowserPreview() {
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
+  // Same cascade the workspace tools use in main: the chat's attached folder
+  // wins over the project's. Group chats (General has no dir) live entirely
+  // on the attached folder — without this, Preview had nothing to show and
+  // the user loaded the folder by hand mid-group.
+  const sessionDir = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId)?.dir);
+  const dir = sessionDir ?? activeProject?.dir;
+  const dirLabel = sessionDir ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir) : activeProject?.name;
   const [url, setUrl] = useState('http://localhost:5173');
   const [active, setActive] = useState<string | null>(null);
   /** True while the harness owns a live dev-server process for the preview. */
@@ -35,10 +42,10 @@ function BrowserPreview() {
   /** Find something to show for the current project (fresh look, no resume):
    * a running dev server, a startable one, or a static index.html. */
   const detect = async () => {
-    if (!activeProject?.dir) return;
+    if (!dir) return;
     setDetecting(true);
     setDevReady(null);
-    const found = await window.vo.previewDetect(activeProject.dir);
+    const found = await window.vo.previewDetect(dir);
     setDetecting(false);
     if (found.kind === 'url') {
       const result = await window.vo.previewOpen(found.url);
@@ -76,7 +83,7 @@ function BrowserPreview() {
       await detect();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProject?.id]);
+  }, [activeProject?.id, dir]);
 
   useEffect(() => {
     if (!active) return;
@@ -94,12 +101,33 @@ function BrowserPreview() {
 
   const open = async () => {
     setError(null);
-    const result = await window.vo.previewOpen(url.trim());
+    const target = url.trim();
+    // Loopback URL with nothing listening (app restarted, server never
+    // started) — bring the project's own static server up first instead of
+    // navigating to a dead port and showing an empty pane.
+    if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?/i.test(target) && dir) {
+      const reachable = await fetch(target, { method: 'GET', mode: 'no-cors' })
+        .then(() => true)
+        .catch(() => false);
+      if (!reachable) {
+        const served = await window.vo.previewStartStatic(dir);
+        if (served.ok && served.url) {
+          const opened = await window.vo.previewOpen(served.url);
+          if (opened.ok) {
+            setActive(served.url);
+            setUrl(served.url);
+            requestAnimationFrame(sendBounds);
+            return;
+          }
+        }
+      }
+    }
+    const result = await window.vo.previewOpen(target);
     if (!result.ok) {
       setError(result.error ?? 'Could not open preview.');
       return;
     }
-    setActive(url.trim());
+    setActive(target);
     requestAnimationFrame(sendBounds);
   };
 
@@ -121,10 +149,10 @@ function BrowserPreview() {
   };
 
   const startDev = async () => {
-    if (!activeProject?.dir) return;
+    if (!dir) return;
     setError(null);
     setStartingDev(true);
-    const result = await window.vo.previewStartDev(activeProject.dir);
+    const result = await window.vo.previewStartDev(dir);
     setStartingDev(false);
     if (result.ok && result.url) {
       setDevReady(null);
@@ -200,9 +228,9 @@ function BrowserPreview() {
           <h2>Live app preview</h2>
           <p>
             {detecting
-              ? `Looking for something to show in ${activeProject?.name ?? 'this project'}…`
-              : activeProject?.dir
-                ? `Nothing to show in ${activeProject.name} yet — no dev server running and no index.html built. As soon as the agents produce a page, this connects on its own; or point it at a URL above.`
+              ? `Looking for something to show in ${dirLabel ?? 'this project'}…`
+              : dir
+                ? `Nothing to show in ${dirLabel ?? 'this folder'} yet — no dev server running and no index.html built. As soon as the agents produce a page, this connects on its own; or point it at a URL above.`
                 : "Point this at your project's dev server (Vite, Next, anything with hot reload) and watch the build render as the agents work on it."}
           </p>
         </div>

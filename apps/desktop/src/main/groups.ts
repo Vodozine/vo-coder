@@ -7,7 +7,13 @@ export const MAX_GROUP_MEMBERS = 8;
 
 export interface GroupDeps {
   agents: () => AgentSpec[];
-  createSession: (projectId: string, agentId: string, title: string, groupId: string) => string;
+  createSession: (
+    projectId: string,
+    agentId: string,
+    title: string,
+    groupId: string,
+    dir?: string,
+  ) => string;
   send: (sessionId: string, text: string) => void;
   addGroup: (group: GroupRun) => void;
   /** Live groups — group_send resolves its target member through this. */
@@ -96,6 +102,13 @@ export async function executeGroupTool(
   projectId?: string,
   /** The chat the call came from — the group's panes render there, and only there. */
   coordinatorId?: string,
+  /**
+   * The coordinator's working folder (chat-attached or project). Members are
+   * born with it: a group whose goal is files was once spawned dir-less in a
+   * folder-less project, so every member's ws_write had no workspace — the
+   * boss kept ordering the assembly and the workers had no hands.
+   */
+  dir?: string,
 ): Promise<{ content: string; isError?: boolean }> {
   if (name === 'group_send') {
     const a = (args ?? {}) as { member?: unknown; message?: unknown };
@@ -157,7 +170,7 @@ export async function executeGroupTool(
       isError: true,
     };
   }
-  const result = await startGroup(deps, projectId, coordinatorId ?? '', goal, parts);
+  const result = await startGroup(deps, projectId, coordinatorId ?? '', goal, parts, dir);
   if (!result.ok) return { content: result.error, isError: true };
   return {
     content:
@@ -176,7 +189,12 @@ export async function executeGroupTool(
  * task nodes, so each member sees the others' current plans without anyone
  * passing messages.
  */
-export function memberBrief(goal: string, member: GroupMember, all: GroupMember[]): string {
+export function memberBrief(
+  goal: string,
+  member: GroupMember,
+  all: GroupMember[],
+  sharedFolder = false,
+): string {
   const others = all
     .filter((m) => m.sessionId !== member.sessionId)
     .map((m) => `- ${m.agentName}: ${m.task}`)
@@ -185,6 +203,10 @@ export function memberBrief(goal: string, member: GroupMember, all: GroupMember[
     `GROUP PROJECT — shared goal: ${goal}\n\n` +
     `YOUR PART: ${member.task}\n\n` +
     (others ? `Working alongside you, right now:\n${others}\n\n` : '') +
+    (sharedFolder
+      ? 'You all share ONE project folder — ws_list / ws_read / ws_write work there. ' +
+        'Deliverables are FILES in that folder, not chat text: write yours with ws_write.\n\n'
+      : '') +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
     'that is what the others see of you, and it is what survives if this conversation is ' +
@@ -218,6 +240,8 @@ export async function startGroup(
    * which is exactly how a four-agent team ended up with one member.
    */
   parts: string[],
+  /** Shared working folder — every member gets it as their chat's dir. */
+  dir?: string,
 ): Promise<{ ok: true; group: GroupRun } | { ok: false; error: string }> {
   const agents = deps.agents();
   if (!agents.length) {
@@ -248,7 +272,7 @@ export async function startGroup(
 
   const groupId = `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const members: GroupMember[] = plan.map((p) => ({
-    sessionId: deps.createSession(projectId, p.agent.id, p.task.slice(0, 48), groupId),
+    sessionId: deps.createSession(projectId, p.agent.id, p.task.slice(0, 48), groupId, dir),
     agentId: p.agent.id,
     agentName: p.agent.name,
     task: p.task,
@@ -270,7 +294,7 @@ export async function startGroup(
     // turn begins at prefill instead of at reading gigabytes off disk.
     const agent = agents.find((a) => a.id === member.agentId);
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
-    deps.send(member.sessionId, memberBrief(group.goal, member, members));
+    deps.send(member.sessionId, memberBrief(group.goal, member, members, !!dir));
   }
   return { ok: true, group };
 }

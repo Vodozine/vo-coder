@@ -220,6 +220,10 @@ export function CodeWatch() {
   const send = useStore((s) => s.send);
   const setView = useStore((s) => s.setView);
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
+  // The chat's attached folder wins over the project's — group chats in
+  // General carry the whole workspace on the session, not the project.
+  const sessionDir = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId)?.dir);
+  const effectiveDir = sessionDir ?? activeProject?.dir;
 
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -246,21 +250,22 @@ export function CodeWatch() {
 
   const tree = useMemo(() => buildTree(effectiveFiles), [effectiveFiles]);
 
-  // Folder-backed projects connect automatically: the code view always follows
-  // the active project. Manual picking remains for projects without a folder.
+  // Folder-backed work connects automatically: the code view follows the
+  // chat's folder first, then the project's. Manual picking remains for the
+  // truly folder-less case.
   useEffect(() => {
-    if (activeProject?.dir && watchRoot !== activeProject.dir) {
+    if (effectiveDir && watchRoot !== effectiveDir) {
       setError(null);
-      void startWatch(activeProject.dir).then((err) => {
+      void startWatch(effectiveDir).then((err) => {
         if (err) setError(err);
       });
-    } else if (!activeProject?.dir && watchRoot) {
-      // Landing on a folder-less project must stop the previous project's scan —
-      // otherwise the old root keeps churning under an unrelated chat.
+    } else if (!effectiveDir && watchRoot) {
+      // Landing folder-less must stop the previous scan — otherwise the old
+      // root keeps churning under an unrelated chat.
       void stopWatch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProject?.id, activeProject?.dir]);
+  }, [activeProject?.id, effectiveDir]);
 
   const toggle = (path: string) =>
     setExpanded((prev) => {
@@ -375,11 +380,11 @@ export function CodeWatch() {
       <div className="empty-state">
         <h2>Live code view</h2>
         <p>
-          {activeProject?.dir
-            ? `Connecting to ${activeProject.name}…`
-            : `"${activeProject?.name ?? 'This project'}" has no folder, so there's nothing to watch automatically — new projects created with + connect on their own. You can still point this anywhere:`}
+          {effectiveDir
+            ? `Connecting to ${sessionDir ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir) : activeProject?.name}…`
+            : `"${activeProject?.name ?? 'This project'}" has no folder and this chat has none attached, so there's nothing to watch automatically. You can still point this anywhere:`}
         </p>
-        {!activeProject?.dir && (
+        {!effectiveDir && (
           <button
             className="send"
             onClick={async () => {

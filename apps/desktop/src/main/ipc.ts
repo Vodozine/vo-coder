@@ -229,10 +229,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         return executeLookTool(args, { config, hub }, ctxDir());
       }
       if (name === 'group_start' || name === 'group_send') {
+        // Older groups were spawned dir-less — heal them the moment the
+        // coordinator touches the group again, so a live run picks up hands.
+        if (name === 'group_send' && ctx?.sessionId) {
+          const live = projects
+            .groups()
+            .find((g) => !g.endedAt && g.coordinatorId === ctx.sessionId);
+          if (live) ensureGroupDirs(live);
+        }
         return executeGroupTool(name, args, {
           agents: () => config.get().agents,
-          createSession: (pid, agentId, title, groupId) =>
-            projects.createSession(pid, agentId, title, groupId).id,
+          createSession: (pid, agentId, title, groupId, dir) =>
+            projects.createSession(pid, agentId, title, groupId, dir).id,
           send: (sid, body) => {
             void sessions.send(sid, [{ type: 'text', text: body }]);
           },
@@ -259,7 +267,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           warm: (provider, model) => {
             void warmModel(provider, model);
           },
-        }, ctx?.projectId, ctx?.sessionId);
+        }, ctx?.projectId, ctx?.sessionId, ctxDir());
       }
       if (name === 'preview_open') {
         const dir = ctxDir();
@@ -788,6 +796,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   /** Groups whose finishing turn hit an error (stall abort, tool-budget pause). */
   const coordStalled = new Set<string>();
   /**
+   * Members of groups created before dirs were inherited have no workspace —
+   * copy the coordinator's folder onto any member still missing one, so a
+   * live group heals without being restarted.
+   */
+  const ensureGroupDirs = (group: { coordinatorId?: string; members: Array<{ sessionId: string }> }): void => {
+    const coordDir = group.coordinatorId ? projects.meta(group.coordinatorId)?.dir : undefined;
+    if (!coordDir) return;
+    for (const m of group.members) {
+      if (!projects.meta(m.sessionId)?.dir) projects.setSessionDir(m.sessionId, coordDir);
+    }
+  };
+  /**
    * The completion driver. Members finish, mark their tasks done, and go
    * idle — and an idle coordinator cannot "wait for their briefs": nothing
    * ever wakes it, so the group used to stall at 100% done with the final
@@ -801,6 +821,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (attempts >= FINISH_ATTEMPTS_MAX) return;
     const group = projects.groups().find((g) => g.id === groupId && !g.endedAt);
     if (!group || !group.coordinatorId) return;
+    ensureGroupDirs(group);
     if (!group.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) return;
     if (sessions.statusOf(group.coordinatorId) !== 'idle') return;
     groupSynthesisFired.add(groupId);
