@@ -96,6 +96,8 @@ const api: VoApi = {
   sessionCreate: (projectId, agentId) => ipcRenderer.invoke(IPC.sessionCreate, projectId, agentId),
   sessionOpen: (sessionId) => ipcRenderer.invoke(IPC.sessionOpen, sessionId),
   sessionDelete: (sessionId) => ipcRenderer.invoke(IPC.sessionDelete, sessionId),
+  sessionRename: (sessionId, title) => ipcRenderer.invoke(IPC.sessionRename, sessionId, title),
+  groupDelete: (groupId) => ipcRenderer.invoke(IPC.groupDelete, groupId),
   sessionSetAgent: (sessionId, agentId) =>
     ipcRenderer.invoke(IPC.sessionSetAgent, sessionId, agentId),
   sessionSetDir: (sessionId, dir) => ipcRenderer.invoke(IPC.sessionSetDir, sessionId, dir),

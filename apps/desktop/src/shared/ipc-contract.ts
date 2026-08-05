@@ -523,6 +523,9 @@ export interface VoApi {
   sessionCreate(projectId: string, agentId?: string): Promise<ChatSessionMeta>;
   sessionOpen(sessionId: string): Promise<{ meta: ChatSessionMeta; history: HarnessMessage[] }>;
   sessionDelete(sessionId: string): Promise<void>;
+  sessionRename(sessionId: string, title: string): Promise<void>;
+  /** Delete a whole group project: coordinator chat, member chats, group record. */
+  groupDelete(groupId: string): Promise<void>;
   sessionSetAgent(sessionId: string, agentId: string): Promise<void>;
   sessionSetDir(sessionId: string, dir: string | null): Promise<void>;
   onProjectsChanged(cb: (data: ProjectsData) => void): () => void;
@@ -646,6 +649,8 @@ export const IPC = {
   sessionCreate: 'sessions:create',
   sessionOpen: 'sessions:open',
   sessionDelete: 'sessions:delete',
+  sessionRename: 'sessions:rename',
+  groupDelete: 'groups:delete',
   sessionSetAgent: 'sessions:setAgent',
   sessionSetDir: 'sessions:setDir',
   projectsChanged: 'projects:changed',

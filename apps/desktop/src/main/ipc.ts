@@ -790,6 +790,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projects.deleteSession(sessionId);
     broadcastProjects();
   });
+  ipcMain.handle(IPC.sessionRename, (_e, sessionId: string, title: string) => {
+    projects.renameSession(sessionId, title);
+    broadcastProjects();
+  });
+  // Delete a whole group project in one act: every member chat, the
+  // coordinator chat, and the group record — the sidebar clean-up that used
+  // to be nine × clicks.
+  ipcMain.handle(IPC.groupDelete, (_e, groupId: string) => {
+    const group = projects.groups().find((g) => g.id === groupId);
+    if (!group) return;
+    const ids = [
+      ...group.members.map((m) => m.sessionId),
+      ...(group.coordinatorId ? [group.coordinatorId] : []),
+    ];
+    for (const id of ids) {
+      // A member may be mid-stream — stop it so no zombie run outlives its chat.
+      sessions.stop(id);
+      sessions.dropLive(id);
+      projects.deleteSession(id);
+    }
+    projects.removeGroup(groupId);
+    groupSynthesisFired.delete(groupId);
+    groupFinishAttempts.delete(groupId);
+    coordStalled.delete(groupId);
+    broadcastProjects();
+  });
   ipcMain.handle(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
     sessions.setAgent(sessionId, agentId);
     broadcastProjects();

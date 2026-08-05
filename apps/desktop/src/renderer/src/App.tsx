@@ -24,6 +24,7 @@ const NAV = [
 
 type DeleteTarget =
   | { kind: 'project'; id: string; name: string; chatCount: number }
+  | { kind: 'group'; id: string; name: string; chatCount: number }
   | { kind: 'session'; id: string; title: string };
 
 /**
@@ -34,6 +35,7 @@ type DeleteTarget =
 function DeleteGuard({ target, onClose }: { target: DeleteTarget; onClose: () => void }) {
   const removeSession = useStore((s) => s.removeSession);
   const removeProject = useStore((s) => s.removeProject);
+  const removeGroup = useStore((s) => s.removeGroup);
   const [typed, setTyped] = useState('');
   const isProject = target.kind === 'project';
   const armed = !isProject || typed.trim().toLowerCase() === target.name.trim().toLowerCase();
@@ -41,6 +43,7 @@ function DeleteGuard({ target, onClose }: { target: DeleteTarget; onClose: () =>
   const confirm = async () => {
     if (!armed) return;
     if (target.kind === 'project') await removeProject(target.id);
+    else if (target.kind === 'group') await removeGroup(target.id);
     else await removeSession(target.id);
     onClose();
   };
@@ -48,7 +51,9 @@ function DeleteGuard({ target, onClose }: { target: DeleteTarget; onClose: () =>
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{isProject ? 'Delete project' : 'Delete chat'}</h3>
+        <h3>
+          {isProject ? 'Delete project' : target.kind === 'group' ? 'Delete group project' : 'Delete chat'}
+        </h3>
         {isProject ? (
           <>
             <p className="hint">
@@ -70,6 +75,13 @@ function DeleteGuard({ target, onClose }: { target: DeleteTarget; onClose: () =>
               />
             </div>
           </>
+        ) : target.kind === 'group' ? (
+          <p className="hint">
+            This deletes the whole group project <strong>{target.name}</strong> — all{' '}
+            {target.chatCount === 1 ? '1 of its chats' : `${target.chatCount} of its chats`}{' '}
+            (coordinator and members) and their history, for good. Files on disk are{' '}
+            <em>not</em> touched.
+          </p>
         ) : (
           <p className="hint">
             Delete the chat <strong>{target.title}</strong>? Its history is gone for good.
@@ -98,8 +110,14 @@ function ProjectsPanel() {
   const newSession = useStore((s) => s.newSession);
   const newProjectIn = useStore((s) => s.newProjectIn);
   const openExistingProject = useStore((s) => s.openExistingProject);
+  const groups = useStore((s) => s.groups);
+  const renameSession = useStore((s) => s.renameSession);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** Group bundles start FOLDED — that is the decluttering. */
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
   /** null | 'menu' | 'new' — sidebar create/open affordance. */
   const [projectMenu, setProjectMenu] = useState<null | 'menu' | 'new'>(null);
   const [name, setName] = useState('');
@@ -114,6 +132,18 @@ function ProjectsPanel() {
       else next.add(id);
       return next;
     });
+  const toggleGroup = (id: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const commitRename = async (id: string) => {
+    const next = draft.trim();
+    setEditingId(null);
+    if (next) await renameSession(id, next);
+  };
 
   const pickParent = async () => {
     const dir = await window.vo.scaffoldPickDir();
@@ -252,38 +282,120 @@ function ProjectsPanel() {
                   </button>
                 )}
               </div>
-              {isOpen &&
-                sessions.map((meta) => (
+              {(() => {
+                if (!isOpen) return null;
+                // A group project is ONE sidebar entry, folded by default —
+                // its coordinator and member chats live inside it, and its ×
+                // deletes them all at once instead of one by one.
+                const groupsHere = groups.filter((g) => g.projectId === project.id);
+                const inBundle = (m: (typeof sessions)[number]) =>
+                  groupsHere.some((g) => g.id === m.groupId || g.coordinatorId === m.id);
+                const loose = sessions.filter((m) => !inBundle(m));
+                const row = (meta: (typeof sessions)[number], bundled = false) => (
                   <div
                     key={meta.id}
-                    className={`session-row ${meta.id === activeSessionId ? 'active' : ''}`}
+                    className={`session-row ${meta.id === activeSessionId ? 'active' : ''} ${bundled ? 'in-bundle' : ''}`}
                   >
-                    <button
-                      className="session-title"
-                      title={
-                        meta.groupId
-                          ? 'Part of a group project — opening it brings all the agent windows back'
-                          : undefined
-                      }
-                      onClick={() => void openSession(meta.id)}
-                    >
-                      {meta.groupId ? '⊞ ' : ''}
-                      {meta.title}
-                    </button>
-                    <button
-                      className="chip-x session-x"
-                      title="Delete chat"
-                      onClick={() =>
-                        setDeleteTarget({ kind: 'session', id: meta.id, title: meta.title })
-                      }
-                    >
-                      ×
-                    </button>
+                    {editingId === meta.id ? (
+                      <input
+                        autoFocus
+                        className="session-rename"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void commitRename(meta.id);
+                          if (e.key === 'Escape') setEditingId(null);
+                        }}
+                        onBlur={() => void commitRename(meta.id)}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          className="session-title"
+                          title={
+                            meta.groupId
+                              ? 'Part of a group project — opening it brings all the agent windows back'
+                              : 'Double-click to rename'
+                          }
+                          onClick={() => void openSession(meta.id)}
+                          onDoubleClick={() => {
+                            setEditingId(meta.id);
+                            setDraft(meta.title);
+                          }}
+                        >
+                          {!bundled && meta.groupId ? '⊞ ' : ''}
+                          {meta.title}
+                        </button>
+                        <button
+                          className="chip-x session-x session-edit"
+                          title="Rename chat"
+                          onClick={() => {
+                            setEditingId(meta.id);
+                            setDraft(meta.title);
+                          }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          className="chip-x session-x"
+                          title="Delete chat"
+                          onClick={() =>
+                            setDeleteTarget({ kind: 'session', id: meta.id, title: meta.title })
+                          }
+                        >
+                          ×
+                        </button>
+                      </>
+                    )}
                   </div>
-                ))}
-              {isOpen && sessions.length === 0 && (
-                <div className="session-row empty">no chats yet</div>
-              )}
+                );
+                return (
+                  <>
+                    {loose.map((m) => row(m))}
+                    {groupsHere.map((g) => {
+                      const bundle = sessions.filter(
+                        (m) => m.groupId === g.id || m.id === g.coordinatorId,
+                      );
+                      if (!bundle.length) return null;
+                      const openG = openGroups.has(g.id);
+                      const holdsActive = bundle.some((m) => m.id === activeSessionId);
+                      return (
+                        <div key={g.id} className="group-bundle">
+                          <div
+                            className={`session-row bundle-head ${holdsActive && !openG ? 'active' : ''}`}
+                          >
+                            <button
+                              className="session-title"
+                              title={`${g.goal}${g.endedAt ? ' (ended)' : ''} — ${bundle.length} chats`}
+                              onClick={() => toggleGroup(g.id)}
+                            >
+                              <span className="tree-arrow">{openG ? '▾' : '▸'}</span> ⊞{' '}
+                              {g.goal.length > 30 ? `${g.goal.slice(0, 30)}…` : g.goal}
+                              <span className="bundle-count">{bundle.length}</span>
+                            </button>
+                            <button
+                              className="chip-x session-x"
+                              title="Delete this group project and ALL its chats"
+                              onClick={() =>
+                                setDeleteTarget({
+                                  kind: 'group',
+                                  id: g.id,
+                                  name: g.goal.slice(0, 40),
+                                  chatCount: bundle.length,
+                                })
+                              }
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {openG && bundle.map((m) => row(m, true))}
+                        </div>
+                      );
+                    })}
+                    {sessions.length === 0 && <div className="session-row empty">no chats yet</div>}
+                  </>
+                );
+              })()}
             </div>
           );
         })}

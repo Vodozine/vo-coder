@@ -175,6 +175,23 @@ export class ProjectStore {
     this.persist();
   }
 
+  renameSession(id: string, title: string): void {
+    const meta = this.meta(id);
+    const next = title.trim();
+    if (meta && next) {
+      // A manual name is never overwritten: touch() only auto-titles 'New chat'.
+      meta.title = next.length > 60 ? `${next.slice(0, 60)}…` : next;
+      this.persist();
+    }
+  }
+
+  /** Remove the group record itself — its sessions are deleted separately. */
+  removeGroup(groupId: string): void {
+    const data = this.load();
+    data.groups = (data.groups ?? []).filter((g) => g.id !== groupId);
+    this.persist();
+  }
+
   meta(id: string): ChatSessionMeta | undefined {
     return this.load().sessions.find((s) => s.id === id);
   }

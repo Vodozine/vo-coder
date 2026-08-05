@@ -171,6 +171,9 @@ interface AppState {
   scaffoldTarget: string | null;
   consumeScaffoldTarget(): string | null;
   removeSession(sessionId: string): Promise<void>;
+  renameSession(sessionId: string, title: string): Promise<void>;
+  /** Delete a whole group project: coordinator + member chats + the record. */
+  removeGroup(groupId: string): Promise<void>;
   removeProject(projectId: string): Promise<void>;
   setSessionAgent(agentId: string): Promise<void>;
   /** Point the active chat at a folder (picker), or detach with null. */
@@ -644,6 +647,50 @@ export const useStore = create<AppState>((set, get) => ({
     });
     if (!get().activeSessionId) {
       const next = get().sessionMetas[0];
+      if (next) await get().openSession(next.id);
+      else await get().newSession();
+    }
+  },
+
+  async renameSession(sessionId, title) {
+    const next = title.trim();
+    if (!next) return;
+    await window.vo.sessionRename(sessionId, next);
+    set((s) => ({
+      sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, title: next } : m)),
+    }));
+  },
+
+  async removeGroup(groupId) {
+    // Everything the bundle holds goes at once — members, coordinator, record.
+    const doomed = new Set(
+      get()
+        .sessionMetas.filter(
+          (m) =>
+            m.groupId === groupId ||
+            get().groups.some((g) => g.id === groupId && g.coordinatorId === m.id),
+        )
+        .map((m) => m.id),
+    );
+    await window.vo.groupDelete(groupId);
+    set((s) => {
+      const sessions = { ...s.sessions };
+      const composerDrafts = { ...s.composerDrafts };
+      for (const id of doomed) {
+        delete sessions[id];
+        delete composerDrafts[id];
+      }
+      return {
+        sessions,
+        composerDrafts,
+        groups: s.groups.filter((g) => g.id !== groupId),
+        sessionMetas: s.sessionMetas.filter((m) => !doomed.has(m.id)),
+        activeSessionId:
+          s.activeSessionId && doomed.has(s.activeSessionId) ? null : s.activeSessionId,
+      };
+    });
+    if (!get().activeSessionId) {
+      const next = firstNormalSession(get().sessionMetas);
       if (next) await get().openSession(next.id);
       else await get().newSession();
     }
