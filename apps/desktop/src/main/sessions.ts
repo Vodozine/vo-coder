@@ -4,7 +4,6 @@ import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contr
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
-import { fmtStamp } from './journal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { lookToolSpecs } from './vision-look';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
@@ -153,22 +152,6 @@ export class SessionManager {
     return project.assemble === false ? null : project.id;
   }
 
-  /** The newest user text — what the digest should be ranked against. */
-  private lastUserText(sessionId: string): string | undefined {
-    const history = this.sessions.get(sessionId)?.history;
-    if (!history) return undefined;
-    for (let i = history.length - 1; i >= 0; i--) {
-      const m = history[i]!;
-      if (m.role !== 'user') continue;
-      const text = m.content
-        .map((p) => (p.type === 'text' ? p.text : ''))
-        .join(' ')
-        .trim();
-      if (text) return text.slice(0, 400);
-    }
-    return undefined;
-  }
-
   /**
    * The buffer cut: keep ~ASSEMBLE_BUFFER_CHARS of recent turns, then snap
    * FORWARD to the next user message so the request always opens on a user
@@ -201,7 +184,12 @@ export class SessionManager {
   private assemblyNote(sessionId: string): string {
     const projectId = this.assembleEnabled(sessionId);
     if (!projectId) return '';
-    const digest = this.deps.bank!.digest(projectId, 5_500, this.lastUserText(sessionId));
+    // No per-message query ranking: reshuffling the briefing every turn
+    // breaks local models' prompt caching exactly like a timestamp does (the
+    // box re-prefills the whole context each reply). Stable ordering — active
+    // tasks first, then recency — changes only when the MAP changes; the
+    // model reaches for map_query/archive_search when it needs relevance.
+    const digest = this.deps.bank!.digest(projectId, 5_500);
     return (
       '\n\nSMART CONTEXT IS ON: older turns of this conversation are NOT replayed — your working ' +
       'context is this project briefing plus the most recent messages. Durable project knowledge ' +
@@ -216,8 +204,13 @@ export class SessionManager {
   /** Folder-backed projects: tell the agent it has hands and where they work. */
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
+    // DATE only, never time-of-day: this string sits at the top of the system
+    // prompt, and anything that changes per turn breaks local models' prompt
+    // caching — the box then re-reads the ENTIRE context before every reply
+    // (measured live: ~6k tokens = 25-36s of "waiting for first token" per
+    // turn on LM Studio). One stable prefix = one prefill per conversation.
     const builtinNote = this.deps.builtins
-      ? `\n\nCurrent local date-time: ${fmtStamp(Date.now())}.\n` +
+      ? `\n\nToday's date: ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} (exact time via your tools when it matters).\n` +
         'You can always search the web (web_search, then web_fetch to read a result) and run ' +
         'background missions (mission_create / mission_list / mission_control) — use a mission for ' +
         'long or repeating work instead of doing it inline. You also have cross-everything memory: ' +
