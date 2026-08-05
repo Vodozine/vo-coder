@@ -1241,50 +1241,96 @@ function EndpointRow({
   const dirty = curName !== ep.name || curUrl !== ep.url;
   const ctx = ep.contextTokens ?? 0;
   return (
-    <div className={`field-row${ep.enabled ? '' : ' provider-off'}`}>
-      <input
-        className="endpoint-name"
-        value={curName}
-        placeholder="name"
-        title='Short name for this server — its models appear as "model@name"'
-        onChange={(e) => setName(e.target.value)}
+    <div className={`endpoint${ep.enabled ? '' : ' provider-off'}`}>
+      <div className="field-row">
+        <input
+          className="endpoint-name"
+          value={curName}
+          placeholder="name"
+          title='Short name for this server — its models appear as "model@name"'
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button
+          type="button"
+          className={`provider-toggle ${ep.enabled ? 'on' : 'off'}`}
+          title="Off keeps the URL but excludes this server"
+          onClick={() => onChange({ ...ep, enabled: !ep.enabled })}
+        >
+          {ep.enabled ? 'On' : 'Off'}
+        </button>
+        <input
+          value={curUrl}
+          placeholder={urlPlaceholder}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <button
+          disabled={!dirty}
+          onClick={() => {
+            onChange({ ...ep, name: curName.trim(), url: curUrl.trim() });
+            setName(null);
+            setUrl(null);
+          }}
+        >
+          Save
+        </button>
+        <button type="button" className="ghost" title="Remove this server" onClick={onRemove}>
+          ×
+        </button>
+      </div>
+      <EndpointTuning
+        ctx={ctx}
+        onCtx={(t) => onChange({ ...ep, contextTokens: t })}
+        vramGb={showVram ? ep.vramGb : undefined}
+        onVram={showVram ? (gb) => onChange({ ...ep, vramGb: gb }) : undefined}
+        keepAlive={ep.keepAlive}
+        onKeep={(k) => onChange({ ...ep, keepAlive: k })}
+        residency={residency}
       />
-      <button
-        type="button"
-        className={`provider-toggle ${ep.enabled ? 'on' : 'off'}`}
-        title="Off keeps the URL but excludes this server"
-        onClick={() => onChange({ ...ep, enabled: !ep.enabled })}
-      >
-        {ep.enabled ? 'On' : 'Off'}
-      </button>
-      <input value={curUrl} placeholder={urlPlaceholder} onChange={(e) => setUrl(e.target.value)} />
-      <ContextSelect value={ctx} onChange={(t) => onChange({ ...ep, contextTokens: t })} />
-      {showVram && (
-        <VramInput value={ep.vramGb} onChange={(gb) => onChange({ ...ep, vramGb: gb })} />
+    </div>
+  );
+}
+
+/**
+ * The per-server tuning line. Separated from the identity line above it
+ * because nine controls on one row is unreadable at any panel width — and
+ * because a bare "24" needs to say it means gigabytes.
+ */
+function EndpointTuning({
+  ctx,
+  onCtx,
+  vramGb,
+  onVram,
+  keepAlive,
+  onKeep,
+  residency = true,
+}: {
+  ctx: number;
+  onCtx: (tokens: number | undefined) => void;
+  vramGb?: number;
+  onVram?: (gb: number | undefined) => void;
+  keepAlive: number | 'always' | undefined;
+  onKeep: (keep: number | 'always') => void;
+  residency?: boolean;
+}) {
+  return (
+    <div className="endpoint-tune">
+      <span>window</span>
+      <ContextSelect value={ctx} onChange={onCtx} />
+      {onVram && (
+        <>
+          <span>VRAM</span>
+          <VramInput value={vramGb} onChange={onVram} />
+          <span>GB</span>
+        </>
       )}
-      <KeepAliveSelect
-        value={ep.keepAlive}
-        onChange={(k) => onChange({ ...ep, keepAlive: k })}
-        disabled={!residency}
-        title={
-          residency
-            ? undefined
-            : 'llama-server holds its model for the life of the process — residency is managed by the server, not per request.'
-        }
-      />
-      <button
-        disabled={!dirty}
-        onClick={() => {
-          onChange({ ...ep, name: curName.trim(), url: curUrl.trim() });
-          setName(null);
-          setUrl(null);
-        }}
-      >
-        Save
-      </button>
-      <button type="button" className="ghost" title="Remove this server" onClick={onRemove}>
-        ×
-      </button>
+      <span>keep</span>
+      {residency ? (
+        <KeepAliveSelect value={keepAlive} onChange={onKeep} />
+      ) : (
+        <em title="llama-server holds its model for the life of the process — residency is set at launch, not per request.">
+          server-managed
+        </em>
+      )}
     </div>
   );
 }
@@ -1351,18 +1397,6 @@ export function Settings() {
             value={ollamaUrl ?? config.ollamaBaseUrl}
             onChange={(e) => setOllamaUrl(e.target.value)}
           />
-          <ContextSelect
-            value={config.ollamaContextTokens ?? 0}
-            onChange={(t) => void saveConfig({ ollamaContextTokens: t })}
-          />
-          <VramInput
-            value={config.ollamaVramGb}
-            onChange={(gb) => void saveConfig({ ollamaVramGb: gb })}
-          />
-          <KeepAliveSelect
-            value={config.ollamaKeepAlive}
-            onChange={(k) => void saveConfig({ ollamaKeepAlive: k })}
-          />
           <button
             disabled={ollamaUrl === null || ollamaUrl === config.ollamaBaseUrl}
             onClick={() => void saveConfig({ ollamaBaseUrl: ollamaUrl ?? config.ollamaBaseUrl })}
@@ -1385,6 +1419,14 @@ export function Settings() {
             +
           </button>
         </div>
+        <EndpointTuning
+          ctx={config.ollamaContextTokens ?? 0}
+          onCtx={(t) => void saveConfig({ ollamaContextTokens: t })}
+          vramGb={config.ollamaVramGb}
+          onVram={(gb) => void saveConfig({ ollamaVramGb: gb })}
+          keepAlive={config.ollamaKeepAlive}
+          onKeep={(k) => void saveConfig({ ollamaKeepAlive: k })}
+        />
         {ollamaExtras.map((ep, i) => (
           <EndpointRow
             key={i}
@@ -1454,8 +1496,7 @@ export function Settings() {
             {(config.disabledProviders ?? []).includes('llamacpp') ? 'Off' : 'On'}
           </button>
           <span className="hint" style={{ flex: 1, margin: 0 }}>
-            llama-server boxes — OpenAI wire, URL ends in /v1 · window and residency are fixed at
-            server launch
+            llama-server boxes — OpenAI wire, URL ends in /v1
           </span>
           <button
             type="button"
@@ -1491,21 +1532,13 @@ export function Settings() {
           />
         ))}
         <p className="hint">
-          No keys needed — local servers are picked up automatically when they are running. Off
-          keeps the URL but excludes the server from auto-routing. + adds more servers (one per
-          GPU/box on your LAN): their models appear as <code>model@name</code>, and an agent whose
-          model is pinned to <code>llama3:70b@gpu2</code> always runs on that box — a full GPU per
-          agent.
-        </p>
-        <p className="hint">
-          <strong>auto (fit GPU)</strong> measures each model on its own box and picks the largest
-          window that still fits in VRAM — spilling even a few layers onto the CPU costs roughly
-          20× throughput, and nothing warns you when it happens. Tell it the card&apos;s{' '}
-          <strong>VRAM</strong> once: Ollama&apos;s API never reports total memory, so without it
-          auto can only find the ceiling the slow way. <strong>Keep</strong> is how long a model
-          stays loaded while idle — loading costs tens of seconds, so this is the biggest lever on
-          how fast a chat feels; <em>always on</em> stops idle unloading but cannot stop another
-          model evicting it when VRAM is needed.
+          No keys needed — servers are picked up automatically when running. <strong>+</strong> adds
+          one per GPU/box: their models list as <code>model@name</code>, so an agent pinned to{' '}
+          <code>llama3:70b@gpu2</code> always runs on that box. <strong>window</strong> auto-fits
+          each model to the card&apos;s VRAM (spilling to CPU costs ~20× speed, silently) —{' '}
+          <strong>VRAM</strong> tells it the card&apos;s size, which Ollama never reports.{' '}
+          <strong>keep</strong> is how long a model stays loaded while idle. Hover any of them for
+          the details.
         </p>
       </section>
 

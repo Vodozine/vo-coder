@@ -570,12 +570,38 @@ select:focus {
   font-family: var(--mono);
   font-size: 13px;
 }
-/* VRAM is a two-or-three digit number — it should not steal the URL's width. */
-.field-row input.endpoint-vram {
-  flex: none;
-  width: 84px;
+/* Per-server tuning sits on its own line, indented under the URL it belongs
+   to. Nine controls on one row is unreadable at any panel width, and these
+   are set-once settings — they should not compete with the address. */
+.endpoint-tune {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 12px 120px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.endpoint-tune > span,
+.endpoint-tune > em {
   font-family: var(--mono);
-  font-size: 13px;
+  font-style: normal;
+}
+.endpoint-tune select,
+.endpoint-tune input {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+/* VRAM is two or three digits — the field should say so by its width. */
+.endpoint-tune input.endpoint-vram {
+  flex: none;
+  width: 52px;
+  font-family: var(--mono);
+  text-align: right;
+}
+.endpoint.provider-off .endpoint-tune,
+.endpoint.provider-off input.endpoint-name {
+  opacity: 0.55;
 }
 
 .system-prompt {
