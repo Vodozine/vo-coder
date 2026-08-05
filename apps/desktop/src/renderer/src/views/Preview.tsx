@@ -14,8 +14,17 @@ function BrowserPreview() {
   // on the attached folder — without this, Preview had nothing to show and
   // the user loaded the folder by hand mid-group.
   const sessionDir = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId)?.dir);
-  const dir = sessionDir ?? activeProject?.dir;
-  const dirLabel = sessionDir ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir) : activeProject?.name;
+  // Floor of the cascade: the app's generic scratch folder, so a folder-less
+  // chat's outputs (a file, an image) still have somewhere to show up.
+  const genericDir = useStore((s) => s.config?.genericDir);
+  const dir = sessionDir ?? activeProject?.dir ?? genericDir;
+  const dirLabel = sessionDir
+    ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir)
+    : activeProject?.dir
+      ? activeProject.name
+      : dir
+        ? (dir.split(/[\\/]/).pop() ?? dir)
+        : undefined;
   const [url, setUrl] = useState('http://localhost:5173');
   const [active, setActive] = useState<string | null>(null);
   /** True while the harness owns a live dev-server process for the preview. */

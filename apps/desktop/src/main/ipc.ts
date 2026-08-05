@@ -229,6 +229,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         return executeLookTool(args, { config, hub }, ctxDir());
       }
       if (name === 'group_start' || name === 'group_send') {
+        // A group needs its OWN folder: members inherit it and the whole run
+        // delivers files into it. The generic scratch folder is for loose
+        // single files — a "project" built there is a project nobody can find.
+        if (name === 'group_start') {
+          const d = ctxDir();
+          const generic = config.get().genericDir;
+          if (!d || (generic && resolve(d) === resolve(generic))) {
+            return Promise.resolve({
+              content:
+                'A group project needs its OWN project folder — ' +
+                (d
+                  ? 'this chat only has the generic scratch folder, which holds loose files, not projects'
+                  : 'this chat has no folder') +
+                '. Tell the user to attach a project folder to this chat (the folder button next ' +
+                'to the composer) or to name a location, then call group_start again once the ' +
+                'folder is on. Do not start the group without it.',
+              isError: true,
+            });
+          }
+        }
         // Older groups were spawned dir-less — heal them the moment the
         // coordinator touches the group again, so a live run picks up hands.
         if (name === 'group_send' && ctx?.sessionId) {

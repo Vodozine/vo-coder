@@ -223,7 +223,8 @@ export function CodeWatch() {
   // The chat's attached folder wins over the project's — group chats in
   // General carry the whole workspace on the session, not the project.
   const sessionDir = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId)?.dir);
-  const effectiveDir = sessionDir ?? activeProject?.dir;
+  const genericDir = useStore((s) => s.config?.genericDir);
+  const effectiveDir = sessionDir ?? activeProject?.dir ?? genericDir;
 
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -381,7 +382,13 @@ export function CodeWatch() {
         <h2>Live code view</h2>
         <p>
           {effectiveDir
-            ? `Connecting to ${sessionDir ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir) : activeProject?.name}…`
+            ? `Connecting to ${
+                sessionDir
+                  ? (sessionDir.split(/[\\/]/).pop() ?? sessionDir)
+                  : activeProject?.dir
+                    ? activeProject.name
+                    : `the generic folder (${effectiveDir.split(/[\\/]/).pop() ?? effectiveDir})`
+              }…`
             : `"${activeProject?.name ?? 'This project'}" has no folder and this chat has none attached, so there's nothing to watch automatically. You can still point this anywhere:`}
         </p>
         {!effectiveDir && (

@@ -488,6 +488,26 @@ export const useStore = create<AppState>((set, get) => ({
         'Switch the agent dropdown to Vodo (or open a new chat) and try again.'
       );
     }
+    // A group delivers FILES — it needs its own folder before anyone starts.
+    // The generic scratch folder holds loose files, not projects, so it does
+    // not count: ask for a real location up front instead of failing later.
+    const project = get().projects.find((p) => p.id === meta?.projectId);
+    const generic = get().config?.genericDir;
+    const dir = meta?.dir ?? project?.dir;
+    if (!dir || (generic && dir === generic)) {
+      const picked = await window.vo.scaffoldPickDir();
+      if (!picked) {
+        return (
+          'A group project needs its own folder — that is where every member works and where ' +
+          'the result lands. Pick one when prompted, or attach one with the folder button, then ' +
+          'press Group project again.'
+        );
+      }
+      await window.vo.sessionSetDir(sessionId, picked);
+      set((s) => ({
+        sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, dir: picked } : m)),
+      }));
+    }
     const text =
       `GROUP PROJECT — plan this before anyone starts:\n\n${goal.trim()}\n\n` +
       'Work out which parts can genuinely run at the same time, say what each part is and ' +

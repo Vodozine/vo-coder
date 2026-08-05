@@ -500,7 +500,8 @@ function StatusCard({
             state={activeMeta?.dir ? 'ok' : 'dim'}
             label="folder"
             detail={
-              activeMeta?.dir ?? 'generic chat — works without a folder unless you attach one'
+              activeMeta?.dir ??
+              'generic chat — loose files land in the generic folder (Settings); attach a folder for project work'
             }
           />
         )}

@@ -119,6 +119,14 @@ export interface AppConfig {
    * their own confirm tier in all modes.
    */
   approvalMode: 'auto' | 'plan' | 'manual';
+  /**
+   * The app's generic scratch folder — every chat can always write SOMETHING.
+   * Folder-less chats get it as their working folder (single files, images,
+   * temp work), so ws_write never dead-ends. It is NOT a project home: real
+   * projects (and every group project) need their own folder. Resolved to
+   * Documents/Vo-Coder on first run; changeable in Settings.
+   */
+  genericDir: string;
   /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
   telegramEnabled: boolean;
   /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
@@ -192,6 +200,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
   autoUpdate: true,
   approvalMode: 'manual',
+  // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
+  // cannot ask Electron for paths.
+  genericDir: '',
   telegramEnabled: false,
   telegramPaired: [],
 };

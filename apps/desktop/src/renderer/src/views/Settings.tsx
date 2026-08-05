@@ -1551,6 +1551,31 @@ export function Settings() {
       <UpdatesSection />
 
       <section>
+        <h2>Generic folder</h2>
+        <div className="field-row">
+          <label>location</label>
+          <span className="meta grow" title={config.genericDir}>
+            {config.genericDir || 'resolving…'}
+          </span>
+          <button
+            onClick={() =>
+              void (async () => {
+                const dir = await window.vo.scaffoldPickDir();
+                if (dir) await saveConfig({ genericDir: dir });
+              })()
+            }
+          >
+            Change…
+          </button>
+        </div>
+        <p className="hint">
+          Every chat can always write here: folder-less chats save single files, images and temp
+          work into this folder, so nothing ever fails for lack of a workspace. It is not a
+          project home — real projects (and every group project) get their own folder.
+        </p>
+      </section>
+
+      <section>
         <h2>Vodo (default agent)</h2>
         <p className="hint">
           You talk to Vodo; Vodo picks the right model for each job — cheap and local for simple

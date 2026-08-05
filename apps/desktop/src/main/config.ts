@@ -7,6 +7,8 @@ import { DEFAULT_CONFIG, type AppConfig } from '../shared/ipc-contract';
 export class ConfigStore {
   private path = join(app.getPath('userData'), 'config.json');
   private cache: AppConfig | null = null;
+  /** The generic folder is created once per process, not on every get(). */
+  private genericEnsured = '';
 
   get(): AppConfig {
     if (!this.cache) {
@@ -42,6 +44,20 @@ export class ConfigStore {
         }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
+      }
+    }
+    // First install (or a cleared setting): the generic scratch folder lives
+    // in Documents so the user can find what their chats wrote. Ensured on
+    // disk so a folder-less chat's very first ws_write cannot dead-end.
+    if (!this.cache.genericDir) {
+      this.cache.genericDir = join(app.getPath('documents'), 'Vo-Coder');
+    }
+    if (this.genericEnsured !== this.cache.genericDir) {
+      try {
+        mkdirSync(this.cache.genericDir, { recursive: true });
+        this.genericEnsured = this.cache.genericDir;
+      } catch {
+        /* unwritable location — the picker in Settings is the fix */
       }
     }
     return this.cache;

@@ -128,7 +128,14 @@ export class SessionManager {
     // A folder attached to THIS chat wins over the project's folder — that's
     // the "point a chat at any folder" affordance (catalog photos, review code).
     if (meta.dir) return meta.dir;
-    return this.deps.projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
+    const projectDir = this.deps.projects.list().projects.find(
+      (p) => p.id === meta.projectId,
+    )?.dir;
+    if (projectDir) return projectDir;
+    // Floor of the cascade: the app's generic scratch folder. Every chat can
+    // always write SOMETHING (a file, an image, temp work) — ws_write never
+    // dead-ends again. Real projects still need their own folder.
+    return this.deps.config.get().genericDir || undefined;
   }
 
   /**
@@ -284,6 +291,23 @@ export class SessionManager {
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
           `${builtinNote}${teamNote}${assembly}${planNote}`,
+      };
+    }
+    // The generic scratch folder: a floor, not a home. Loose deliverables
+    // land here; anything project-shaped should get a real folder attached.
+    if (dir === this.deps.config.get().genericDir) {
+      return {
+        ...spec,
+        systemPrompt:
+          `${spec.systemPrompt ?? ''}\n\n` +
+          `This chat has no project folder, so it works in the app's GENERIC folder "${dir}" — ` +
+          `a scratch space for loose deliverables: a single file, an image, a quick script, temp ` +
+          `work. ws_list / ws_read / ws_write / ws_run and look_at_image operate there, so DO ` +
+          `the work yourself with the tools. It is NOT a project home: if the work grows into ` +
+          `multiple files, a build, or a group project, ask the user to attach a real project ` +
+          `folder (the folder button next to the composer) instead of building it in the ` +
+          `generic folder.` +
+          `${builtinNote}${teamNote}${assembly}${designNote}${planNote}`,
       };
     }
     return {
