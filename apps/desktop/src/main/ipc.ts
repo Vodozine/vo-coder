@@ -55,6 +55,7 @@ import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
 import { executeGroupTool, groupToolSpecs } from './groups';
+import { extractLesson, helpToolSpecs, vodoStepIn } from './vodo-helper';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
 import { VoiceHost } from './voice';
@@ -192,6 +193,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...(bank?.toolSpecs() ?? []),
       ...(missionsRef?.toolSpecs() ?? []),
       ...groupToolSpecs(),
+      ...helpToolSpecs(),
     ],
     execute: (
       name: string,
@@ -228,6 +230,60 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             void warmModel(provider, model);
           },
         }, ctx?.projectId, ctx?.sessionId);
+      }
+      if (name === 'ask_vodo') {
+        return (async () => {
+          // Members only. Vodo has no groupId and cannot recurse into itself;
+          // missions have no sessionId and get a plain refusal.
+          const sessionId = ctx?.sessionId;
+          const meta = sessionId ? projects.meta(sessionId) : undefined;
+          const group = meta?.groupId
+            ? projects.groups().find((g) => g.id === meta.groupId && !g.endedAt)
+            : undefined;
+          if (!group) {
+            return {
+              content: 'ask_vodo is for group members — you are the one others ask.',
+              isError: true,
+            };
+          }
+          const member = group.members.find((m) => m.sessionId === sessionId);
+          const agentName = member?.agentName ?? 'teammate';
+          const problem = String((args as { problem?: unknown })?.problem ?? '').trim();
+          if (!problem) {
+            return { content: 'Describe what you tried and what happened.', isError: true };
+          }
+          const answer = await vodoStepIn(
+            {
+              vodoSpec,
+              resolve: resolveSpec,
+              tools: remoteTools,
+              execute: remoteExecute,
+              onUsage: (bound, ev, projectId) => recordUsage(bound, ev, projectId),
+            },
+            { problem, agentName, task: member?.task, dir: ctx?.dir, projectId: ctx?.projectId },
+          );
+          // The lesson is the learning loop: it lands in the map, the digest
+          // carries it to every member's next turn, and the same stumble
+          // should not need Vodo twice.
+          const lesson = extractLesson(answer);
+          if (lesson && bank && ctx?.projectId) {
+            bank.applyOps(ctx.projectId, [
+              {
+                op: 'upsert',
+                type: 'fact',
+                title: `lesson (${agentName}): ${lesson.slice(0, 80)}`,
+                body: lesson.slice(0, 400),
+                tags: `lesson,${agentName}`,
+              },
+            ]);
+          }
+          journal.append({
+            kind: 'tool',
+            text: `Vodo stepped in for ${agentName}: ${problem.slice(0, 100)}`,
+            ...(projectNameOf(ctx?.projectId) ? { project: projectNameOf(ctx?.projectId)! } : {}),
+          });
+          return { content: answer };
+        })();
       }
       if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
@@ -316,6 +372,96 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 },
               ]);
             }, 50);
+          }
+        }
+      }
+      // Teach-to-ask: a weak member that fails the same kind of step twice in
+      // a row gets told to escalate instead of retrying blind. The advice is
+      // queued mid-run and delivered at the next turn boundary; a success
+      // resets the streak.
+      if (event.type === 'tool_result' && memberOf(sessionId)) {
+        if (event.isError) {
+          const n = (memberErrors.get(sessionId) ?? 0) + 1;
+          memberErrors.set(sessionId, n);
+          if (n === 2) {
+            void sessions.inject(sessionId, [
+              {
+                type: 'text',
+                text:
+                  'Two tool calls in a row have failed. Stop retrying blind — call ask_vodo now ' +
+                  'and describe exactly what you are trying to do, what you called, and the ' +
+                  'error. Vodo will do the step or teach you the way, and the lesson is saved ' +
+                  'so you can do it yourself next time.',
+              },
+            ]);
+          }
+        } else {
+          memberErrors.delete(sessionId);
+        }
+      }
+      // Vodo reviews a LOCAL member's work when its turn ends: the strong
+      // model judges, the weak model fixes — the self-improving half of "one
+      // strong cloud model, the rest local". Alternation guard: the turn that
+      // RESPONDS to a review is not itself reviewed, so this converges
+      // instead of ping-ponging.
+      if (event.type === 'status' && event.status === 'idle') {
+        const info = memberOf(sessionId);
+        if (info) {
+          memberErrors.delete(sessionId);
+          const provider = info.agent?.provider;
+          const local =
+            provider === 'ollama' || provider === 'lmstudio' || provider === 'llamacpp';
+          if (local) {
+            if (memberReviewFlag.has(sessionId)) {
+              memberReviewFlag.delete(sessionId);
+            } else {
+              const history = sessions.historyOf(sessionId);
+              const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
+              const outText =
+                lastAssistant && lastAssistant.role === 'assistant'
+                  ? lastAssistant.content
+                      .filter((p): p is Extract<(typeof lastAssistant.content)[number], { type: 'text' }> => p.type === 'text')
+                      .map((p) => p.text)
+                      .join('\n')
+                      .trim()
+                  : '';
+              // Tiny outputs (acks, questions) are not worth a strong-model pass.
+              if (outText.length >= 200) {
+                memberReviewFlag.add(sessionId);
+                setTimeout(() => {
+                  void (async () => {
+                    try {
+                      const verdict = (
+                        await completeStrong(
+                          "You are Vodo, reviewing a weaker local model's work on its part of a " +
+                            'group project.\n' +
+                            `THEIR PART: ${info.member?.task ?? 'unknown'}\n\n` +
+                            `THEIR LATEST OUTPUT:\n${outText.slice(0, 6000)}\n\n` +
+                            'If the work is solid and on-task, reply with exactly: APPROVED\n' +
+                            'Otherwise list at most 5 concrete, minimal fixes as bullets — ' +
+                            'things THEY can do themselves. No praise, no rewriting it for them.',
+                        )
+                      ).trim();
+                      if (/^APPROVED\b/i.test(verdict)) {
+                        memberReviewFlag.delete(sessionId);
+                        return;
+                      }
+                      void sessions.send(sessionId, [
+                        {
+                          type: 'text',
+                          text:
+                            'VODO REVIEW of your last output — address these, and only mark your ' +
+                            'task done when they are fixed:\n\n' +
+                            verdict.slice(0, 2000),
+                        },
+                      ]);
+                    } catch {
+                      memberReviewFlag.delete(sessionId);
+                    }
+                  })();
+                }, 100);
+              }
+            }
           }
         }
       }
@@ -534,6 +680,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const recentAgents = new Map<string, string[]>();
   /** Planning turns awaiting their group_start call — see onEvent. */
   const pendingGroupPlans = new Map<string, { retried: boolean }>();
+  /** Consecutive failed tool calls per group member — 2 in a row earns a nudge. */
+  const memberErrors = new Map<string, number>();
+  /** Members whose next idle is the RESPONSE to a review — reviewed work, not re-reviewed. */
+  const memberReviewFlag = new Set<string>();
+  /** This session's live group membership, or undefined. */
+  const memberOf = (sessionId: string) => {
+    const meta = projects.meta(sessionId);
+    const group = meta?.groupId
+      ? projects.groups().find((g) => g.id === meta.groupId && !g.endedAt)
+      : undefined;
+    if (!group || !meta) return undefined;
+    return {
+      group,
+      member: group.members.find((m) => m.sessionId === sessionId),
+      agent: config.get().agents.find((a) => a.id === meta.agentId),
+    };
+  };
   const warming = new Set<string>();
   const warmModel = async (providerId: string, model: string): Promise<void> => {
     const key = `${providerId}/${model}`;
@@ -1171,6 +1334,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
     return out;
   };
+  // Vodo's own voice on the user's default (strong) model — review and help
+  // must never be cheap-routed: judging a weaker model's work with an equally
+  // weak model teaches nothing.
+  const completeStrong = async (prompt: string): Promise<string> => {
+    const bound = resolveSpec(vodoSpec());
+    let out = '';
+    let errMsg: string | undefined;
+    for await (const event of bound.provider.stream(
+      { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
+      { signal: new AbortController().signal },
+    )) {
+      if (event.type === 'text_delta') out += event.text;
+      else if (event.type === 'error') errMsg = event.error.message;
+    }
+    if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
+    return out;
+  };
   const remoteTools = (dir?: string) => [
     ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
     ...builtins.specs(),
@@ -1188,7 +1368,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_)/.test(name)) {
+    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_|ask_|group_)/.test(name)) {
       return builtins.execute(name, args, { projectId, ...(dir ? { dir } : {}) });
     }
     return mcp.call(name, args);

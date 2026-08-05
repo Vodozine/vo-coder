@@ -408,7 +408,8 @@ export class SessionManager {
               name.startsWith('image_') ||
               name.startsWith('look_') ||
               name.startsWith('file_') ||
-              name.startsWith('group_'))
+              name.startsWith('group_') ||
+              name.startsWith('ask_'))
           ) {
             // The session knows its own project — tools default to it instead
             // of making the model guess a name. dir carries the chat's folder

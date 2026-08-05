@@ -109,7 +109,12 @@ export function memberBrief(goal: string, member: GroupMember, all: GroupMember[
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
     'that is what the others see of you, and it is what survives if this conversation is ' +
     'summarised. Use map_query to see where they have got to before you assume anything about ' +
-    'their part, and say so plainly if your part turns out to depend on theirs.'
+    'their part, and say so plainly if your part turns out to depend on theirs.\n\n' +
+    'STUCK? Call ask_vodo and describe exactly what you tried and what happened — Vodo (a ' +
+    'stronger model) will do that one step or teach you the way, and a LESSON is saved to the ' +
+    'project memory. Check your briefing for lessons with your name before asking the same thing ' +
+    'twice. Vodo also reviews your work: when a VODO REVIEW message arrives, fix what it lists ' +
+    'before continuing.'
   );
 }
 
