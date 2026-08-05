@@ -281,6 +281,41 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return pick ? { provider: pick.provider, model: pick.model } : undefined;
     },
     onEvent: (sessionId, event) => {
+      // Group follow-through: models reliably STATE the plan and then end the
+      // turn without calling group_start — observed twice, with prompts that
+      // could not have been clearer. Saying and doing sit on opposite sides of
+      // a turn boundary for many models, so the boundary is handled here
+      // mechanically: when a planning turn goes idle without a group existing,
+      // push exactly one follow-up telling Vodo to call the tool or explicitly
+      // decline. One retry, then it stays the user's move.
+      if (event.type === 'status' && event.status === 'idle') {
+        const pending = pendingGroupPlans.get(sessionId);
+        if (pending) {
+          const started = projects
+            .groups()
+            .some((g) => !g.endedAt && g.coordinatorId === sessionId);
+          if (started || pending.retried) {
+            pendingGroupPlans.delete(sessionId);
+          } else {
+            pending.retried = true;
+            // Next tick: this fires mid-event-dispatch, while the session's
+            // state machine is still settling into idle — sending now could
+            // bounce off a stale "busy".
+            setTimeout(() => {
+              void sessions.send(sessionId, [
+                {
+                  type: 'text',
+                  text:
+                    'You stated the plan but did not call group_start, so nothing has started. ' +
+                    'If you meant to split the work, call group_start NOW with exactly the parts ' +
+                    'you listed. If you decided the job cannot run in parallel after all, say ' +
+                    '"not splitting" and do it yourself.',
+                },
+              ]);
+            }, 50);
+          }
+        }
+      }
       // Routing self-heal: 2 consecutive failed runs bench the model so the
       // next route tries a different one (deprecated ids, dead endpoints).
       // The tool-budget check-in ("Paused after…") is a pause, not a failure.
@@ -494,6 +529,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // sleeping box or an unknown model must never surface an error here.
   /** Who Vodo handed each conversation to lately — breaks routing ties only. */
   const recentAgents = new Map<string, string[]>();
+  /** Planning turns awaiting their group_start call — see onEvent. */
+  const pendingGroupPlans = new Map<string, { retried: boolean }>();
   const warming = new Set<string>();
   ipcMain.handle(IPC.modelWarm, async (_e, providerId: string, model: string) => {
     const key = `${providerId}/${model}`;
@@ -661,6 +698,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     ) => {
       const invalid = validateParts(parts);
       if (invalid) return { ok: false, error: invalid };
+      // noRoute is only ever the group-planning turn (the button) — arm the
+      // follow-through watchdog for it.
+      if (opts?.noRoute) pendingGroupPlans.set(sessionId, { retried: false });
       observeMessage(sessionId, parts);
       let routed: { provider: string; model: string; rationale: string } | undefined;
       let specOverride: AgentSpec | undefined;

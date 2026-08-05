@@ -486,8 +486,9 @@ export const useStore = create<AppState>((set, get) => ({
     const text =
       `GROUP PROJECT — plan this before anyone starts:\n\n${goal.trim()}\n\n` +
       'Work out which parts can genuinely run at the same time, say what each part is and ' +
-      'which agent should take it and why, then call group_start with those parts. If it ' +
-      'truly cannot be divided, say so and just do it yourself.';
+      'which agent should take it and why — then CALL group_start with those parts in the same ' +
+      'turn. Stating the plan does nothing by itself; the work only starts when the tool is ' +
+      'called. If it truly cannot be divided, say so and just do it yourself.';
     // noRoute: this request must reach Vodo ITSELF. Under "agents only" a
     // plain send hands even the coordination request to a specialist, who has
     // no coordination prompt — the plan appeared and then nothing happened.
