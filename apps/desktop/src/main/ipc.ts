@@ -517,15 +517,59 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
       }
+      // A MEMBER's turn dying mid-work (stall abort, provider error, the
+      // tool-budget "Paused after" check-in) used to end as a red bubble the
+      // USER had to act on — "i had to tell him to continue". The boss handles
+      // it now: flag here, and the member's idle below tells Vodo, who sends
+      // the continue with group_send. A clean stream end clears the flag, and
+      // a user Stop emits no error — stopping stays stopped.
+      if (memberOf(sessionId)) {
+        if (event.type === 'error') memberStalled.add(sessionId);
+        else if (event.type === 'done' && event.stopReason !== 'aborted') {
+          memberStalled.delete(sessionId);
+        }
+      }
       if (event.type === 'status' && event.status === 'idle') {
         const info = memberOf(sessionId);
         if (info) {
           memberErrors.delete(sessionId);
+          // Interrupted mid-work → the boss gets told and sends the continue.
+          // Review is skipped for this idle: judging half-finished work spends
+          // a strong-model call on noise. The finish check is skipped too —
+          // Vodo's note supersedes it, and the continued member's next clean
+          // idle runs the normal path.
+          const stalled = memberStalled.delete(sessionId);
+          if (stalled) {
+            const n = (memberStallNotifies.get(sessionId) ?? 0) + 1;
+            memberStallNotifies.set(sessionId, n);
+            if (n <= 3 && info.group.coordinatorId) {
+              const who = info.member?.agentName ?? info.agent?.name ?? 'a member';
+              void sessions.send(info.group.coordinatorId, [
+                {
+                  type: 'text',
+                  text:
+                    `MEMBER INTERRUPTED: ${who}'s turn was cut short mid-work (model stall or ` +
+                    `pause) — their part "${(info.member?.task ?? '').slice(0, 80)}" may be ` +
+                    'half-done. Check the map/folder if unsure, and if it is not finished, ' +
+                    `group_send ${who}: "Continue exactly where you stopped — do not redo what ` +
+                    'is already on disk." They keep their full context, so that one line is ' +
+                    'enough. ' +
+                    (n >= 3
+                      ? 'This is the third interruption — stop re-sending: reassign the ' +
+                        'remainder to another member or do that step yourself now.'
+                      : 'If it keeps happening, reassign the remainder or take the step over.'),
+                },
+              ]);
+            }
+          } else {
+            // A turn that completed cleanly resets the member's interruption budget.
+            memberStallNotifies.delete(sessionId);
+          }
           let reviewInitiated = false;
           const provider = info.agent?.provider;
           const local =
             provider === 'ollama' || provider === 'lmstudio' || provider === 'llamacpp';
-          if (local) {
+          if (!stalled && local) {
             if (memberReviewFlag.has(sessionId)) {
               memberReviewFlag.delete(sessionId);
             } else {
@@ -586,7 +630,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
           // No review in flight for this idle → this member may have been the
           // last one working; see if the whole group is quiet now.
-          if (!reviewInitiated) maybeFinishGroup(info.group.id);
+          if (!stalled && !reviewInitiated) maybeFinishGroup(info.group.id);
         }
       }
       // Routing self-heal: 2 consecutive failed runs bench the model so the
@@ -815,6 +859,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const FINISH_ATTEMPTS_MAX = 3;
   /** Groups whose finishing turn hit an error (stall abort, tool-budget pause). */
   const coordStalled = new Set<string>();
+  /** Members whose current turn hit an error — their idle goes to the boss, not the user. */
+  const memberStalled = new Set<string>();
+  /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
+  const memberStallNotifies = new Map<string, number>();
   /**
    * Members of groups created before dirs were inherited have no workspace —
    * copy the coordinator's folder onto any member still missing one, so a
