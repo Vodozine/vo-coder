@@ -25,6 +25,8 @@ export type Segment =
       name: string;
       status: 'pending' | 'running' | 'done' | 'error';
       result?: string;
+      /** Untruncated length of the result — `result` is a display copy. */
+      resultChars?: number;
       /** Generated image on disk — rendered inline via imageRead. */
       imagePath?: string;
     };
@@ -42,7 +44,17 @@ export interface UiMessage {
   /** assistant messages */
   segments?: Segment[];
   error?: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    /**
+     * The size of the LAST request, not the turn's sum. A tool-heavy run makes
+     * many requests, so the sum answers "what did this turn cost" while this
+     * answers "how big is the window we actually send" — the only one of the
+     * two that says anything about fitting.
+     */
+    lastInputTokens?: number;
+  };
   /**
    * Milliseconds spent actually producing tokens, summed across the turn's
    * streams. Measured from the first delta of each stream to its last, so
@@ -1012,6 +1024,9 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         ...t,
         status: event.isError ? 'error' : 'done',
         result: event.result.length > 600 ? `${event.result.slice(0, 600)}…` : event.result,
+        // The display copy is truncated; the real size is not. Without this a
+        // 50k-char ws_read reads as ~150 tokens to anything counting the UI.
+        resultChars: event.result.length,
         ...(event.imagePath ? { imagePath: event.imagePath } : {}),
       }));
       break;
@@ -1021,6 +1036,7 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         usage: {
           inputTokens: (m.usage?.inputTokens ?? 0) + event.inputTokens,
           outputTokens: (m.usage?.outputTokens ?? 0) + event.outputTokens,
+          lastInputTokens: event.inputTokens,
         },
       }));
       break;

@@ -36,11 +36,16 @@ interface SessionManagerDeps {
   pickCheap?: (
     text: string,
   ) => Promise<{ provider: string; model: string } | undefined>;
+  /**
+   * Fold pending turns into the map now (normally it happens in the
+   * background on every persist). Awaited only by "consolidate".
+   */
+  distill?: (projectId: string, sessionId: string) => Promise<void>;
   /** Lossless archive — new turns sync on every persist. */
   bank?: {
     syncSession(projectId: string, sessionId: string, history: HarnessMessage[]): void;
-    /** Bounded map briefing for window-as-buffer assembly. */
-    digest(projectId: string): string;
+    /** Bounded map briefing, ranked against the current message when given. */
+    digest(projectId: string, maxChars?: number, query?: string): string;
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
@@ -116,13 +121,35 @@ export class SessionManager {
     return this.deps.projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
   }
 
-  /** Smart context on for this session's project (and the bank is available)? */
+  /**
+   * Smart context for this session's project. ON BY DEFAULT — the memory bank
+   * is the whole point: the window carries a briefing plus recent turns, and
+   * everything older stays one archive_search away. `assemble: false` is an
+   * explicit opt-OUT back to full replay; unset means on.
+   */
   private assembleEnabled(sessionId: string): string | null {
     if (!this.deps.bank) return null;
     const meta = this.deps.projects.meta(sessionId);
     if (!meta) return null;
     const project = this.deps.projects.list().projects.find((p) => p.id === meta.projectId);
-    return project?.assemble ? project.id : null;
+    if (!project) return null;
+    return project.assemble === false ? null : project.id;
+  }
+
+  /** The newest user text — what the digest should be ranked against. */
+  private lastUserText(sessionId: string): string | undefined {
+    const history = this.sessions.get(sessionId)?.history;
+    if (!history) return undefined;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i]!;
+      if (m.role !== 'user') continue;
+      const text = m.content
+        .map((p) => (p.type === 'text' ? p.text : ''))
+        .join(' ')
+        .trim();
+      if (text) return text.slice(0, 400);
+    }
+    return undefined;
   }
 
   /**
@@ -152,13 +179,15 @@ export class SessionManager {
   private assemblyNote(sessionId: string): string {
     const projectId = this.assembleEnabled(sessionId);
     if (!projectId) return '';
-    const digest = this.deps.bank!.digest(projectId);
+    const digest = this.deps.bank!.digest(projectId, 5_500, this.lastUserText(sessionId));
     return (
       '\n\nSMART CONTEXT IS ON: older turns of this conversation are NOT replayed — your working ' +
-      'context is this project briefing plus the most recent messages. Durable project knowledge:\n' +
+      'context is this project briefing plus the most recent messages. Durable project knowledge ' +
+      '(active tasks first — those are what you are in the middle of):\n' +
       (digest || '(the map is still filling in)') +
       '\nFor anything older or verbatim, use archive_search / archive_read / map_query — the full ' +
-      'record always exists.'
+      'record always exists. When you form or finish a plan, record it with map_update as a "task" ' +
+      'node so it survives the window moving on.'
     );
   }
 
@@ -401,79 +430,35 @@ export class SessionManager {
         return { ok: false, error: 'Wait for the current run to finish first.' };
       }
       if (session.history.length < 4) {
-        return { ok: false, error: 'Nothing worth compacting yet.' };
+        return { ok: false, error: 'Nothing worth consolidating yet.' };
       }
 
-      // Flatten the transcript (recent tail wins if it's enormous).
-      const lines: string[] = [];
-      for (const msg of session.history) {
-        if (msg.role === 'user') {
-          const text = msg.content
-            .map((p) => (p.type === 'text' ? p.text : `[${p.type}]`))
-            .join(' ');
-          lines.push(`USER: ${text}`);
-        } else if (msg.role === 'assistant') {
-          for (const part of msg.content) {
-            if (part.type === 'text' && part.text) lines.push(`ASSISTANT: ${part.text}`);
-            else if (part.type === 'tool_call') {
-              lines.push(`ASSISTANT ran ${part.name}(${JSON.stringify(part.args ?? {}).slice(0, 120)})`);
-            }
-          }
-        } else {
-          lines.push(`TOOL RESULT: ${msg.content.slice(0, 400)}`);
-        }
+      // Consolidate = make sure the map is current. It is NOT a summarise-and-
+      // destroy step any more: with smart context on, every request is already
+      // a bounded render (briefing + recent turns), so there is no window
+      // filling up to rescue. The old path called a model, threw the live
+      // history away AND overwrote the on-disk transcript with two synthetic
+      // messages — losing the verbatim record to save a window that no longer
+      // grows. Nothing is destroyed here; the archive keeps everything and
+      // archive_read can still reach it.
+      const projectId = this.assembleEnabled(sessionId);
+      if (!projectId) {
+        return {
+          ok: false,
+          error:
+            'Smart context is off for this project, so the whole conversation is replayed every ' +
+            'turn and there is no map to consolidate into. Turn it on in Memory.',
+        };
       }
-      let transcript = lines.join('\n');
-      if (transcript.length > 90_000) transcript = `…\n${transcript.slice(-90_000)}`;
-
-      const prompt =
-        'Compact this conversation into a continuation briefing for yourself. Preserve: the goals, ' +
-        'every decision made, current state of any work (files, commands, results), open questions, ' +
-        'and user preferences. Drop pleasantries and dead ends. Write it dense but complete:\n\n' +
-        transcript;
-
-      const pick = await this.deps.pickCheap?.(prompt.slice(0, 2000)).catch(() => undefined);
-      const spec = session.spec;
-      const bound = this.deps.hub
-        .registry()
-        .resolve(pick ? { ...spec, provider: pick.provider, model: pick.model } : spec, {
-          provider: this.deps.config.get().defaultProvider,
-          model: this.deps.config.get().defaultModel,
-        });
-
-      let summary = '';
-      let errorMsg: string | undefined;
-      for await (const event of bound.provider.stream(
-        {
-          model: bound.model,
-          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-        },
-        { signal: new AbortController().signal },
-      )) {
-        if (event.type === 'text_delta') summary += event.text;
-        else if (event.type === 'error') errorMsg = event.error.message;
-      }
-      summary = summary.trim();
-      if (!summary) return { ok: false, error: errorMsg ?? 'The summarizer returned nothing.' };
-
-      session.history.length = 0;
-      session.history.push(
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `[Conversation compacted to save context] Continuation briefing:\n\n${summary}`,
-            },
-          ],
-        },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Got it — continuing from that briefing.' }],
-        },
-      );
-      this.persist(sessionId);
-      return { ok: true, summary };
+      this.persist(sessionId); // archives any turns not yet recorded
+      await this.deps.distill?.(projectId, sessionId);
+      const nodes = this.deps.bank!.digest(projectId, 1_200);
+      return {
+        ok: true,
+        summary: nodes
+          ? `Memory is up to date. The window already carries this briefing plus recent turns:\n\n${nodes}`
+          : 'Memory is up to date — nothing durable to record yet.',
+      };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

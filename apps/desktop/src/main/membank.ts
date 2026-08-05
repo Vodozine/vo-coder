@@ -116,24 +116,57 @@ export class MemoryBank {
         session_id TEXT PRIMARY KEY,
         turn INTEGER NOT NULL
       );
+
+      -- Archive position per session, independent of the live history's
+      -- length. See syncSession: history shrinks, the record must not.
+      CREATE TABLE IF NOT EXISTS sync_state (
+        session_id TEXT PRIMARY KEY,
+        synced INTEGER NOT NULL,
+        last_len INTEGER NOT NULL
+      );
     `);
   }
 
-  /** Append any turns of `history` the archive hasn't seen yet. */
+  /**
+   * Append any turns of `history` the archive hasn't seen yet.
+   *
+   * The cursor is MONOTONIC and stored per session, deliberately decoupled
+   * from `history.length`. History shrinks — compaction and reset replace it
+   * outright — and a length-based watermark then reads as "already archived",
+   * so every later turn is skipped and the archive goes silent for the rest of
+   * the session. Turn numbers keep climbing instead, so a shrunk history
+   * simply continues past the old high-water mark and nothing collides.
+   */
   syncSession(projectId: string, sessionId: string, history: HarnessMessage[]): void {
     try {
-      const row = this.db
+      const state = this.db
+        .prepare('SELECT synced, last_len FROM sync_state WHERE session_id = ?')
+        .get(sessionId) as { synced: number; last_len: number } | undefined;
+      // Pre-cursor sessions: adopt the old length-derived position once.
+      const legacy = this.db
         .prepare('SELECT COALESCE(MAX(turn) + 1, 0) AS next FROM archive WHERE session_id = ?')
         .get(sessionId) as { next: number };
-      if (history.length <= row.next) return;
+      let cursor = state?.synced ?? legacy.next;
+      const lastLen = state?.last_len ?? legacy.next;
+      // History got shorter (or was replaced): everything in it is new to us
+      // from here on, but the cursor must never move backwards.
+      const from = history.length < lastLen ? 0 : Math.min(lastLen, history.length);
+
       const insert = this.db.prepare(
         'INSERT OR IGNORE INTO archive (project_id, session_id, turn, role, content, at) VALUES (?, ?, ?, ?, ?, ?)',
       );
       const now = Date.now();
-      for (let turn = row.next; turn < history.length; turn++) {
-        const content = flatten(history[turn]!);
-        if (content) insert.run(projectId, sessionId, turn, history[turn]!.role, content, now);
+      for (let i = from; i < history.length; i++) {
+        const content = flatten(history[i]!);
+        if (content) insert.run(projectId, sessionId, cursor, history[i]!.role, content, now);
+        cursor++;
       }
+      this.db
+        .prepare(
+          `INSERT INTO sync_state (session_id, synced, last_len) VALUES (?, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET synced = excluded.synced, last_len = excluded.last_len`,
+        )
+        .run(sessionId, cursor, history.length);
     } catch (err) {
       console.error('[membank] sync failed:', err);
     }
@@ -189,12 +222,28 @@ export class MemoryBank {
         .run(patch.body ?? null, patch.tags ?? null, patch.status ?? null, now, existing);
       return existing;
     }
-    const count = this.db
-      .prepare('SELECT COUNT(*) AS n FROM nodes WHERE project_id = ?')
+    // The cap governs LIVE knowledge — what can still reach a digest. Retired
+    // rows keep their place in the map and the archive; they just stop
+    // competing. Refusing new facts because the project learned 800 things
+    // first is the wrong way round.
+    const live = this.db
+      .prepare("SELECT COUNT(*) AS n FROM nodes WHERE project_id = ? AND status IN ('active','done')")
       .get(projectId) as { n: number };
-    if (count.n >= MAX_NODES_PER_PROJECT) {
-      console.warn('[membank] node cap reached for project', projectId);
-      return undefined;
+    if (live.n >= MAX_NODES_PER_PROJECT) {
+      const retired = this.db
+        .prepare(
+          `UPDATE nodes SET status = 'superseded', updated_at = ?
+             WHERE id IN (
+               SELECT id FROM nodes WHERE project_id = ? AND status IN ('active','done')
+               ORDER BY updated_at ASC LIMIT ?
+             )`,
+        )
+        .run(now, projectId, Math.ceil(MAX_NODES_PER_PROJECT * 0.1));
+      if (!retired.changes) {
+        console.warn('[membank] node cap reached and nothing left to retire', projectId);
+        return undefined;
+      }
+      this.pruneRetired(projectId);
     }
     this.db
       .prepare(
@@ -207,6 +256,26 @@ export class MemoryBank {
         (patch.tags ?? '').slice(0, 120), src?.session ?? null, src?.turn ?? null, now, now,
       );
     return this.nodeId(projectId, type, title);
+  }
+
+  /**
+   * Keep retired rows from growing without end. They stay long past the point
+   * of usefulness on purpose — a superseded decision explains a later one —
+   * but not forever. The verbatim record they came from lives in the archive
+   * regardless, so this loses a signpost, never the ground truth.
+   */
+  private pruneRetired(projectId: string): void {
+    const KEEP_RETIRED = MAX_NODES_PER_PROJECT * 2;
+    const doomed = this.db
+      .prepare(
+        `SELECT id FROM nodes WHERE project_id = ? AND status IN ('superseded','dropped')
+           ORDER BY updated_at DESC LIMIT -1 OFFSET ?`,
+      )
+      .all(projectId, KEEP_RETIRED) as Array<{ id: number }>;
+    for (const { id } of doomed) {
+      this.db.prepare('DELETE FROM links WHERE from_id = ? OR to_id = ?').run(id, id);
+      this.db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
+    }
   }
 
   /** Apply validated distiller/agent ops. Returns how many were applied. */
@@ -261,15 +330,62 @@ export class MemoryBank {
    * system prompt when window-as-buffer assembly is on. This is what makes
    * dropping old turns safe — the durable knowledge rides along every turn.
    */
-  digest(projectId: string, maxChars = 5_500): string {
+  digest(projectId: string, maxChars = 5_500, query?: string): string {
     try {
-      const rows = this.db
+      type Row = { id: number; type: string; title: string; body: string; status: string; tags: string };
+      // Active tasks come FIRST and unconditionally: they are what the model
+      // is in the middle of. A plan must never lose its place to a keyword
+      // match, and losing it mid-scaffold is exactly how a model gets
+      // confused when the window moves under it.
+      const working = this.db
+        .prepare(
+          `SELECT id, type, title, body, status, tags FROM nodes
+           WHERE project_id = ? AND type = 'task' AND status = 'active'
+           ORDER BY updated_at DESC LIMIT 6`,
+        )
+        .all(projectId) as Row[];
+
+      // Then the rest, ranked against the CURRENT message where there is one.
+      // Recency alone answers "what happened lately", not "what matters to
+      // what was just asked" — and the whole point of a small window is that
+      // what it carries has to be the relevant part.
+      let ranked: Row[] = [];
+      const terms = (query ?? '')
+        .toLowerCase()
+        .split(/[^a-z0-9_.-]+/i)
+        .filter((t) => t.length > 2)
+        .slice(0, 12);
+      if (terms.length) {
+        try {
+          ranked = this.db
+            .prepare(
+              `SELECT nodes.id, nodes.type, nodes.title, nodes.body, nodes.status, nodes.tags
+                 FROM nodes_fts JOIN nodes ON nodes.id = nodes_fts.rowid
+                WHERE nodes_fts MATCH ? AND nodes.project_id = ?
+                  AND nodes.status IN ('active','done')
+                ORDER BY rank LIMIT 40`,
+            )
+            .all(terms.map((t) => `"${t}"`).join(' OR '), projectId) as Row[];
+        } catch {
+          ranked = []; // malformed FTS query — fall through to recency
+        }
+      }
+      const recent = this.db
         .prepare(
           `SELECT id, type, title, body, status, tags FROM nodes
            WHERE project_id = ? AND status IN ('active', 'done')
            ORDER BY updated_at DESC LIMIT 40`,
         )
-        .all(projectId) as Array<{ id: number; type: string; title: string; body: string; status: string; tags: string }>;
+        .all(projectId) as Row[];
+      // Relevance first, recency to fill — a fresh fact the query did not
+      // mention is still worth carrying if there is room.
+      const rows: Row[] = [];
+      const taken = new Set<number>();
+      for (const r of [...working, ...ranked, ...recent]) {
+        if (taken.has(r.id)) continue;
+        taken.add(r.id);
+        rows.push(r);
+      }
       if (rows.length === 0) return '';
       const linkStmt = this.db.prepare(
         `SELECT links.rel, n2.title AS t FROM links
@@ -406,12 +522,29 @@ export class MemoryBank {
           'SELECT turn, role, content FROM archive WHERE session_id = ? AND turn >= ? ORDER BY turn',
         )
         .all(sessionId, mark.turn) as Array<{ turn: number; role: string; content: string }>;
-      if (rows.length < DISTILL_MIN_TURNS) return;
+      // The minimum exists so a couple of lines don't cost a model call. It
+      // must not strand a BACKLOG though: turns left behind by the char budget
+      // below, or a long run that ended, would otherwise wait forever for six
+      // more turns that never come.
+      const pendingChars = rows.reduce((n, r) => n + r.content.length, 0);
+      if (rows.length < DISTILL_MIN_TURNS && pendingChars < DISTILL_MAX_CHARS / 2) return;
 
+      // Track what the model is actually SHOWN. The watermark may only advance
+      // over these turns: advancing to the last row would silently skip
+      // everything past the char cut, and those turns are never revisited.
       let transcript = '';
+      let readThrough = rows[0]!.turn - 1;
       for (const r of rows) {
-        transcript += `${r.role.toUpperCase()}: ${r.content}\n`;
-        if (transcript.length > DISTILL_MAX_CHARS) break;
+        const line = `${r.role.toUpperCase()}: ${r.content}\n`;
+        if (transcript.length + line.length > DISTILL_MAX_CHARS) break;
+        transcript += line;
+        readThrough = r.turn;
+      }
+      // A single turn larger than the whole budget would otherwise wedge the
+      // distiller forever — take it truncated and move on.
+      if (!transcript) {
+        transcript = `${rows[0]!.role.toUpperCase()}: ${rows[0]!.content.slice(0, DISTILL_MAX_CHARS)}\n`;
+        readThrough = rows[0]!.turn;
       }
       const prompt =
         'You maintain a structured project memory map. From the NEW conversation turns, extract ' +
@@ -430,14 +563,13 @@ export class MemoryBank {
 
       const raw = await complete(prompt);
       const ops = parseOps(raw);
-      const lastTurn = rows[rows.length - 1]!.turn;
-      this.applyOps(projectId, ops, { session: sessionId, turn: lastTurn });
+      this.applyOps(projectId, ops, { session: sessionId, turn: readThrough });
       this.db
         .prepare(
           `INSERT INTO distill_state (session_id, turn) VALUES (?, ?)
            ON CONFLICT(session_id) DO UPDATE SET turn = excluded.turn`,
         )
-        .run(sessionId, lastTurn + 1);
+        .run(sessionId, readThrough + 1);
     } catch (err) {
       console.error('[membank] distill failed (will retry next idle):', err);
     } finally {
@@ -704,7 +836,20 @@ export function parseOps(raw: string): MapOp[] {
   );
 }
 
-/** Flatten one harness message into searchable text. */
+/** Arguments are the difference between "it ran ws_write" and knowing what it wrote. */
+const ARGS_MAX = 300;
+/** Reasoning can run long; enough to carry a plan, not enough to bloat the archive. */
+const THINKING_MAX = 2_000;
+
+/**
+ * Flatten one harness message into searchable text.
+ *
+ * Thinking is kept here even though providers never replay it: a plan the
+ * model formed while reasoning exists in exactly ONE response, so if the
+ * archive drops it, it cannot be recovered by re-reading — and that plan is
+ * precisely what a mid-task compaction destroys. Tool-call arguments are kept
+ * for the same reason: "[ran ws_write]" cannot tell anyone what was attempted.
+ */
 function flatten(msg: HarnessMessage): string {
   if (msg.role === 'user') {
     return msg.content
@@ -716,7 +861,11 @@ function flatten(msg: HarnessMessage): string {
     return msg.content
       .map((p) => {
         if (p.type === 'text') return p.text;
-        if (p.type === 'tool_call') return `[ran ${p.name}]`;
+        if (p.type === 'thinking') return `[thinking] ${p.text.slice(0, THINKING_MAX)}`;
+        if (p.type === 'tool_call') {
+          const args = JSON.stringify(p.args ?? {}).slice(0, ARGS_MAX);
+          return `[ran ${p.name} ${args}]`;
+        }
         return '';
       })
       .join(' ')

@@ -31,27 +31,35 @@ function ContextChip({
 
   const { estTokens, lastUsage } = useMemo(() => {
     let chars = 0;
-    let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let lastUsage: UiMessage['usage'];
     for (const m of messages) {
       chars += m.text?.length ?? 0;
       for (const seg of m.segments ?? []) {
-        if (seg.kind === 'tool') chars += (seg.result?.length ?? 0) + 60;
+        // Count what was SENT, not the truncated display copy.
+        if (seg.kind === 'tool') chars += (seg.resultChars ?? seg.result?.length ?? 0) + 60;
         else chars += seg.text.length;
       }
       chars += (m.attachments?.length ?? 0) * 6400; // ~1.6k tokens per image
       if (m.usage) lastUsage = m.usage;
     }
+    // +1500 stands in for the system prompt, briefing and tool schemas, which
+    // ride along on every request and are not in `messages` at all.
     return { estTokens: Math.round(chars / 4) + 1500, lastUsage };
   }, [messages]);
 
   const record = catalog?.records.find((r) => r.id === model);
   const windowTokens = record?.contextLength ?? 128_000;
-  // With Smart context on, the request is digest + recent buffer — the last
-  // turn's ACTUAL input tokens are the honest gauge, not the full-history sum.
-  const assembled = assemble && !!lastUsage;
-  const basis = assembled ? lastUsage!.inputTokens : estTokens;
+  // The size of ONE request, straight from the provider — exact, and the only
+  // figure that says anything about fitting. The turn's sum would count a
+  // 10-step tool run ten times over.
+  const perRequest = lastUsage?.lastInputTokens;
+  const assembled = assemble && perRequest !== undefined;
+  const basis = perRequest ?? estTokens;
   const pct = Math.min(100, Math.round((basis / windowTokens) * 100));
-  const level = pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
+  // With smart context on there is no cliff to walk toward — the request is
+  // rebuilt to a bounded size every turn — so the reading is a steady-state
+  // cost, not a countdown, and it should not turn red for being large.
+  const level = assembled ? 'ok' : pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
 
   const compact = async () => {
     setBusy(true);
@@ -76,14 +84,14 @@ function ContextChip({
           {assembled ? (
             <>
               <div className="ctx-row">
-                <span>assembled request (last turn)</span>
+                <span>per request (measured)</span>
                 <b>
-                  {fmtTokens(lastUsage!.inputTokens)} · {pct}%
+                  {fmtTokens(perRequest!)} · {pct}%
                 </b>
               </div>
               <div className="ctx-row">
-                <span>full history (est.)</span>
-                <b>{fmtTokens(estTokens)}</b>
+                <span>whole conversation</span>
+                <b>{fmtTokens(estTokens)} — not sent</b>
               </div>
             </>
           ) : (
@@ -110,21 +118,25 @@ function ContextChip({
           </div>
           <p className="hint">
             {assemble
-              ? 'Smart context is on — requests carry the map digest plus recent turns; older turns live in the memory bank, one tool call away.'
-              : `The whole conversation replays every turn${routeMode === 'auto' ? ' (window shown is the selected fallback model)' : ''}. Compacting rewrites it into a short briefing — same chat, fraction of the tokens.`}
+              ? 'Smart context is on — each request carries the project briefing plus recent turns, so this stays roughly flat however long the chat runs. Everything older is in the memory bank, one tool call away.'
+              : `The whole conversation replays every turn${routeMode === 'auto' ? ' (window shown is the selected fallback model)' : ''}, so this climbs until it hits the model's limit. Smart context (in Memory) keeps it flat instead.`}
           </p>
           {error && <p className="hint error-text">{error}</p>}
           <button className="send ctx-compact" disabled={busy || streaming} onClick={() => void compact()}>
-            {busy ? 'Compacting…' : 'Compact conversation'}
+            {busy ? 'Consolidating…' : assemble ? 'Consolidate memory' : 'Compact conversation'}
           </button>
         </div>
       )}
       <button
         className={`ghost ctx-chip ${level}`}
-        title="Context window usage — click for details"
+        title={
+          assembled
+            ? 'What one request costs. With smart context on this stays flat however long the chat runs — click for details.'
+            : 'How full the model window is — click for details'
+        }
         onClick={() => setOpen(!open)}
       >
-        <Icon name="gauge" size={12} /> {pct}%
+        <Icon name="gauge" size={12} /> {assembled ? fmtTokens(perRequest!) : `${pct}%`}
       </button>
     </div>
   );

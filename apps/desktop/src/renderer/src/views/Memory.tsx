@@ -147,14 +147,14 @@ export function Memory() {
       </div>
 
       <div className="field-row mem-assemble">
-        <label className="checkbox" title="Requests carry the map digest + recent turns instead of replaying the whole conversation. The chat UI and archive keep everything.">
+        <label className="checkbox" title="Requests carry the map digest + recent turns instead of replaying the whole conversation. The chat UI and archive keep everything, and archive_search reaches any of it.">
           <input
             type="checkbox"
-            checked={project?.assemble ?? false}
+            checked={project?.assemble !== false}
             onChange={(e) => void toggleAssemble(e.target.checked)}
           />
-          <strong>Smart context</strong>&nbsp;— assemble digest + recent buffer instead of full
-          replay (beta)
+          <strong>Smart context</strong>&nbsp;— carry the briefing plus recent turns, so cost per
+          turn stays flat however long the conversation runs. Off replays everything, every turn.
         </label>
         <span className="meta grow" style={{ textAlign: 'right' }}>
           {stats ? `${stats.nodes} map nodes · ${stats.archiveTurns} archived turns` : ''}

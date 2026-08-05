@@ -245,8 +245,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               // watermark advances only on success.
               void bank.distillPending(projectId, sessionId, completeCheap);
             },
-            digest: (projectId: string) => bank.digest(projectId),
+            digest: (projectId: string, maxChars?: number, query?: string) =>
+              bank.digest(projectId, maxChars, query),
           },
+          distill: (projectId: string, sessionId: string) =>
+            bank.distillPending(projectId, sessionId, completeCheap),
         }
       : {}),
     onUsage: (sessionId, bound, ev) => {
