@@ -2009,16 +2009,33 @@ select:focus {
 
 .group-starter {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   padding: 8px 12px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--panel);
 }
-.group-starter input {
-  flex: 1;
-  min-width: 0;
+/* The goal textarea grows with its content (JS sets height from scrollHeight)
+   — a big prompt is meant to be READ back before six agents run with it. */
+.group-starter .group-goal {
+  width: 100%;
+  min-height: 44px;
+  max-height: 40vh;
+  resize: vertical;
+  overflow-y: auto;
+  font: inherit;
+  line-height: 1.45;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border, var(--accent-soft));
+  border-radius: var(--radius-sm);
+}
+.group-starter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* ---- group projects: several agents on one goal, side by side ---- */

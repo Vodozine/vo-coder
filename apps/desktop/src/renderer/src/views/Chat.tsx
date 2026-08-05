@@ -348,23 +348,36 @@ function GroupStarter({
   };
   return (
     <div className="group-starter">
-      <input
+      <textarea
         autoFocus
+        className="group-goal"
+        rows={2}
         value={goal}
-        placeholder="What should the group work on? (it gets split across your agents)"
-        onChange={(e) => setGoal(e.target.value)}
+        placeholder="What should the group work on? (it gets split across your agents) — Enter starts, Shift+Enter for a new line"
+        onChange={(e) => {
+          setGoal(e.target.value);
+          // Grow with the prompt: a big goal deserves to be SEEN, not
+          // squeezed through one line. Capped by CSS max-height.
+          e.currentTarget.style.height = 'auto';
+          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+        }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') void go();
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            void go();
+          }
           if (e.key === 'Escape') onCancel();
         }}
       />
-      <button className="send" disabled={busy || !goal.trim()} onClick={() => void go()}>
-        {busy ? 'Splitting…' : 'Start'}
-      </button>
-      <button className="ghost" onClick={onCancel}>
-        Cancel
-      </button>
-      {error && <span className="hint error-text">{error}</span>}
+      <div className="group-starter-actions">
+        <button className="send" disabled={busy || !goal.trim()} onClick={() => void go()}>
+          {busy ? 'Splitting…' : 'Start'}
+        </button>
+        <button className="ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        {error && <span className="hint error-text">{error}</span>}
+      </div>
     </div>
   );
 }
