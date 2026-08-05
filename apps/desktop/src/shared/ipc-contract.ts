@@ -419,6 +419,8 @@ export interface VoApi {
   modelWarm(provider: string, model: string): Promise<void>;
   /** Group runs in this profile. Groups are started by Vodo, not by the UI. */
   groupList(): Promise<GroupRun[]>;
+  /** Main asks the UI to show the Preview tab (an agent opened a result). */
+  onPreviewShowRequested(cb: () => void): void;
   /** Stop coordinating; the member chats stay exactly where they are. */
   groupEnd(groupId: string): Promise<GroupRun[]>;
   chatSend(
@@ -577,6 +579,7 @@ export const IPC = {
   modelWarm: 'models:warm',
   groupList: 'groups:list',
   groupEnd: 'groups:end',
+  previewShowRequested: 'preview:showRequested',
   chatSend: 'chat:send',
   chatStop: 'chat:stop',
   chatReset: 'chat:reset',

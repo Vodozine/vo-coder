@@ -359,6 +359,9 @@ export const useStore = create<AppState>((set, get) => ({
       });
       // Once-only: sessionCreate broadcasts the full list; stacking this listener
       // plus a local prepend would paint the same chat twice.
+      // An agent opened a result in the preview (e.g. the group's finished
+      // site) — bring the pane forward so the user actually sees it.
+      window.vo.onPreviewShowRequested(() => get().setView('preview'));
       window.vo.onProjectsChanged((data) => {
         set({ projects: data.projects, sessionMetas: data.sessions });
         // A group Vodo just started arrives as new sessions on this broadcast;

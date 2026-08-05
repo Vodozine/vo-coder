@@ -100,6 +100,7 @@ const api: VoApi = {
     ipcRenderer.invoke(IPC.sessionSetAgent, sessionId, agentId),
   sessionSetDir: (sessionId, dir) => ipcRenderer.invoke(IPC.sessionSetDir, sessionId, dir),
   onProjectsChanged: subscribe(IPC.projectsChanged),
+  onPreviewShowRequested: subscribe(IPC.previewShowRequested),
   usageGet: () => ipcRenderer.invoke(IPC.usageGet),
   onUsageChanged: subscribe(IPC.usageChanged),
   xaiOauthStatus: () => ipcRenderer.invoke(IPC.xaiOauthStatus),

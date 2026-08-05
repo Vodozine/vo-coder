@@ -409,7 +409,8 @@ export class SessionManager {
               name.startsWith('look_') ||
               name.startsWith('file_') ||
               name.startsWith('group_') ||
-              name.startsWith('ask_'))
+              name.startsWith('ask_') ||
+              name.startsWith('preview_'))
           ) {
             // The session knows its own project — tools default to it instead
             // of making the model guess a name. dir carries the chat's folder
@@ -433,6 +434,11 @@ export class SessionManager {
 
   historyOf(sessionId: string): HarnessMessage[] {
     return this.sessions.get(sessionId)?.history ?? this.deps.projects.loadTranscript(sessionId);
+  }
+
+  /** A session that was never loaded is idle by definition. */
+  statusOf(sessionId: string): ReturnType<AgentSession['getStatus']> {
+    return this.sessions.get(sessionId)?.getStatus() ?? 'idle';
   }
 
   /** The provider/model that served this session's last run (routing strikes). */

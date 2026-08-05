@@ -194,6 +194,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...(missionsRef?.toolSpecs() ?? []),
       ...groupToolSpecs(),
       ...helpToolSpecs(),
+      {
+        name: 'preview_open',
+        description:
+          "Show a built file (HTML, image, PDF) in the app's Preview pane so the user sees the " +
+          'result immediately. Path is relative to the project folder. Use it after assembling ' +
+          'a deliverable — showing beats describing.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File to show, relative to the project folder' },
+          },
+          required: ['path'],
+        },
+      },
     ],
     execute: (
       name: string,
@@ -230,6 +244,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             void warmModel(provider, model);
           },
         }, ctx?.projectId, ctx?.sessionId);
+      }
+      if (name === 'preview_open') {
+        const dir = ctxDir();
+        if (!dir) {
+          return Promise.resolve({
+            content: 'This chat has no project folder to preview from.',
+            isError: true,
+          });
+        }
+        const rel = String((args as { path?: unknown })?.path ?? '').trim();
+        const abs = resolve(dir, rel);
+        // Same confinement rule as the workspace tools: never outside the dir.
+        if (!abs.startsWith(resolve(dir))) {
+          return Promise.resolve({ content: 'Path escapes the project folder.', isError: true });
+        }
+        if (!existsSync(abs)) {
+          return Promise.resolve({ content: `No such file: ${rel}`, isError: true });
+        }
+        const opened = preview.openFile(abs);
+        if (!opened.ok) {
+          return Promise.resolve({ content: opened.error ?? 'Preview failed.', isError: true });
+        }
+        sendToWindow(IPC.previewShowRequested, {});
+        return Promise.resolve({ content: `Preview opened: ${rel}` });
       }
       if (name === 'ask_vodo') {
         return (async () => {
@@ -404,10 +442,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // strong cloud model, the rest local". Alternation guard: the turn that
       // RESPONDS to a review is not itself reviewed, so this converges
       // instead of ping-ponging.
+      // A member starting work re-arms the completion driver for the next wave.
+      if (event.type === 'status' && event.status === 'streaming') {
+        const info = memberOf(sessionId);
+        if (info) groupSynthesisFired.delete(info.group.id);
+      }
       if (event.type === 'status' && event.status === 'idle') {
         const info = memberOf(sessionId);
         if (info) {
           memberErrors.delete(sessionId);
+          let reviewInitiated = false;
           const provider = info.agent?.provider;
           const local =
             provider === 'ollama' || provider === 'lmstudio' || provider === 'llamacpp';
@@ -427,6 +471,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                   : '';
               // Tiny outputs (acks, questions) are not worth a strong-model pass.
               if (outText.length >= 200) {
+                reviewInitiated = true;
                 memberReviewFlag.add(sessionId);
                 setTimeout(() => {
                   void (async () => {
@@ -444,6 +489,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                       ).trim();
                       if (/^APPROVED\b/i.test(verdict)) {
                         memberReviewFlag.delete(sessionId);
+                        // Approval may have been the last open question — the
+                        // finish check runs from here, not from the idle that
+                        // preceded the review.
+                        maybeFinishGroup(info.group.id);
                         return;
                       }
                       void sessions.send(sessionId, [
@@ -457,12 +506,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                       ]);
                     } catch {
                       memberReviewFlag.delete(sessionId);
+                      // A failed review must not leave the group stranded.
+                      maybeFinishGroup(info.group.id);
                     }
                   })();
                 }, 100);
               }
             }
           }
+          // No review in flight for this idle → this member may have been the
+          // last one working; see if the whole group is quiet now.
+          if (!reviewInitiated) maybeFinishGroup(info.group.id);
         }
       }
       // Routing self-heal: 2 consecutive failed runs bench the model so the
@@ -684,6 +738,45 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const memberErrors = new Map<string, number>();
   /** Members whose next idle is the RESPONSE to a review — reviewed work, not re-reviewed. */
   const memberReviewFlag = new Set<string>();
+  /** Groups whose finish prompt has been sent for the current work wave. */
+  const groupSynthesisFired = new Set<string>();
+  /**
+   * The completion driver. Members finish, mark their tasks done, and go
+   * idle — and an idle coordinator cannot "wait for their briefs": nothing
+   * ever wakes it, so the group used to stall at 100% done with the final
+   * deliverable never assembled. When the LAST member goes quiet, this wakes
+   * the coordinator with the finishing brief: verify, assemble, preview,
+   * self-review, report. Re-arms whenever a member starts working again.
+   */
+  const maybeFinishGroup = (groupId: string): void => {
+    if (groupSynthesisFired.has(groupId)) return;
+    const group = projects.groups().find((g) => g.id === groupId && !g.endedAt);
+    if (!group || !group.coordinatorId) return;
+    if (!group.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) return;
+    if (sessions.statusOf(group.coordinatorId) !== 'idle') return;
+    groupSynthesisFired.add(groupId);
+    setTimeout(() => {
+      void sessions.send(group.coordinatorId, [
+        {
+          type: 'text',
+          text:
+            'ALL GROUP MEMBERS ARE IDLE — their parts are marked done. The job is NOT finished ' +
+            'until the final deliverable exists and is verified. Do this now, autonomously, to ' +
+            'the end:\n' +
+            '1. map_query the task nodes and ws_list the folder — confirm every part actually ' +
+            'delivered its files. A part that is missing you do YOURSELF now, with your own ' +
+            'tools, instead of waiting.\n' +
+            '2. Assemble the final deliverable from the members’ material with ' +
+            'ws_read/ws_write (for a website: one self-contained file, exactly as the goal ' +
+            'says).\n' +
+            '3. Open the result with preview_open so the user sees it.\n' +
+            '4. Read your assembly back and fix what is wrong — broken links, missing ' +
+            'sections, leftover placeholders. At most two fix rounds.\n' +
+            '5. Report done: what was built, where it lives, what the user should look at.',
+        },
+      ]);
+    }, 200);
+  };
   /** This session's live group membership, or undefined. */
   const memberOf = (sessionId: string) => {
     const meta = projects.meta(sessionId);
@@ -1368,7 +1461,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_|ask_|group_)/.test(name)) {
+    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_|ask_|group_|preview_)/.test(name)) {
       return builtins.execute(name, args, { projectId, ...(dir ? { dir } : {}) });
     }
     return mcp.call(name, args);
