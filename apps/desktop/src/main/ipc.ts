@@ -506,14 +506,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           .groups()
           .find((gr) => !gr.endedAt && gr.coordinatorId === sessionId);
         if (g) {
-          if (event.type === 'error' && groupSynthesisFired.has(g.id)) {
-            coordStalled.add(g.id);
+          if (event.type === 'error') {
+            // Driver-fired finish → re-fire the driver. A turn the USER
+            // started (told Vodo "finish" by hand) has no fired flag — it
+            // gets a direct auto-continue instead of dying on the floor.
+            if (groupSynthesisFired.has(g.id)) coordStalled.add(g.id);
+            else coordUserStalled.add(g.id);
           } else if (event.type === 'done' && event.stopReason !== 'aborted') {
             coordStalled.delete(g.id);
-          } else if (event.type === 'status' && event.status === 'idle' && coordStalled.has(g.id)) {
-            coordStalled.delete(g.id);
-            groupSynthesisFired.delete(g.id);
-            setTimeout(() => maybeFinishGroup(g.id), 3000);
+            coordUserStalled.delete(g.id);
+            coordContinues.delete(g.id);
+          } else if (event.type === 'status' && event.status === 'idle') {
+            if (coordStalled.has(g.id)) {
+              coordStalled.delete(g.id);
+              coordUserStalled.delete(g.id);
+              groupSynthesisFired.delete(g.id);
+              setTimeout(() => maybeFinishGroup(g.id), 3000);
+            } else if (coordUserStalled.delete(g.id)) {
+              const n = (coordContinues.get(g.id) ?? 0) + 1;
+              coordContinues.set(g.id, n);
+              if (n <= 2) {
+                setTimeout(() => {
+                  void sessions.send(sessionId, [
+                    {
+                      type: 'text',
+                      text:
+                        'Your turn was interrupted mid-work (model stall) — this is an ' +
+                        'automatic continue. Pick up EXACTLY where you stopped: ' +
+                        'ws_list/ws_read what is already on disk and do not redo it. Write ' +
+                        'long files in SEVERAL ws_write calls — first normal, the rest with ' +
+                        'append:true — one giant write is what stalls. Delegating the ' +
+                        'remainder to a member with group_send also works.',
+                    },
+                  ]);
+                }, 1500);
+              }
+            }
           }
         }
       }
@@ -931,6 +959,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const FINISH_ATTEMPTS_MAX = 3;
   /** Groups whose finishing turn hit an error (stall abort, tool-budget pause). */
   const coordStalled = new Set<string>();
+  /** Coordinator turns the USER started that died — auto-continued directly. */
+  const coordUserStalled = new Set<string>();
+  /** Direct coordinator continues per group — capped; a clean turn resets. */
+  const coordContinues = new Map<string, number>();
   /** Members whose current turn hit an error — their idle goes to the boss, not the user. */
   const memberStalled = new Set<string>();
   /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
