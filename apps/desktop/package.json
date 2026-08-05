@@ -1,6 +1,6 @@
 {
   "name": "vo-coder",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "private": true,
   "description": "Vo-Coder desktop shell — provider-agnostic agent harness",
   "author": "Vo-Coder contributors",
