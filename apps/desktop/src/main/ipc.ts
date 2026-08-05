@@ -565,25 +565,55 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             // A turn that completed cleanly resets the member's interruption budget.
             memberStallNotifies.delete(sessionId);
           }
+          // What the member just said — shared by the question catch and the review.
+          const history = sessions.historyOf(sessionId);
+          const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
+          const outText =
+            lastAssistant && lastAssistant.role === 'assistant'
+              ? lastAssistant.content
+                  .filter((p): p is Extract<(typeof lastAssistant.content)[number], { type: 'text' }> => p.type === 'text')
+                  .map((p) => p.text)
+                  .join('\n')
+                  .trim()
+              : '';
+          // A member that ends its turn with a question is asking a user who
+          // is NOT in its chat — seen live: "should I move on to another
+          // task?" hanging forever while the group looked stuck. The BOSS
+          // answers: forward the tail to Vodo, who replies with group_send
+          // (usually "your part is done — stop", or the decision they need).
+          const asksQuestion = outText.replace(/["'*`_)\]\s]+$/g, '').endsWith('?');
+          let questionForwarded = false;
+          if (!stalled && asksQuestion && info.group.coordinatorId) {
+            const n = (memberQuestions.get(sessionId) ?? 0) + 1;
+            memberQuestions.set(sessionId, n);
+            if (n <= 4) {
+              questionForwarded = true;
+              const who = info.member?.agentName ?? info.agent?.name ?? 'a member';
+              void sessions.send(info.group.coordinatorId, [
+                {
+                  type: 'text',
+                  text:
+                    `MEMBER QUESTION: ${who} ended their turn asking, instead of working or ` +
+                    `stopping:\n«${outText.slice(-350)}»\n` +
+                    `The user is NOT in the members' chats — YOU answer. group_send ${who} the ` +
+                    'decision they need, or if their part is complete: "Your part is done — ' +
+                    'mark it done in the map and stop." If they keep asking instead of ' +
+                    'working, give exact step-by-step instructions or reassign the remainder.',
+                },
+              ]);
+            }
+          } else if (!asksQuestion) {
+            memberQuestions.delete(sessionId);
+          }
           let reviewInitiated = false;
           const provider = info.agent?.provider;
           const local =
             provider === 'ollama' || provider === 'lmstudio' || provider === 'llamacpp';
-          if (!stalled && local) {
+          if (!stalled && !questionForwarded && local) {
             if (memberReviewFlag.has(sessionId)) {
               memberReviewFlag.delete(sessionId);
             } else {
-              const history = sessions.historyOf(sessionId);
-              const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-              const outText =
-                lastAssistant && lastAssistant.role === 'assistant'
-                  ? lastAssistant.content
-                      .filter((p): p is Extract<(typeof lastAssistant.content)[number], { type: 'text' }> => p.type === 'text')
-                      .map((p) => p.text)
-                      .join('\n')
-                      .trim()
-                  : '';
-              // Tiny outputs (acks, questions) are not worth a strong-model pass.
+              // Tiny outputs (acks) are not worth a strong-model pass.
               if (outText.length >= 200) {
                 reviewInitiated = true;
                 memberReviewFlag.add(sessionId);
@@ -629,8 +659,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             }
           }
           // No review in flight for this idle → this member may have been the
-          // last one working; see if the whole group is quiet now.
-          if (!stalled && !reviewInitiated) maybeFinishGroup(info.group.id);
+          // last one working; see if the whole group is quiet now. A forwarded
+          // question suppresses it — Vodo's answer restarts the wave anyway.
+          if (!stalled && !questionForwarded && !reviewInitiated) maybeFinishGroup(info.group.id);
         }
       }
       // Routing self-heal: 2 consecutive failed runs bench the model so the
@@ -889,6 +920,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const memberStalled = new Set<string>();
   /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
   const memberStallNotifies = new Map<string, number>();
+  /** Trailing-question forwards per member — capped; a working turn resets it. */
+  const memberQuestions = new Map<string, number>();
   /**
    * Members of groups created before dirs were inherited have no workspace —
    * copy the coordinator's folder onto any member still missing one, so a

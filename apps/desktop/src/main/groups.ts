@@ -217,7 +217,10 @@ export function memberBrief(
     'project memory. Check your briefing for lessons with your name before asking the same thing ' +
     'twice. Vodo also reviews your work: when a VODO REVIEW message arrives, fix what it lists ' +
     'before continuing. Mid-project, a message starting "FROM VODO" is your coordinator handing ' +
-    'you follow-up work — do it the same way: work, update the map, stop when done.'
+    'you follow-up work — do it the same way: work, update the map, stop when done.\n\n' +
+    'IMPORTANT: the user is NOT in this chat — never end your turn by asking them anything ' +
+    '("should I continue?", "anything else?"). Your boss is Vodo: need a decision, call ' +
+    'ask_vodo; part finished, mark it done in the map, say DONE, and stop.'
   );
 }
 
