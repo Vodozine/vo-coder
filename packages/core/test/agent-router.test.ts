@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSpec } from '@vo-coder/providers';
-import { matchAgentForMessage, rankAgents } from '../src/agent/agent-router.ts';
+import { assignTasks, matchAgentForMessage, rankAgents } from '../src/agent/agent-router.ts';
 
 const agents: AgentSpec[] = [
   {
@@ -21,6 +21,53 @@ const agents: AgentSpec[] = [
     systemPrompt: 'You write documentation.',
   },
 ];
+
+describe('assignTasks — a group means several specialists actually work', () => {
+  it('gives each task its best fit and does not hand them all to one agent', () => {
+    const plan = assignTasks(
+      [
+        'snapshot the proxmox vm and check the hypervisor',
+        'restyle the react components with new css',
+        'write the release notes',
+      ],
+      agents,
+    );
+    expect(plan.map((p) => p.agent.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(plan[0]!.matched).toContain('proxmox');
+  });
+
+  it('never assigns the same agent twice while others are free', () => {
+    // Every task speaks to a1 — the single-winner ranking would give it all
+    // three, which is precisely the "always the same agent" complaint.
+    const plan = assignTasks(['proxmox one', 'proxmox two', 'proxmox three'], agents);
+    expect(new Set(plan.map((p) => p.agent.id)).size).toBe(3);
+  });
+
+  it('wraps to a second round rather than dropping work', () => {
+    const plan = assignTasks(['a', 'b', 'c', 'd', 'e'], agents);
+    expect(plan).toHaveLength(5);
+    expect(plan.every((p) => !!p.agent)).toBe(true);
+  });
+
+  it('returns nothing when there is nobody to assign to', () => {
+    expect(assignTasks(['anything'], [])).toEqual([]);
+  });
+});
+
+describe('routing hints are capped so breadth cannot buy ownership', () => {
+  it('a ten-hint generalist does not outscore a focused specialist', () => {
+    const focused: AgentSpec = { id: 'f', name: 'Focus', routingHints: 'css' };
+    const broad: AgentSpec = {
+      id: 'b',
+      name: 'Broad',
+      routingHints: 'css, react, ui, style, layout, design, web, html, front, page',
+    };
+    const ranked = rankAgents('fix the css react ui style layout on the web page', [broad, focused]);
+    const top = ranked[0]!;
+    // The generalist may still win, but not by an unassailable margin.
+    expect(top.score - ranked[1]!.score).toBeLessThanOrEqual(9);
+  });
+});
 
 describe('matchAgentForMessage', () => {
   it('routes by hint keywords to the right specialist', () => {

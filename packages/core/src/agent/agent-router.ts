@@ -36,6 +36,9 @@ const VISION_WORDS = new Set([
 /** Filler that must never count as "the user said this agent's name". */
 const NAME_STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'you', 'your', 'our']);
 
+/** Beyond this many hint hits, more keywords stop buying more score. */
+const MAX_HINT_HITS = 3;
+
 /** Score every agent against the message; sorted best-first, stable on ties. */
 export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {}): AgentRank[] {
   const haystack = ` ${text.toLowerCase()} `;
@@ -48,12 +51,17 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
       .split(/[,;]+/)
       .map((s) => s.trim().toLowerCase())
       .filter((s) => s.length > 1);
+    // Hints are capped. Uncapped, an agent with ten hints scored 30 against a
+    // focused agent's 3 and simply owned every project — breadth of keywords
+    // is not evidence of being the right specialist.
+    let hintHits = 0;
     for (const hint of hints) {
       // A hint made purely of vision words needs an actual image to fire.
       if (hint.split(/\s+/).every(visionGated)) continue;
       if (haystack.includes(hint)) {
         matched.push(hint);
-        score += 3;
+        if (hintHits < MAX_HINT_HITS) score += 3;
+        hintHits++;
       }
     }
 
@@ -84,6 +92,39 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
   // Stable sort keeps creation order on ties — the user's first agent is the
   // implicit generalist.
   return ranked.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Assign a slate of tasks across DIFFERENT agents — the group-project split.
+ *
+ * Greedy by best fit, but each agent is taken at most once until everyone has
+ * a task: the point of a group is that several specialists work, and the
+ * single-winner ranking would otherwise hand every task to whoever scores
+ * broadest. A task nobody matches still gets the best free agent rather than
+ * being dropped — an unassigned task is worse than an imperfect assignee.
+ */
+export function assignTasks(
+  tasks: string[],
+  agents: AgentSpec[],
+  opts: RankOpts = {},
+): Array<{ task: string; agent: AgentSpec; matched: string[] }> {
+  if (!agents.length) return [];
+  const out: Array<{ task: string; agent: AgentSpec; matched: string[] }> = [];
+  const used = new Set<string>();
+  for (const task of tasks) {
+    const ranked = rankAgents(task, agents, opts);
+    // Everyone has one? Start a second round rather than refusing work.
+    if (used.size >= agents.length) used.clear();
+    const pick = ranked.find((r) => !used.has(r.agent.id)) ?? ranked[0];
+    if (!pick) continue;
+    used.add(pick.agent.id);
+    out.push({
+      task,
+      agent: pick.agent,
+      matched: pick.matched.length ? pick.matched : ['best available'],
+    });
+  }
+  return out;
 }
 
 export function matchAgentForMessage(

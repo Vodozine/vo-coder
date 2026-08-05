@@ -310,11 +310,41 @@ export interface ChatSessionMeta {
   /** Folder attached to THIS chat (overrides the project folder): workspace
    *  tools + look_at_image work here — photo cataloging, code review, etc. */
   dir?: string;
+  /** Member of this group run — the split view shows these side by side. */
+  groupId?: string;
+}
+
+/**
+ * Several agents working one goal in the same project. Each member is an
+ * ordinary chat session, so members archive, distill and can be opened alone
+ * afterwards; the group is the coordination on top, not a parallel universe.
+ * Handoff needs no wiring: the digest is project-scoped and leads with active
+ * task nodes, so every member sees what the others are in the middle of.
+ */
+export interface GroupRun {
+  id: string;
+  projectId: string;
+  goal: string;
+  /** The session that started it — where the summary lands. */
+  coordinatorId: string;
+  createdAt: number;
+  endedAt?: number;
+  members: GroupMember[];
+}
+
+export interface GroupMember {
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  task: string;
+  /** Why this agent got this task — shown on the pane header. */
+  matched: string[];
 }
 
 export interface ProjectsData {
   projects: ProjectInfo[];
   sessions: ChatSessionMeta[];
+  groups?: GroupRun[];
 }
 
 export interface UsageTotals {
@@ -387,6 +417,15 @@ export interface VoApi {
   listModels(provider: string): Promise<ModelInfo[]>;
   /** Make a local model resident before the user sends. Never throws. */
   modelWarm(provider: string, model: string): Promise<void>;
+  /** Split a goal across agents and start them side by side. */
+  groupStart(
+    projectId: string,
+    coordinatorId: string,
+    goal: string,
+  ): Promise<{ ok: boolean; group?: GroupRun; error?: string }>;
+  groupList(): Promise<GroupRun[]>;
+  /** Stop coordinating; the member chats stay exactly where they are. */
+  groupEnd(groupId: string): Promise<GroupRun[]>;
   chatSend(
     sessionId: string,
     parts: UserPart[],
@@ -533,6 +572,9 @@ export const IPC = {
   secretStatus: 'secrets:status',
   listModels: 'models:list',
   modelWarm: 'models:warm',
+  groupStart: 'groups:start',
+  groupList: 'groups:list',
+  groupEnd: 'groups:end',
   chatSend: 'chat:send',
   chatStop: 'chat:stop',
   chatReset: 'chat:reset',

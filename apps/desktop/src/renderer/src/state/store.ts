@@ -1,7 +1,12 @@
 import { create } from 'zustand';
 import type { AgentSpec, HarnessMessage, ModelInfo, UserPart } from '@vo-coder/providers';
 import type { McpServerStatus, McpSuggestion } from '@vo-coder/core';
-import type { ChatSessionMeta, ProjectInfo, UsageData } from '../../../shared/ipc-contract';
+import type {
+  ChatSessionMeta,
+  GroupRun,
+  ProjectInfo,
+  UsageData,
+} from '../../../shared/ipc-contract';
 import type { RankedModel } from '@vo-coder/capability-registry';
 import type {
   AppConfig,
@@ -103,6 +108,8 @@ interface AppState {
   sessions: Record<string, SessionUi>;
   projects: ProjectInfo[];
   sessionMetas: ChatSessionMeta[];
+  /** Group runs — several agents on one goal, shown side by side. */
+  groups: GroupRun[];
   activeProjectId: string | null;
   activeSessionId: string | null;
   models: ModelInfo[];
@@ -147,6 +154,12 @@ interface AppState {
   /** Summarize-and-swap the active conversation; returns an error or null. */
   compactSession(): Promise<string | null>;
   newSession(projectId?: string, agentId?: string): Promise<void>;
+  /** Load a transcript into the store without opening it (group panes). */
+  primeSession(sessionId: string): Promise<void>;
+  loadGroups(): Promise<void>;
+  /** Split a goal across agents; returns an error message or null. */
+  startGroup(goal: string): Promise<string | null>;
+  endGroup(groupId: string): Promise<void>;
   newProject(name: string): Promise<void>;
   /** Create the folder on disk, the project, a first chat — then open the scaffold wizard. */
   newProjectIn(name: string, parentDir: string): Promise<string | null>;
@@ -205,6 +218,7 @@ export const useStore = create<AppState>((set, get) => ({
   sessions: {},
   projects: [],
   sessionMetas: [],
+  groups: [],
   activeProjectId: null,
   activeSessionId: null,
   models: [],
@@ -362,6 +376,9 @@ export const useStore = create<AppState>((set, get) => ({
     void get().loadCatalog();
     void window.vo.usageGet().then((usage) => set({ usage }));
     void window.vo.missionsList().then((missions) => set({ missions }));
+    // A group survives a restart: its members are ordinary sessions on disk,
+    // so the panes come back with the work still in them.
+    void get().loadGroups();
 
     const data = await window.vo.projectsList();
     set({ projects: data.projects, sessionMetas: data.sessions });
@@ -415,6 +432,47 @@ export const useStore = create<AppState>((set, get) => ({
       activeProjectId: meta?.projectId ?? get().activeProjectId,
       view: 'chat',
     });
+  },
+
+  /** Load a session's transcript into the store WITHOUT making it active —
+   *  group panes watch members that the user has not opened. */
+  async primeSession(sessionId) {
+    if (get().sessions[sessionId]) return;
+    try {
+      const { history } = await window.vo.sessionOpen(sessionId);
+      set((s) => ({
+        sessions: {
+          ...s.sessions,
+          [sessionId]: { messages: uiFromHistory(history), streaming: false },
+        },
+      }));
+    } catch {
+      set((s) => ({ sessions: { ...s.sessions, [sessionId]: emptySession() } }));
+    }
+  },
+
+  async loadGroups() {
+    try {
+      set({ groups: await window.vo.groupList() });
+    } catch {
+      /* groups are an overlay on ordinary sessions — never block the app */
+    }
+  },
+
+  async startGroup(goal) {
+    const projectId = get().activeProjectId;
+    const coordinatorId = get().activeSessionId;
+    if (!projectId || !coordinatorId) return 'Open a chat in a project first.';
+    const res = await window.vo.groupStart(projectId, coordinatorId, goal);
+    if (!res.ok) return res.error ?? 'Could not start the group.';
+    await get().loadGroups();
+    // Members stream immediately; prime them so the panes are not blank.
+    for (const m of res.group?.members ?? []) await get().primeSession(m.sessionId);
+    return null;
+  },
+
+  async endGroup(groupId) {
+    set({ groups: await window.vo.groupEnd(groupId) });
   },
 
   async newSession(projectId, agentId) {

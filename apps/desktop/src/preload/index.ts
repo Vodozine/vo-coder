@@ -27,6 +27,10 @@ const api: VoApi = {
   secretStatus: () => ipcRenderer.invoke(IPC.secretStatus),
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),
   modelWarm: (provider, model) => ipcRenderer.invoke(IPC.modelWarm, provider, model),
+  groupStart: (projectId, coordinatorId, goal) =>
+    ipcRenderer.invoke(IPC.groupStart, projectId, coordinatorId, goal),
+  groupList: () => ipcRenderer.invoke(IPC.groupList),
+  groupEnd: (groupId) => ipcRenderer.invoke(IPC.groupEnd, groupId),
   chatSend: (sessionId, parts, override) =>
     ipcRenderer.invoke(IPC.chatSend, sessionId, parts, override),
   chatStop: (sessionId) => ipcRenderer.invoke(IPC.chatStop, sessionId),

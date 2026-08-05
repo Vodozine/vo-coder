@@ -102,7 +102,17 @@ export class SessionManager {
     return spec;
   }
 
+  /**
+   * The spec ACTUALLY running this session. During delegation that is the
+   * specialist Vodo handed the turn to, not the session's stored agent —
+   * reading `meta.agentId` there returned Vodo, whose `mcpServers` is unset,
+   * which the MCP layer reads as "every connected server". A delegated
+   * specialist therefore silently received every tool in the app instead of
+   * the subset it was given, and the permission prompt named the wrong agent.
+   */
   private agentSpecSafe(sessionId: string): AgentSpec | undefined {
+    const live = this.sessions.get(sessionId)?.spec;
+    if (live) return live;
     const meta = this.deps.projects.meta(sessionId);
     if (!meta) return undefined;
     try {

@@ -3,6 +3,7 @@ import { Icon } from '../components/Icon';
 import { ModeToggle } from '../components/ModeToggle';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
+import { GroupView } from './GroupView';
 
 /**
  * Context-window meter: estimates how much of the model's window the next
@@ -227,7 +228,7 @@ function tokensPerSec(m: UiMessage): string | null {
   return rate >= 10 ? rate.toFixed(0) : rate.toFixed(1);
 }
 
-function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
+export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
       {m.routedNote && (
@@ -307,6 +308,46 @@ function PermissionModal() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Ask for the goal, then hand it to Vodo to split across the agents. */
+function GroupStarter({
+  onStart,
+  onCancel,
+}: {
+  onStart: (goal: string) => Promise<string | null>;
+  onCancel: () => void;
+}) {
+  const [goal, setGoal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    if (!goal.trim() || busy) return;
+    setBusy(true);
+    setError(await onStart(goal));
+    setBusy(false);
+  };
+  return (
+    <div className="group-starter">
+      <input
+        autoFocus
+        value={goal}
+        placeholder="What should the group work on? (it gets split across your agents)"
+        onChange={(e) => setGoal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void go();
+          if (e.key === 'Escape') onCancel();
+        }}
+      />
+      <button className="send" disabled={busy || !goal.trim()} onClick={() => void go()}>
+        {busy ? 'Splitting…' : 'Start'}
+      </button>
+      <button className="ghost" onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <span className="hint error-text">{error}</span>}
     </div>
   );
 }
@@ -710,6 +751,13 @@ export function Chat() {
     scrollToBottom();
   }, [messages]);
 
+  // A group run belongs to the project and shows above the thread — the
+  // coordinator keeps its own conversation while the members work.
+  const groups = useStore((s) => s.groups);
+  const startGroup = useStore((s) => s.startGroup);
+  const [groupPrompt, setGroupPrompt] = useState(false);
+  const activeGroup = groups.find((g) => !g.endedAt && g.projectId === activeMeta?.projectId);
+
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
   // load overlaps with the user typing, instead of beginning after Send.
@@ -836,12 +884,32 @@ export function Chat() {
         <div className="spacer" />
         <button
           className="ghost"
+          title="Split this goal across your agents — they work side by side, each in its own chat"
+          disabled={!activeMeta || (config.agents.length === 0)}
+          onClick={() => setGroupPrompt(true)}
+        >
+          Group project
+        </button>
+        <button
+          className="ghost"
           title="Start a new chat in this project"
           onClick={() => void newSession(activeMeta?.projectId)}
         >
           New chat
         </button>
       </header>
+
+      {groupPrompt && (
+        <GroupStarter
+          onCancel={() => setGroupPrompt(false)}
+          onStart={async (goal) => {
+            const err = await startGroup(goal);
+            if (!err) setGroupPrompt(false);
+            return err;
+          }}
+        />
+      )}
+      {activeGroup && <GroupView group={activeGroup} />}
 
       <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         {messages.length === 0 && (

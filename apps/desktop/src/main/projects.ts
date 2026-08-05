@@ -2,7 +2,12 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, 
 import { join } from 'node:path';
 import { app } from 'electron';
 import type { HarnessMessage } from '@vo-coder/providers';
-import type { ChatSessionMeta, ProjectInfo, ProjectsData } from '../shared/ipc-contract';
+import type {
+  ChatSessionMeta,
+  GroupRun,
+  ProjectInfo,
+  ProjectsData,
+} from '../shared/ipc-contract';
 
 /** Stable id for the default generic home — its chats run folder-less. */
 export const GENERAL_PROJECT_ID = 'general';
@@ -115,18 +120,49 @@ export class ProjectStore {
     return removed;
   }
 
-  createSession(projectId: string, agentId = 'default'): ChatSessionMeta {
+  createSession(
+    projectId: string,
+    agentId = 'default',
+    title?: string,
+    groupId?: string,
+  ): ChatSessionMeta {
     const meta: ChatSessionMeta = {
       id: `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       projectId,
       agentId,
-      title: 'New chat',
+      title: title?.trim() || 'New chat',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(groupId ? { groupId } : {}),
     };
     this.load().sessions.push(meta);
     this.persist();
     return meta;
+  }
+
+  // ---- group runs: several agents, one goal, one project ----
+
+  groups(): GroupRun[] {
+    return [...(this.load().groups ?? [])];
+  }
+
+  addGroup(group: GroupRun): void {
+    const data = this.load();
+    data.groups = [...(data.groups ?? []), group];
+    this.persist();
+  }
+
+  /**
+   * End a run without touching its sessions — the transcripts are ordinary
+   * chats and stay where they are, so the work survives the group that
+   * organised it.
+   */
+  endGroup(groupId: string): void {
+    const data = this.load();
+    const group = (data.groups ?? []).find((g) => g.id === groupId);
+    if (!group || group.endedAt) return;
+    group.endedAt = Date.now();
+    this.persist();
   }
 
   deleteSession(id: string): void {

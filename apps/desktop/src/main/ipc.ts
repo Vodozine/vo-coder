@@ -54,6 +54,7 @@ import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
+import { startGroup } from './groups';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
 import { VoiceHost } from './voice';
@@ -501,6 +502,49 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     } finally {
       warming.delete(key);
     }
+  });
+  // A group project: one goal, several agents, side by side in one project.
+  // Members are ordinary sessions, so they archive and distil like any chat —
+  // and because the digest is project-scoped and leads with active task nodes,
+  // each member sees what the others are in the middle of without any
+  // message-passing between them.
+  ipcMain.handle(
+    IPC.groupStart,
+    async (_e, projectId: string, coordinatorId: string, goal: string) => {
+      const result = await startGroup(
+        {
+          agents: () => config.get().agents,
+          complete: completeCheap,
+          createSession: (pid, agentId, title, groupId) =>
+            projects.createSession(pid, agentId, title, groupId).id,
+          send: (sessionId, text) => {
+            void sessions.send(sessionId, [{ type: 'text', text }]);
+          },
+          addGroup: (group) => projects.addGroup(group),
+        },
+        projectId,
+        coordinatorId,
+        goal,
+      );
+      if (result.ok) {
+        broadcastProjects();
+        journal.append({
+          kind: 'project',
+          text: `started a group project: ${result.group.goal} — ${result.group.members
+            .map((m) => `${m.agentName}: ${m.task}`)
+            .join(' | ')}`,
+          ...(projectNameOf(projectId) ? { project: projectNameOf(projectId)! } : {}),
+        });
+        return { ok: true, group: result.group };
+      }
+      return { ok: false, error: result.error };
+    },
+  );
+  ipcMain.handle(IPC.groupList, () => projects.groups());
+  ipcMain.handle(IPC.groupEnd, (_e, groupId: string) => {
+    projects.endGroup(groupId);
+    broadcastProjects();
+    return projects.groups();
   });
   ipcMain.handle(IPC.listModels, async (_e, providerId: string) => {
     const provider = hub.registry().get(providerId);
