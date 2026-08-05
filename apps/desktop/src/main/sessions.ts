@@ -565,6 +565,25 @@ export class SessionManager {
     this.deps.send(IPC.projectsChanged, this.deps.projects.list());
   }
 
+  /**
+   * Group members work pre-approved, like missions: the user approved the
+   * PLAN (the group_start permission prompt in Manual mode shows the exact
+   * parts), and the plan is meaningless if the team then stalls on a modal
+   * per file. Watched live: three members each raised ws_write prompts, the
+   * five-minute timeout denied them, and the group ended idle asking the user
+   * to "fix the permission setting". Scope is deliberately narrow — the
+   * project-folder workspace tools plus map_update, the coordination
+   * bookkeeping the brief instructs them to do. MCP calls, web_fetch and
+   * everything else still gate normally.
+   */
+  private static readonly GROUP_MEMBER_TOOLS = new Set(['ws_write', 'ws_run', 'map_update']);
+
+  private isGroupMember(sessionId: string): boolean {
+    const groupId = this.deps.projects.meta(sessionId)?.groupId;
+    if (!groupId) return false;
+    return this.deps.projects.groups().some((g) => g.id === groupId && !g.endedAt);
+  }
+
   private requestPermission(
     sessionId: string,
     name: string,
@@ -576,6 +595,9 @@ export class SessionManager {
     // executor's plan-mode block answers instructively (no modal either way).
     // Destructive infra tools still enforce their own confirm tier downstream.
     if (mode === 'auto' || mode === 'plan') return Promise.resolve('allow');
+    if (SessionManager.GROUP_MEMBER_TOOLS.has(name) && this.isGroupMember(sessionId)) {
+      return Promise.resolve('allow');
+    }
     return new Promise((resolve) => {
       const requestId = `perm_${++this.permSeq}`;
       this.pendingPermissions.set(requestId, resolve);

@@ -224,6 +224,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             projects.addGroup(group);
             broadcastProjects();
           },
+          warm: (provider, model) => {
+            void warmModel(provider, model);
+          },
         }, ctx?.projectId, ctx?.sessionId);
       }
       if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
@@ -532,7 +535,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   /** Planning turns awaiting their group_start call — see onEvent. */
   const pendingGroupPlans = new Map<string, { retried: boolean }>();
   const warming = new Set<string>();
-  ipcMain.handle(IPC.modelWarm, async (_e, providerId: string, model: string) => {
+  const warmModel = async (providerId: string, model: string): Promise<void> => {
     const key = `${providerId}/${model}`;
     if (warming.has(key)) return;
     const provider = hub.registry().get(providerId);
@@ -560,7 +563,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     } finally {
       warming.delete(key);
     }
-  });
+  };
+  ipcMain.handle(IPC.modelWarm, (_e, providerId: string, model: string) =>
+    warmModel(providerId, model),
+  );
   // A group project: one goal, several agents, side by side in one project.
   // Members are ordinary sessions, so they archive and distil like any chat —
   // and because the digest is project-scoped and leads with active task nodes,

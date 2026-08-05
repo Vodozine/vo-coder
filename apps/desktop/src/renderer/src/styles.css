@@ -1999,24 +1999,22 @@ select:focus {
 }
 
 /* ---- group projects: several agents on one goal, side by side ---- */
-/* The panes sit ABOVE the coordinator's thread, never instead of it: capped
-   height, so the chat underneath stays visible and scrollable, and the whole
-   block folds to just its header bar. */
+/* Expanded, the grid IS the chat surface: member tiles plus the coordinator's
+   own thread as the bottom-right tile — the chat is always one of the windows,
+   never buried under them. Folded, only the header bar remains and the classic
+   thread comes back. */
 .group-view {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
-  max-height: 58%;
   min-height: 0;
   gap: 8px;
   margin-bottom: 8px;
 }
-.group-view.collapsed {
-  max-height: none;
-  flex: none;
+.group-view.full {
+  flex: 1;
 }
-.group-view .group-grid {
-  min-height: 200px;
+.group-view.collapsed {
+  flex: none;
 }
 .group-head {
   display: flex;
@@ -2048,20 +2046,34 @@ select:focus {
   padding: 3px 6px;
 }
 /* Panes tile the space: 2x2 at four, 4x2 at eight. Each scrolls itself so a
-   chatty agent cannot push the others off screen. */
+   chatty agent cannot push the others off screen. Rows are fixed at two so the
+   coordinator can be pinned to the bottom-right cell; members auto-place and
+   skip it. */
 .group-grid {
   display: grid;
   gap: 8px;
   flex: 1;
   min-height: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 .group-grid.per8 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+.group-grid .group-pane.coordinator {
+  grid-area: 2 / 2;
+  border-color: var(--accent);
+}
+.group-grid.per8 .group-pane.coordinator {
+  grid-area: 2 / 4;
+}
 @media (max-width: 1100px) {
   .group-grid.per8 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+  }
+  .group-grid.per8 .group-pane.coordinator {
+    grid-area: 4 / 2;
   }
 }
 .group-pane {

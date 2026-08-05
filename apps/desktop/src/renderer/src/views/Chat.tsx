@@ -299,6 +299,16 @@ function PermissionModal() {
             mission with an interval keeps running on that schedule until you pause or delete it.
           </p>
         )}
+        {prompt.name === 'group_start' && (
+          <p className="perm-note">
+            This is the plan — the parts above are the whole of it. Allowing starts one chat per
+            part, and while the group runs the members&apos; <strong>project-folder writes and
+            commands</strong> (plus their memory-map updates) are approved automatically: approving
+            the plan approves the team doing its assigned work, instead of one modal per file
+            until a timeout denies them. Everything else they try still asks. End group withdraws
+            it all.
+          </p>
+        )}
         <div className="modal-actions">
           <button className="ghost" onClick={() => void respond(prompt.requestId, 'deny')}>
             Deny
@@ -767,6 +777,11 @@ export function Chat() {
         ? g.coordinatorId === activeSessionId
         : g.projectId === activeMeta?.projectId),
   );
+  // Expanded, the grid IS the chat surface (coordinator tile bottom-right);
+  // folded, the classic thread returns. The composer talks to the coordinator
+  // either way.
+  const [groupOpen, setGroupOpen] = useState(true);
+  const groupTakesOver = !!activeGroup && groupOpen;
 
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
@@ -929,8 +944,16 @@ export function Chat() {
           }}
         />
       )}
-      {activeGroup && <GroupView group={activeGroup} />}
+      {activeGroup && (
+        <GroupView
+          group={activeGroup}
+          coordinatorId={activeGroup.coordinatorId || (activeSessionId ?? '')}
+          collapsed={!groupOpen}
+          onToggle={() => setGroupOpen(!groupOpen)}
+        />
+      )}
 
+      {!groupTakesOver && (
       <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         {messages.length === 0 && (
           <StatusCard
@@ -964,6 +987,7 @@ export function Chat() {
           </div>
         ))}
       </div>
+      )}
 
       <footer className="composer-wrap">
         <CheckinBanner />

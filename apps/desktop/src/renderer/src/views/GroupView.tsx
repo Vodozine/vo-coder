@@ -5,37 +5,46 @@ import { useStore } from '../state/store';
 import { AssistantBody } from './Chat';
 
 /**
- * Several agents working one goal, side by side.
+ * Several agents working one goal, side by side — and the coordinator's chat
+ * is ONE OF THE TILES, pinned bottom-right, not a thread buried underneath.
+ * The main composer keeps talking to the coordinator; its tile is where the
+ * answer shows up.
  *
- * Each pane is a real chat session — it archives, distils, and can be opened
- * on its own afterwards. Nothing here passes messages between agents: they
- * stay in step through the project's memory map, whose digest leads with
- * active task nodes, so each one sees what the others are in the middle of.
+ * Each member pane is a real chat session — it archives, distils, and can be
+ * opened on its own afterwards. Nothing here passes messages between agents:
+ * they stay in step through the project's memory map.
  */
-export function GroupView({ group }: { group: GroupRun }) {
+export function GroupView({
+  group,
+  coordinatorId,
+  collapsed,
+  onToggle,
+}: {
+  group: GroupRun;
+  coordinatorId: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const endGroup = useStore((s) => s.endGroup);
   const working = useStore(
     (s) => group.members.filter((m) => s.sessions[m.sessionId]?.streaming).length,
   );
   const [perPage, setPerPage] = useState<4 | 8>(4);
   const [page, setPage] = useState(0);
-  // The big chat window is not where group work happens — the panes are. But
-  // the coordinator's thread still carries the plan and the results, so the
-  // panes cap their height and can fold away entirely: the chat is always
-  // visible underneath, never buried.
-  const [collapsed, setCollapsed] = useState(false);
 
-  const pages = Math.max(1, Math.ceil(group.members.length / perPage));
+  // The coordinator holds one tile, members get the rest.
+  const slots = perPage - 1;
+  const pages = Math.max(1, Math.ceil(group.members.length / slots));
   const current = Math.min(page, pages - 1);
-  const shown = group.members.slice(current * perPage, current * perPage + perPage);
+  const shown = group.members.slice(current * slots, current * slots + slots);
 
   return (
-    <div className={`group-view${collapsed ? ' collapsed' : ''}`}>
+    <div className={`group-view${collapsed ? ' collapsed' : ' full'}`}>
       <header className="group-head">
         <button
           className="ghost"
-          title={collapsed ? 'Show the agent panes' : 'Fold the panes away — they keep working'}
-          onClick={() => setCollapsed(!collapsed)}
+          title={collapsed ? 'Show the agent panes' : 'Fold to the plain chat — they keep working'}
+          onClick={onToggle}
         >
           {collapsed ? '▸' : '▾'}
         </button>
@@ -48,7 +57,7 @@ export function GroupView({ group }: { group: GroupRun }) {
         <div className="group-controls">
           <select
             value={String(perPage)}
-            title="How many agents to show at once"
+            title="How many windows per page (one is the coordinator)"
             onChange={(e) => {
               setPerPage(Number(e.target.value) === 8 ? 8 : 4);
               setPage(0);
@@ -94,8 +103,47 @@ export function GroupView({ group }: { group: GroupRun }) {
           {shown.map((m) => (
             <GroupPane key={m.sessionId} member={m} />
           ))}
+          <CoordinatorPane sessionId={coordinatorId} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The coordinator's own thread, always bottom-right (grid-area in CSS). The
+ * main composer below the grid is its input, so the tile carries no input of
+ * its own — it is the chat window, relocated, not a second chat.
+ */
+function CoordinatorPane({ sessionId }: { sessionId: string }) {
+  const session = useStore((s) => s.sessions[sessionId]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const messages = session?.messages ?? [];
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  return (
+    <div className={`group-pane coordinator${session?.streaming ? ' working' : ''}`}>
+      <header>
+        <strong>Vodo</strong>
+        <span className="meta">coordinator — type below to steer</span>
+        <span className="group-pane-actions">
+          <em className="meta">{session?.streaming ? 'working…' : 'idle'}</em>
+        </span>
+      </header>
+      <div className="group-pane-body" ref={scrollRef}>
+        {messages.map((m) =>
+          m.role === 'user' ? (
+            <div key={m.id} className="bubble user">
+              {m.text}
+            </div>
+          ) : (
+            <AssistantBody key={m.id} m={m} hideThinking={false} />
+          ),
+        )}
+      </div>
     </div>
   );
 }

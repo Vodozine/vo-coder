@@ -10,6 +10,12 @@ export interface GroupDeps {
   createSession: (projectId: string, agentId: string, title: string, groupId: string) => string;
   send: (sessionId: string, text: string) => void;
   addGroup: (group: GroupRun) => void;
+  /**
+   * Pre-load a member's model. A local model is read off disk on first use —
+   * measured at 36-93s here — and without this a member paid that on its
+   * FIRST group message while the others were already answering.
+   */
+  warm?: (provider: string, model: string) => void;
 }
 
 /**
@@ -173,6 +179,10 @@ export async function startGroup(
   };
   deps.addGroup(group);
   for (const member of members) {
+    // Loading starts NOW, in parallel across boxes, so a local member's first
+    // turn begins at prefill instead of at reading gigabytes off disk.
+    const agent = agents.find((a) => a.id === member.agentId);
+    if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(member.sessionId, memberBrief(group.goal, member, members));
   }
   return { ok: true, group };
