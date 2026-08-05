@@ -17,13 +17,19 @@ import { AssistantBody } from './Chat';
 export function GroupView({
   group,
   coordinatorId,
+  activeSessionId,
   collapsed,
   onToggle,
+  onOpenSolo,
 }: {
   group: GroupRun;
   coordinatorId: string;
+  /** The chat the composer talks to right now — its tile is marked. */
+  activeSessionId: string;
   collapsed: boolean;
   onToggle: () => void;
+  /** Show one member full size (activates it and folds the grid). */
+  onOpenSolo: (sessionId: string) => void;
 }) {
   const endGroup = useStore((s) => s.endGroup);
   const working = useStore(
@@ -101,9 +107,17 @@ export function GroupView({
       {!collapsed && (
         <div className={`group-grid per${perPage}`}>
           {shown.map((m) => (
-            <GroupPane key={m.sessionId} member={m} />
+            <GroupPane
+              key={m.sessionId}
+              member={m}
+              isActive={m.sessionId === activeSessionId}
+              onOpenSolo={onOpenSolo}
+            />
           ))}
-          <CoordinatorPane sessionId={coordinatorId} />
+          <CoordinatorPane
+            sessionId={coordinatorId}
+            isActive={coordinatorId === activeSessionId}
+          />
         </div>
       )}
     </div>
@@ -115,9 +129,16 @@ export function GroupView({
  * main composer below the grid is its input, so the tile carries no input of
  * its own — it is the chat window, relocated, not a second chat.
  */
-function CoordinatorPane({ sessionId }: { sessionId: string }) {
+function CoordinatorPane({ sessionId, isActive }: { sessionId: string; isActive: boolean }) {
   const session = useStore((s) => s.sessions[sessionId]);
+  const primeSession = useStore((s) => s.primeSession);
+  const openSession = useStore((s) => s.openSession);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // After a restart the coordinator's transcript may not be in the store yet —
+  // a restored group must come back with its thread, not an empty tile.
+  useEffect(() => {
+    void primeSession(sessionId);
+  }, [sessionId, primeSession]);
   const messages = session?.messages ?? [];
   useEffect(() => {
     const el = scrollRef.current;
@@ -125,12 +146,25 @@ function CoordinatorPane({ sessionId }: { sessionId: string }) {
   }, [messages]);
 
   return (
-    <div className={`group-pane coordinator${session?.streaming ? ' working' : ''}`}>
+    <div
+      className={`group-pane coordinator${session?.streaming ? ' working' : ''}${isActive ? ' active-chat' : ''}`}
+    >
       <header>
         <strong>Vodo</strong>
-        <span className="meta">coordinator — type below to steer</span>
+        <span className="meta">
+          {isActive ? 'coordinator — the box below types here' : 'coordinator'}
+        </span>
         <span className="group-pane-actions">
           <em className="meta">{session?.streaming ? 'working…' : 'idle'}</em>
+          {!isActive && (
+            <button
+              className="ghost"
+              title="Talk to the coordinator (the composer switches to this chat)"
+              onClick={() => void openSession(sessionId)}
+            >
+              talk
+            </button>
+          )}
         </span>
       </header>
       <div className="group-pane-body" ref={scrollRef}>
@@ -148,10 +182,17 @@ function CoordinatorPane({ sessionId }: { sessionId: string }) {
   );
 }
 
-function GroupPane({ member }: { member: GroupMember }) {
+function GroupPane({
+  member,
+  isActive,
+  onOpenSolo,
+}: {
+  member: GroupMember;
+  isActive: boolean;
+  onOpenSolo: (sessionId: string) => void;
+}) {
   const session = useStore((s) => s.sessions[member.sessionId]);
   const primeSession = useStore((s) => s.primeSession);
-  const openSession = useStore((s) => s.openSession);
   const sendToMember = useStore((s) => s.sendToMember);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -167,7 +208,9 @@ function GroupPane({ member }: { member: GroupMember }) {
   }, [messages]);
 
   return (
-    <div className={`group-pane${session?.streaming ? ' working' : ''}`}>
+    <div
+      className={`group-pane${session?.streaming ? ' working' : ''}${isActive ? ' active-chat' : ''}`}
+    >
       <header>
         <strong>{member.agentName}</strong>
         <span className="meta" title={member.task}>
@@ -181,8 +224,8 @@ function GroupPane({ member }: { member: GroupMember }) {
           )}
           <button
             className="ghost"
-            title="Open this chat full size"
-            onClick={() => void openSession(member.sessionId)}
+            title="Open this chat full size (▸ in the header brings the grid back)"
+            onClick={() => onOpenSolo(member.sessionId)}
           >
             open
           </button>

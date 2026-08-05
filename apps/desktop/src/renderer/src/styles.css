@@ -2064,6 +2064,11 @@ select:focus {
   grid-area: 2 / 2;
   border-color: var(--accent);
 }
+/* The chat the composer talks to right now. */
+.group-pane.active-chat {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .group-grid.per8 .group-pane.coordinator {
   grid-area: 2 / 4;
 }

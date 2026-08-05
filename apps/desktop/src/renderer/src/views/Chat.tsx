@@ -766,22 +766,36 @@ export function Chat() {
   const groups = useStore((s) => s.groups);
   const startGroup = useStore((s) => s.startGroup);
   const [groupPrompt, setGroupPrompt] = useState(false);
-  // Panes belong to the COORDINATOR chat — the one the group was started
-  // from. Keying by project put them on top of every chat in the project,
-  // including brand-new ones. (Groups from before coordinator tracking carry
-  // no coordinatorId; those stay project-wide until ended.)
+  // A live group's view restores from ANY of its chats — coordinator or
+  // member. Opening one of them later (or after a restart) brings all the
+  // agent windows back; only unrelated chats in the project stay plain.
+  // (Groups from before coordinator tracking carry no coordinatorId; those
+  // stay project-wide until ended.)
   const activeGroup = groups.find(
     (g) =>
       !g.endedAt &&
-      (g.coordinatorId
-        ? g.coordinatorId === activeSessionId
-        : g.projectId === activeMeta?.projectId),
+      (g.coordinatorId === activeSessionId ||
+        g.members.some((m) => m.sessionId === activeSessionId) ||
+        (!g.coordinatorId && g.projectId === activeMeta?.projectId)),
   );
   // Expanded, the grid IS the chat surface (coordinator tile bottom-right);
   // folded, the classic thread returns. The composer talks to the coordinator
   // either way.
   const [groupOpen, setGroupOpen] = useState(true);
   const groupTakesOver = !!activeGroup && groupOpen;
+  const openSession = useStore((s) => s.openSession);
+  // Opening any chat of a group unfolds its grid — that is what "restore the
+  // group" means — EXCEPT when the switch came from a pane's own "open full
+  // size", which is an explicit request for the solo view.
+  const soloOpenRef = useRef(false);
+  const activeGroupId = activeGroup?.id;
+  useEffect(() => {
+    if (soloOpenRef.current) {
+      soloOpenRef.current = false;
+      return;
+    }
+    if (activeGroupId) setGroupOpen(true);
+  }, [activeSessionId, activeGroupId]);
 
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
@@ -948,8 +962,16 @@ export function Chat() {
         <GroupView
           group={activeGroup}
           coordinatorId={activeGroup.coordinatorId || (activeSessionId ?? '')}
+          activeSessionId={activeSessionId ?? ''}
           collapsed={!groupOpen}
           onToggle={() => setGroupOpen(!groupOpen)}
+          onOpenSolo={(sid) => {
+            // Full-size view of one member = that chat active, grid folded.
+            // The header's ▸ brings the grid back.
+            soloOpenRef.current = true;
+            void openSession(sid);
+            setGroupOpen(false);
+          }}
         />
       )}
 

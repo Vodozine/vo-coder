@@ -258,7 +258,16 @@ function ProjectsPanel() {
                     key={meta.id}
                     className={`session-row ${meta.id === activeSessionId ? 'active' : ''}`}
                   >
-                    <button className="session-title" onClick={() => void openSession(meta.id)}>
+                    <button
+                      className="session-title"
+                      title={
+                        meta.groupId
+                          ? 'Part of a group project — opening it brings all the agent windows back'
+                          : undefined
+                      }
+                      onClick={() => void openSession(meta.id)}
+                    >
+                      {meta.groupId ? '⊞ ' : ''}
                       {meta.title}
                     </button>
                     <button
