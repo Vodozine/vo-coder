@@ -542,22 +542,37 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           if (stalled) {
             const n = (memberStallNotifies.get(sessionId) ?? 0) + 1;
             memberStallNotifies.set(sessionId, n);
-            if (n <= 3 && info.group.coordinatorId) {
+            if (n === 1) {
+              // First interruption: just continue — no boss round-trip needed
+              // for what one line fixes. Repeats escalate to Vodo below.
+              setTimeout(() => {
+                void sessions.send(sessionId, [
+                  {
+                    type: 'text',
+                    text:
+                      'Your run was interrupted mid-work (model stall) — this is an automatic ' +
+                      'continue. Pick up EXACTLY where you stopped: ws_list/ws_read what is ' +
+                      'already on disk and do not redo it. If you were writing a long file, ' +
+                      'write the REST of it in smaller pieces with ws_write append:true — one ' +
+                      'giant write is what stalls.',
+                  },
+                ]);
+              }, 1500);
+            } else if (n <= 3 && info.group.coordinatorId) {
               const who = info.member?.agentName ?? info.agent?.name ?? 'a member';
               void sessions.send(info.group.coordinatorId, [
                 {
                   type: 'text',
                   text:
-                    `MEMBER INTERRUPTED: ${who}'s turn was cut short mid-work (model stall or ` +
-                    `pause) — their part "${(info.member?.task ?? '').slice(0, 80)}" may be ` +
-                    'half-done. Check the map/folder if unsure, and if it is not finished, ' +
-                    `group_send ${who}: "Continue exactly where you stopped — do not redo what ` +
-                    'is already on disk." They keep their full context, so that one line is ' +
-                    'enough. ' +
+                    `MEMBER INTERRUPTED (again): ${who} keeps stalling mid-work — their part ` +
+                    `"${(info.member?.task ?? '').slice(0, 80)}" may be half-done. It already ` +
+                    'auto-continued once. Check the map/folder, and either group_send ' +
+                    `${who} precise smaller steps (chunked ws_write append:true for long ` +
+                    'files), or ' +
                     (n >= 3
-                      ? 'This is the third interruption — stop re-sending: reassign the ' +
-                        'remainder to another member or do that step yourself now.'
-                      : 'If it keeps happening, reassign the remainder or take the step over.'),
+                      ? 'stop re-sending — reassign the remainder to another member or do ' +
+                        'that step yourself now.'
+                      : 'reassign the remainder / take the step over if it stalls again.'),
                 },
               ]);
             }

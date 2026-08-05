@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -56,12 +57,21 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
     {
       name: 'ws_write',
       description:
-        'Write a file in the project folder (creates parent folders; overwrites). Use this to actually build the project instead of telling the user what to type.',
+        'Write a file in the project folder (creates parent folders; overwrites). Use this to ' +
+        'actually build the project instead of telling the user what to type. IMPORTANT: for ' +
+        'anything longer than ~150 lines, write it in SEVERAL calls — the first normal, the ' +
+        'rest with append:true — instead of one giant call. A single huge call streams for ' +
+        'minutes and can get the whole turn aborted as stalled; chunks land fast and show ' +
+        'progress.',
       inputSchema: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Relative file path' },
-          content: { type: 'string', description: 'Full file content' },
+          content: { type: 'string', description: 'File content (or the next chunk with append)' },
+          append: {
+            type: 'boolean',
+            description: 'Add to the end of the file instead of overwriting — for chunked writes of long files',
+          },
         },
         required: ['path', 'content'],
       },
@@ -275,6 +285,11 @@ export async function executeWorkspaceTool(
         const target = guarded(dir, String(a.path ?? ''));
         const content = String(a.content ?? '');
         mkdirSync(dirname(target), { recursive: true });
+        if (a.append === true) {
+          appendFileSync(target, content, 'utf8');
+          const total = statSync(target).size;
+          return { content: `Appended ${content.length} chars to ${a.path} (${total} bytes total)` };
+        }
         writeFileSync(target, content, 'utf8');
         return { content: `Wrote ${content.length} chars to ${a.path}` };
       }

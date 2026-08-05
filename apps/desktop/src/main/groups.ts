@@ -205,7 +205,9 @@ export function memberBrief(
     (others ? `Working alongside you, right now:\n${others}\n\n` : '') +
     (sharedFolder
       ? 'You all share ONE project folder — ws_list / ws_read / ws_write work there. ' +
-        'Deliverables are FILES in that folder, not chat text: write yours with ws_write.\n\n'
+        'Deliverables are FILES in that folder, not chat text: write yours with ws_write. ' +
+        'Long files: write them in several pieces (first call normal, the rest with ' +
+        'append:true) — one giant write can stall your whole turn.\n\n'
       : '') +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +

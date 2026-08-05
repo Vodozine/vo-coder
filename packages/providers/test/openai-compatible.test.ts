@@ -38,6 +38,13 @@ describe('OpenAI-compatible adapter (via XaiProvider)', () => {
     ]);
   });
 
+  it('declares a stall budget that covers server-side tool-call buffering', () => {
+    // xAI (seen live) sends NOTHING while the model generates a whole tool
+    // call — the harness default 120s killed healthy builds at the same spot
+    // every time.
+    expect(new XaiProvider({ apiKey: 'k' }).stallTimeoutMs).toBeGreaterThanOrEqual(300_000);
+  });
+
   it('normalizes auth failures into a single error event', async () => {
     const p = new XaiProvider({
       apiKey: 'bad-key',

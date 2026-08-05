@@ -49,6 +49,14 @@ interface CompletionChunk {
 
 export class OpenAICompatibleProvider implements ChatProvider {
   readonly id: ProviderId;
+  /**
+   * Some gateways (xAI seen live, repeatedly) buffer an ENTIRE tool call
+   * server-side and send nothing while the model generates it — a model
+   * writing a big file into one call is minutes of legitimate silence that
+   * no heartbeat can report, because no bytes arrive at all. 5 min instead
+   * of the 120s harness default; local subclasses declare more.
+   */
+  readonly stallTimeoutMs: number = 300_000;
   protected apiKey: string;
   protected baseURL: string;
   protected extraHeaders: Record<string, string>;
