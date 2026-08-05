@@ -425,6 +425,14 @@ export interface VoApi {
     sessionId: string,
     parts: UserPart[],
     override?: { provider?: string; model?: string },
+    /**
+     * noRoute pins the turn to the session's own agent — no delegation, no
+     * catalog routing. Exists for exactly one reason: a request to COORDINATE
+     * (plan a group) must reach Vodo itself, and under "agents only" even that
+     * request was being handed to a specialist, who has no coordination
+     * prompt and cannot do the job.
+     */
+    opts?: { noRoute?: boolean },
   ): Promise<SendResult>;
   chatInject(sessionId: string, parts: UserPart[]): Promise<SendResult>;
   chatStop(sessionId: string): Promise<void>;

@@ -483,13 +483,31 @@ export const useStore = create<AppState>((set, get) => ({
         'Switch the agent dropdown to Vodo (or open a new chat) and try again.'
       );
     }
-    await get().send(
+    const text =
       `GROUP PROJECT — plan this before anyone starts:\n\n${goal.trim()}\n\n` +
-        'Work out which parts can genuinely run at the same time, say what each part is and ' +
-        'which agent should take it and why, then call group_start with those parts. If it ' +
-        'truly cannot be divided, say so and just do it yourself.',
+      'Work out which parts can genuinely run at the same time, say what each part is and ' +
+      'which agent should take it and why, then call group_start with those parts. If it ' +
+      'truly cannot be divided, say so and just do it yourself.';
+    // noRoute: this request must reach Vodo ITSELF. Under "agents only" a
+    // plain send hands even the coordination request to a specialist, who has
+    // no coordination prompt — the plan appeared and then nothing happened.
+    const userMsg: UiMessage = { id: nextId++, role: 'user', text, streaming: false };
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          ...(s.sessions[sessionId] ?? emptySession()),
+          messages: [...(s.sessions[sessionId]?.messages ?? []), userMsg],
+        },
+      },
+    }));
+    const result = await window.vo.chatSend(
+      sessionId,
+      [{ type: 'text', text }],
+      undefined,
+      { noRoute: true },
     );
-    return null;
+    return result.ok ? null : (result.error ?? 'Could not start the group.');
   },
 
   async endGroup(groupId) {

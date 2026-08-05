@@ -657,6 +657,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       sessionId: string,
       parts: UserPart[],
       override?: { provider?: string; model?: string },
+      opts?: { noRoute?: boolean },
     ) => {
       const invalid = validateParts(parts);
       if (invalid) return { ok: false, error: invalid };
@@ -681,7 +682,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         return meta.dir ?? projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
       })();
       const builderMode = !!projectDir;
-      if (!override && mode !== 'off' && projects.meta(sessionId)?.agentId === 'default') {
+      if (
+        !override &&
+        !opts?.noRoute &&
+        mode !== 'off' &&
+        projects.meta(sessionId)?.agentId === 'default'
+      ) {
         // "My agents first" / "My agents only": hand the whole job (prompt,
         // tools, model) to the user's best-matching specialist; unset agent
         // models still get cheapest-adequate model routing underneath.
