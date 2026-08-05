@@ -230,14 +230,18 @@ export class SessionManager {
     // work, not something a keyword rule can decide.
     const teamNote =
       this.deps.builtins && spec.id === 'default' && this.teamSize() >= 2
-        ? '\n\nYOU HAVE A TEAM. Before starting anything substantial, think about whether the job ' +
-          'has parts that could be done AT THE SAME TIME — different files, different components, ' +
-          'research alongside implementation, tests alongside the feature. If it does, call ' +
-          'group_start with those parts: each goes to a different agent and they work in ' +
-          'parallel, which finishes sooner than you doing them one after another. Then say who ' +
-          'is doing what and let them work — do not redo their parts yourself. If the work is ' +
-          'sequential (each step needs the previous one), or small, just do it. Say briefly why ' +
-          'when you decide not to split something big.'
+        ? '\n\nYOU HAVE A TEAM. Before starting anything substantial, work out whether the job ' +
+          'has parts that can be done AT THE SAME TIME — different files, different components, ' +
+          'research alongside implementation, tests alongside the feature. Research usually ' +
+          'splits by subtopic, source or period; building splits by file or layer; writing ' +
+          'splits into gathering material alongside drafting structure. A part that will ' +
+          'eventually use another part’s output still counts, provided it can START now.\n' +
+          'PLAN OUT LOUD FIRST: say what each part is, which agent takes it and why. THEN call ' +
+          'group_start with those parts — never before you have said the plan, because that call ' +
+          'opens a chat per part and the user should see what they are getting. Afterwards, say ' +
+          'who is doing what and let them work: do not redo their parts yourself.\n' +
+          'If the work is genuinely sequential (each step needs the one before it) or small, ' +
+          'just do it — and say briefly why you are not splitting it.'
         : '';
     const assembly = this.assemblyNote(sessionId);
     const planNote =

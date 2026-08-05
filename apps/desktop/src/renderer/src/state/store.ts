@@ -359,9 +359,13 @@ export const useStore = create<AppState>((set, get) => ({
       });
       // Once-only: sessionCreate broadcasts the full list; stacking this listener
       // plus a local prepend would paint the same chat twice.
-      window.vo.onProjectsChanged((data) =>
-        set({ projects: data.projects, sessionMetas: data.sessions }),
-      );
+      window.vo.onProjectsChanged((data) => {
+        set({ projects: data.projects, sessionMetas: data.sessions });
+        // A group Vodo just started arrives as new sessions on this broadcast;
+        // the run itself lives beside them, so pull it too or the panes never
+        // appear until the next restart.
+        void get().loadGroups();
+      });
     }
     // StrictMode remounts effects in dev — share one boot so we never create
     // two starter chats when the project is empty.
@@ -461,15 +465,30 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  /**
+   * Hand the goal to Vodo to PLAN, rather than splitting it here.
+   *
+   * Dividing a job across a team is the most consequential reasoning in the
+   * feature, and it belongs to the model that has the project's folder, the
+   * memory map and tools — in the thread, where the plan is visible and the
+   * user can argue with it. The UI only asks the question.
+   */
   async startGroup(goal) {
-    const projectId = get().activeProjectId;
-    const coordinatorId = get().activeSessionId;
-    if (!projectId || !coordinatorId) return 'Open a chat in a project first.';
-    const res = await window.vo.groupStart(projectId, coordinatorId, goal);
-    if (!res.ok) return res.error ?? 'Could not start the group.';
-    await get().loadGroups();
-    // Members stream immediately; prime them so the panes are not blank.
-    for (const m of res.group?.members ?? []) await get().primeSession(m.sessionId);
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return 'Open a chat in a project first.';
+    const meta = get().sessionMetas.find((m) => m.id === sessionId);
+    if (meta && meta.agentId !== 'default') {
+      return (
+        'This chat talks straight to one agent, so Vodo is not in it and cannot plan a group. ' +
+        'Switch the agent dropdown to Vodo (or open a new chat) and try again.'
+      );
+    }
+    await get().send(
+      `GROUP PROJECT — plan this before anyone starts:\n\n${goal.trim()}\n\n` +
+        'Work out which parts can genuinely run at the same time, say what each part is and ' +
+        'which agent should take it and why, then call group_start with those parts. If it ' +
+        'truly cannot be divided, say so and just do it yourself.',
+    );
     return null;
   },
 

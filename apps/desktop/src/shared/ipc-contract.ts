@@ -417,12 +417,7 @@ export interface VoApi {
   listModels(provider: string): Promise<ModelInfo[]>;
   /** Make a local model resident before the user sends. Never throws. */
   modelWarm(provider: string, model: string): Promise<void>;
-  /** Split a goal across agents and start them side by side. */
-  groupStart(
-    projectId: string,
-    coordinatorId: string,
-    goal: string,
-  ): Promise<{ ok: boolean; group?: GroupRun; error?: string }>;
+  /** Group runs in this profile. Groups are started by Vodo, not by the UI. */
   groupList(): Promise<GroupRun[]>;
   /** Stop coordinating; the member chats stay exactly where they are. */
   groupEnd(groupId: string): Promise<GroupRun[]>;
@@ -572,7 +567,6 @@ export const IPC = {
   secretStatus: 'secrets:status',
   listModels: 'models:list',
   modelWarm: 'models:warm',
-  groupStart: 'groups:start',
   groupList: 'groups:list',
   groupEnd: 'groups:end',
   chatSend: 'chat:send',

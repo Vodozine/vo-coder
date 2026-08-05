@@ -54,7 +54,7 @@ import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
-import { executeGroupTool, groupToolSpecs, startGroup } from './groups';
+import { executeGroupTool, groupToolSpecs } from './groups';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
 import { VoiceHost } from './voice';
@@ -211,7 +211,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (name === 'group_start') {
         return executeGroupTool(args, {
           agents: () => config.get().agents,
-          complete: completeCheap,
           createSession: (pid, agentId, title, groupId) =>
             projects.createSession(pid, agentId, title, groupId).id,
           send: (sid, body) => {
@@ -526,38 +525,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // and because the digest is project-scoped and leads with active task nodes,
   // each member sees what the others are in the middle of without any
   // message-passing between them.
-  ipcMain.handle(
-    IPC.groupStart,
-    async (_e, projectId: string, coordinatorId: string, goal: string) => {
-      const result = await startGroup(
-        {
-          agents: () => config.get().agents,
-          complete: completeCheap,
-          createSession: (pid, agentId, title, groupId) =>
-            projects.createSession(pid, agentId, title, groupId).id,
-          send: (sessionId, text) => {
-            void sessions.send(sessionId, [{ type: 'text', text }]);
-          },
-          addGroup: (group) => projects.addGroup(group),
-        },
-        projectId,
-        coordinatorId,
-        goal,
-      );
-      if (result.ok) {
-        broadcastProjects();
-        journal.append({
-          kind: 'project',
-          text: `started a group project: ${result.group.goal} — ${result.group.members
-            .map((m) => `${m.agentName}: ${m.task}`)
-            .join(' | ')}`,
-          ...(projectNameOf(projectId) ? { project: projectNameOf(projectId)! } : {}),
-        });
-        return { ok: true, group: result.group };
-      }
-      return { ok: false, error: result.error };
-    },
-  );
+  //
+  // There is no "start a group" IPC on purpose. A group is only ever started
+  // by Vodo calling group_start, so the split is planned by the strong model
+  // that has the project's folder, memory map and tools — in the thread, where
+  // the user can see it and argue with it — instead of invisibly by whichever
+  // model happened to be cheapest.
   ipcMain.handle(IPC.groupList, () => projects.groups());
   ipcMain.handle(IPC.groupEnd, (_e, groupId: string) => {
     projects.endGroup(groupId);

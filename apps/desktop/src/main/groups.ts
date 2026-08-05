@@ -7,8 +7,6 @@ export const MAX_GROUP_MEMBERS = 8;
 
 export interface GroupDeps {
   agents: () => AgentSpec[];
-  /** One-shot completion on the cheapest adequate model — no tools, no history. */
-  complete: (prompt: string) => Promise<string>;
   createSession: (projectId: string, agentId: string, title: string, groupId: string) => string;
   send: (sessionId: string, text: string) => void;
   addGroup: (group: GroupRun) => void;
@@ -72,7 +70,7 @@ export async function executeGroupTool(
       isError: true,
     };
   }
-  const result = await startGroup(deps, projectId, '', goal, parts.slice(0, MAX_GROUP_MEMBERS));
+  const result = await startGroup(deps, projectId, '', goal, parts);
   if (!result.ok) return { content: result.error, isError: true };
   return {
     content:
@@ -81,54 +79,6 @@ export async function executeGroupTool(
       '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
       'is doing what, then wait for their results rather than doing the work yourself.',
   };
-}
-
-/**
- * Split a goal into parts that can genuinely run side by side.
- *
- * The model is asked for the split because "what are the separable parts of
- * this job" is a judgement call, not a parse. Everything after that is
- * deterministic: WHICH agent gets which part is decided by the same scorer
- * the single-agent router uses, so the assignment is inspectable and testable
- * rather than another thing the model can get creatively wrong.
- */
-export async function planGroup(
-  goal: string,
-  agents: AgentSpec[],
-  complete: (prompt: string) => Promise<string>,
-  max = MAX_GROUP_MEMBERS,
-): Promise<Array<{ task: string; agent: AgentSpec; matched: string[] }>> {
-  const roster = agents
-    .map((a) => `- ${a.name}${a.routingHints ? ` (specialty: ${a.routingHints})` : ''}`)
-    .join('\n');
-  const prompt =
-    'Split this goal into independent parts that different people could work on AT THE SAME ' +
-    'TIME. Parts must not depend on each other finishing first — if the work is inherently ' +
-    'sequential, return ONE part.\n' +
-    `At most ${max} parts. Each part is one sentence, written as an instruction to the person ` +
-    'doing it, and must carry enough context to act on alone.\n' +
-    `The team available:\n${roster}\n\n` +
-    'Output ONLY a JSON array of strings.\n\n' +
-    `GOAL: ${goal}`;
-
-  let tasks: string[] = [];
-  try {
-    const raw = await complete(prompt);
-    const json = raw.slice(raw.indexOf('['), raw.lastIndexOf(']') + 1);
-    const parsed: unknown = JSON.parse(json);
-    if (Array.isArray(parsed)) {
-      tasks = parsed
-        .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-        .map((t) => t.trim())
-        .slice(0, max);
-    }
-  } catch {
-    /* a splitter that fails must not stop the work — fall through */
-  }
-  // No usable split: the whole goal is one task. A group of one still beats
-  // an error, and the user can see it was not divisible.
-  if (!tasks.length) tasks = [goal];
-  return assignTasks(tasks, agents);
 }
 
 /**
@@ -166,8 +116,14 @@ export async function startGroup(
   projectId: string,
   coordinatorId: string,
   goal: string,
-  /** A split the caller already made (Vodo's own) — skips asking a model. */
-  parts?: string[],
+  /**
+   * The split, always made by Vodo. There is deliberately no fallback
+   * splitter: dividing a job across a team is the most consequential
+   * reasoning in the whole feature, and it used to be handed to the CHEAPEST
+   * model in the fleet, with no project folder, no memory map and no tools —
+   * which is exactly how a four-agent team ended up with one member.
+   */
+  parts: string[],
 ): Promise<{ ok: true; group: GroupRun } | { ok: false; error: string }> {
   const agents = deps.agents();
   if (!agents.length) {
@@ -180,10 +136,21 @@ export async function startGroup(
   }
   if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
 
-  const plan = parts?.length
-    ? assignTasks(parts, agents)
-    : await planGroup(goal, agents, deps.complete);
-  if (!plan.length) return { ok: false, error: 'Could not split that into work.' };
+  // Never more parts than people: a second task for the same agent runs in a
+  // second session, which is not parallelism — and on a local box it is two
+  // requests fighting over one GPU.
+  const plan = assignTasks(parts.slice(0, Math.min(MAX_GROUP_MEMBERS, agents.length)), agents);
+  // A one-member "group" is a normal chat with extra ceremony — and it hides
+  // the fact that nothing was parallelised behind a panel that says otherwise.
+  if (plan.length < 2) {
+    return {
+      ok: false,
+      error:
+        'That did not split into parts that can run at the same time — it reads as one piece of ' +
+        'work, or each step needs the one before it. Ask for it in the chat normally, or name the ' +
+        'parts yourself (e.g. "research the population data AND draft the article structure").',
+    };
+  }
 
   const groupId = `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const members: GroupMember[] = plan.map((p) => ({
