@@ -382,6 +382,44 @@ describe('stall watchdog', () => {
     expect(err && err.type === 'error' ? err.error.message : '').toMatch(/stalled/);
   });
 
+  it('slow prefill gets the first-token grace; mid-stream silence still stalls', async () => {
+    let aborted = false;
+    const provider: ChatProvider = {
+      id: 'fake-cloud',
+      // Tight mid-stream budget — but prefilling a huge context is silent far
+      // past it, and that must NOT count as a stall.
+      stallTimeoutMs: 30,
+      listModels: async () => [],
+      stream: async function* (_req, opts) {
+        await new Promise((r) => setTimeout(r, 60)); // "prefill": silent past 30ms
+        if (opts.signal.aborted) {
+          aborted = true;
+          return;
+        }
+        yield { type: 'text_delta', text: 'started ' } as ProviderEvent;
+        // Then dies mid-stream — the tight budget applies from here.
+        await new Promise<void>((resolve) =>
+          opts.signal.addEventListener('abort', () => {
+            aborted = true;
+            resolve();
+          }),
+        );
+      },
+    };
+    // No explicit stallTimeoutMs (that would pin both phases) — grace scaled
+    // down so the test runs in milliseconds.
+    const { session, events, done } = makeSession(provider, { firstEventGraceMs: 100 });
+    session.send('hello');
+    await done;
+    // Prefill survived the 30ms budget…
+    expect(events.some((e) => e.type === 'text_delta' && e.text === 'started ')).toBe(true);
+    // …and the mid-stream hang was still caught.
+    expect(aborted).toBe(true);
+    const err = events.find((e) => e.type === 'error');
+    expect(err && err.type === 'error' ? err.error.message : '').toMatch(/stalled/);
+    expect(session.getStatus()).toBe('idle');
+  });
+
   it('hollow keep-alive deltas do not keep a dead turn alive', async () => {
     const provider: ChatProvider = {
       id: 'fake',

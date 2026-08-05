@@ -80,10 +80,16 @@ export interface AgentSessionOptions {
   ) => HarnessMessage[];
   /**
    * Ms of provider silence before the run is declared stalled. Overrides
-   * everything; unset lets each provider state its own budget (local servers
-   * need minutes) before falling back to 120s.
+   * everything (both phases exactly); unset lets each provider state its own
+   * budget (local servers need minutes) before falling back to 120s.
    */
   stallTimeoutMs?: number;
+  /**
+   * Prefill budget: silence allowed before the FIRST meaningful event of each
+   * request, when stallTimeoutMs is not set. Default 5 min — big contexts
+   * legitimately prefill for minutes on every tool round.
+   */
+  firstEventGraceMs?: number;
 }
 
 export interface SendResult {
@@ -99,16 +105,27 @@ const BUDGET_RESULT =
   'the user says continue.';
 
 const STALL_TIMEOUT_MS = 120_000;
+/**
+ * Until the FIRST meaningful event of a request the model is prefilling: a
+ * 165k-token context on a cloud reasoning model legitimately takes over two
+ * minutes before the first delta, and every tool round re-prefills the whole
+ * grown history. Seen live: the watchdog killed a coordinator mid-assembly.
+ * Mid-stream the tight budget still applies — silence after tokens started
+ * flowing really does mean a dead connection.
+ */
+const FIRST_TOKEN_GRACE_MS = 300_000;
 
 /**
  * A provider that goes silent (queued free-tier model, dead connection, proxy
- * black hole) must not hang the turn forever: when no event arrives for `ms`,
- * abort the underlying request and synthesize error+done so the run ends
- * loudly — instead of the UI spinning "streaming" until the user gives up.
+ * black hole) must not hang the turn forever: when no event arrives for `ms`
+ * (`firstMs` before the first meaningful event — prefill budget), abort the
+ * underlying request and synthesize error+done so the run ends loudly —
+ * instead of the UI spinning "streaming" until the user gives up.
  */
 async function* guardStall(
   src: AsyncIterable<ProviderEvent>,
   ms: number,
+  firstMs: number,
   abort: () => void,
 ): AsyncIterable<ProviderEvent> {
   const it = src[Symbol.asyncIterator]();
@@ -117,7 +134,8 @@ async function* guardStall(
   // those must not keep a dead turn "streaming" forever.
   const meaningful = (e: ProviderEvent): boolean =>
     !((e.type === 'text_delta' || e.type === 'thinking_delta') && e.text.trim() === '');
-  let deadline = Date.now() + ms;
+  let seenMeaningful = false;
+  let deadline = Date.now() + firstMs;
   while (true) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stalled = new Promise<'stalled'>((resolve) => {
@@ -140,15 +158,19 @@ async function* guardStall(
         error: {
           kind: 'network',
           message:
-            `No data from the model for ${Math.round(ms / 1000)}s — the request stalled and was ` +
-            'aborted. Send again to retry, or switch models if it keeps happening.',
+            `No data from the model for ${Math.round((seenMeaningful ? ms : firstMs) / 1000)}s — ` +
+            'the request stalled and was aborted. Send again to retry, or switch models if it ' +
+            'keeps happening.',
         },
       };
       yield { type: 'done', stopReason: 'aborted' };
       return;
     }
     if (winner.done) return;
-    if (meaningful(winner.value)) deadline = Date.now() + ms;
+    if (meaningful(winner.value)) {
+      seenMeaningful = true;
+      deadline = Date.now() + ms;
+    }
     yield winner.value;
   }
 }
@@ -263,6 +285,8 @@ export class AgentSession {
     const runAbort = new AbortController();
     this.runAbort = runAbort;
     const maxTurns = this.opts.maxToolTurns ?? 16;
+    const stallBudget =
+      this.opts.stallTimeoutMs ?? bound.provider.stallTimeoutMs ?? STALL_TIMEOUT_MS;
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
         this.setStatus('streaming');
@@ -292,7 +316,12 @@ export class AgentSession {
             },
             { signal: ac.signal },
           ),
-          this.opts.stallTimeoutMs ?? bound.provider.stallTimeoutMs ?? STALL_TIMEOUT_MS,
+          stallBudget,
+          // An EXPLICIT option is an exact contract (tests, callers that know
+          // their model); only default-derived budgets get the prefill grace.
+          this.opts.stallTimeoutMs !== undefined
+            ? stallBudget
+            : Math.max(stallBudget, this.opts.firstEventGraceMs ?? FIRST_TOKEN_GRACE_MS),
           () => ac.abort(),
         )) {
           this.opts.emit(this.id, event);

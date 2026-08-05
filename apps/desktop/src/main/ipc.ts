@@ -442,10 +442,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // strong cloud model, the rest local". Alternation guard: the turn that
       // RESPONDS to a review is not itself reviewed, so this converges
       // instead of ping-ponging.
-      // A member starting work re-arms the completion driver for the next wave.
+      // A member starting work re-arms the completion driver for the next wave
+      // — including a fresh retry budget.
       if (event.type === 'status' && event.status === 'streaming') {
         const info = memberOf(sessionId);
-        if (info) groupSynthesisFired.delete(info.group.id);
+        if (info) {
+          groupSynthesisFired.delete(info.group.id);
+          groupFinishAttempts.delete(info.group.id);
+        }
+      }
+      // The coordinator's finishing turn dying (stall abort, provider error,
+      // tool-budget pause) must not strand the group one step from done. An
+      // error while the finish is in flight flags the group; the coordinator's
+      // next idle re-fires the driver with a resume brief (capped attempts).
+      // A turn that ends CLEANLY clears the flag — and a user Stop never sets
+      // it, so stopping stays stopped.
+      {
+        const g = projects
+          .groups()
+          .find((gr) => !gr.endedAt && gr.coordinatorId === sessionId);
+        if (g) {
+          if (event.type === 'error' && groupSynthesisFired.has(g.id)) {
+            coordStalled.add(g.id);
+          } else if (event.type === 'done' && event.stopReason !== 'aborted') {
+            coordStalled.delete(g.id);
+          } else if (event.type === 'status' && event.status === 'idle' && coordStalled.has(g.id)) {
+            coordStalled.delete(g.id);
+            groupSynthesisFired.delete(g.id);
+            setTimeout(() => maybeFinishGroup(g.id), 3000);
+          }
+        }
       }
       if (event.type === 'status' && event.status === 'idle') {
         const info = memberOf(sessionId);
@@ -740,6 +766,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const memberReviewFlag = new Set<string>();
   /** Groups whose finish prompt has been sent for the current work wave. */
   const groupSynthesisFired = new Set<string>();
+  /** Finish attempts this wave — a dying coordinator model must not loop forever. */
+  const groupFinishAttempts = new Map<string, number>();
+  const FINISH_ATTEMPTS_MAX = 3;
+  /** Groups whose finishing turn hit an error (stall abort, tool-budget pause). */
+  const coordStalled = new Set<string>();
   /**
    * The completion driver. Members finish, mark their tasks done, and go
    * idle — and an idle coordinator cannot "wait for their briefs": nothing
@@ -750,31 +781,35 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    */
   const maybeFinishGroup = (groupId: string): void => {
     if (groupSynthesisFired.has(groupId)) return;
+    const attempts = groupFinishAttempts.get(groupId) ?? 0;
+    if (attempts >= FINISH_ATTEMPTS_MAX) return;
     const group = projects.groups().find((g) => g.id === groupId && !g.endedAt);
     if (!group || !group.coordinatorId) return;
     if (!group.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) return;
     if (sessions.statusOf(group.coordinatorId) !== 'idle') return;
     groupSynthesisFired.add(groupId);
+    groupFinishAttempts.set(groupId, attempts + 1);
+    const brief =
+      attempts === 0
+        ? 'ALL GROUP MEMBERS ARE IDLE — their parts are marked done. The job is NOT finished ' +
+          'until the final deliverable exists and is verified. Do this now, autonomously, to ' +
+          'the end:\n' +
+          '1. map_query the task nodes and ws_list the folder — confirm every part actually ' +
+          'delivered its files. A part that is missing you do YOURSELF now, with your own ' +
+          'tools, instead of waiting.\n' +
+          '2. Assemble the final deliverable from the members’ material with ' +
+          'ws_read/ws_write (for a website: one self-contained file, exactly as the goal ' +
+          'says).\n' +
+          '3. Open the result with preview_open so the user sees it.\n' +
+          '4. Read your assembly back and fix what is wrong — broken links, missing ' +
+          'sections, leftover placeholders. At most two fix rounds.\n' +
+          '5. Report done: what was built, where it lives, what the user should look at.'
+        : 'Your finishing turn was interrupted before the deliverable was done. Pick up ' +
+          'EXACTLY where you stopped — ws_list first and do not redo work that is already on ' +
+          'disk. Finish the remaining steps: assemble, preview_open the result, fix what is ' +
+          'wrong, report done.';
     setTimeout(() => {
-      void sessions.send(group.coordinatorId, [
-        {
-          type: 'text',
-          text:
-            'ALL GROUP MEMBERS ARE IDLE — their parts are marked done. The job is NOT finished ' +
-            'until the final deliverable exists and is verified. Do this now, autonomously, to ' +
-            'the end:\n' +
-            '1. map_query the task nodes and ws_list the folder — confirm every part actually ' +
-            'delivered its files. A part that is missing you do YOURSELF now, with your own ' +
-            'tools, instead of waiting.\n' +
-            '2. Assemble the final deliverable from the members’ material with ' +
-            'ws_read/ws_write (for a website: one self-contained file, exactly as the goal ' +
-            'says).\n' +
-            '3. Open the result with preview_open so the user sees it.\n' +
-            '4. Read your assembly back and fix what is wrong — broken links, missing ' +
-            'sections, leftover placeholders. At most two fix rounds.\n' +
-            '5. Report done: what was built, where it lives, what the user should look at.',
-        },
-      ]);
+      void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);
   };
   /** This session's live group membership, or undefined. */
@@ -984,9 +1019,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         return meta.dir ?? projects.list().projects.find((p) => p.id === meta.projectId)?.dir;
       })();
       const builderMode = !!projectDir;
+      // The coordinator seat of a live group is Vodo BY DEFINITION — the user
+      // types "retry" there to continue the finish, and routing that to a
+      // 12B local agent hands the whole assembly to the weakest model in the
+      // fleet. Seen live. A coordinator never routes while its group runs.
+      const isLiveCoordinator = projects
+        .groups()
+        .some((g) => !g.endedAt && g.coordinatorId === sessionId);
       if (
         !override &&
         !opts?.noRoute &&
+        !isLiveCoordinator &&
         mode !== 'off' &&
         projects.meta(sessionId)?.agentId === 'default'
       ) {
