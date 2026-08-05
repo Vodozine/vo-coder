@@ -20,11 +20,40 @@ export type ProviderId =
   | 'llamacpp'
   | (string & {});
 
+/**
+ * What a local server can tell us about a model, so its context window can be
+ * arithmetic instead of a guess. All-optional on purpose: a box may be asleep,
+ * and a model that is not currently loaded cannot report its real cache cost.
+ */
+export interface EndpointMeasurement {
+  /** Weights on disk. */
+  weightsBytes?: number;
+  quantization?: string;
+  /** The model's own ceiling — never exceed it. */
+  trainedContext?: number;
+  /** Observed on a loaded instance. */
+  loadedContext?: number;
+  totalBytes?: number;
+  vramBytes?: number;
+  /**
+   * (total − weights) / loadedContext. The one number that makes fitting
+   * computable — and it must be MEASURED: the architecture formula
+   * over-predicts by ~3.5x on models using sliding-window attention or a
+   * quantised KV cache.
+   */
+  bytesPerToken?: number;
+  /** The loaded instance did not fit entirely on the GPU — the 20x cliff. */
+  spilled?: boolean;
+}
+
 export interface ModelInfo {
   id: string;
   provider: ProviderId;
   displayName?: string;
   contextLength?: number;
+  /** Weights on disk. Local servers report it; cloud models have no such thing. */
+  sizeBytes?: number;
+  quantization?: string;
   supportsTools?: boolean;
   supportsVision?: boolean;
   supportsThinking?: boolean;
@@ -136,6 +165,12 @@ export interface ChatProvider {
    * server that must read gigabytes off disk before its first token.
    */
   warm?(model: string): Promise<void>;
+  /**
+   * What the backend can tell us about a model's real memory cost, so the
+   * caller can size the context window instead of guessing. Only meaningful
+   * where the window is the caller's to choose — i.e. local servers.
+   */
+  measure?(model: string): Promise<EndpointMeasurement>;
   listModels(): Promise<ModelInfo[]>;
   stream(req: ChatRequest, opts: { signal: AbortSignal }): AsyncIterable<ProviderEvent>;
 }

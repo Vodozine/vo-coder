@@ -9,7 +9,7 @@ import {
   ProviderRegistry,
   XaiProvider,
 } from '@vo-coder/providers';
-import type { LocalEndpoint } from '../shared/ipc-contract';
+import type { AppConfig, LocalEndpoint } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
 
@@ -24,14 +24,37 @@ export function endpointSlug(name: string): string {
 
 function activeEndpoints(
   list: LocalEndpoint[] | undefined,
-): Array<{ name: string; url: string; contextTokens?: number }> {
+): Array<{ name: string; url: string; contextTokens?: number; keepAlive?: number | 'always' }> {
   return (list ?? [])
     .filter((e) => e.enabled && e.url.trim() && endpointSlug(e.name))
     .map((e) => ({
       name: endpointSlug(e.name),
       url: e.url.trim(),
       ...(e.contextTokens ? { contextTokens: e.contextTokens } : {}),
+      ...(e.keepAlive !== undefined ? { keepAlive: e.keepAlive } : {}),
     }));
+}
+
+/** Where a model id actually runs — the "@name" suffix picks the box. */
+export function endpointUrlFor(cfg: AppConfig, modelId: string): string {
+  const at = modelId.lastIndexOf('@');
+  if (at > 0) {
+    const name = modelId.slice(at + 1);
+    const hit = (cfg.ollamaExtraEndpoints ?? []).find((e) => endpointSlug(e.name) === name);
+    if (hit) return hit.url.trim().replace(/\/+$/, '');
+  }
+  return cfg.ollamaBaseUrl.replace(/\/+$/, '');
+}
+
+/** The VRAM the user stated for the box a model runs on, in bytes. */
+export function endpointVramBytes(cfg: AppConfig, modelId: string): number | undefined {
+  const at = modelId.lastIndexOf('@');
+  if (at > 0) {
+    const name = modelId.slice(at + 1);
+    const hit = (cfg.ollamaExtraEndpoints ?? []).find((e) => endpointSlug(e.name) === name);
+    if (hit) return hit.vramGb ? hit.vramGb * 1e9 : undefined;
+  }
+  return cfg.ollamaVramGb ? cfg.ollamaVramGb * 1e9 : undefined;
 }
 
 /**
@@ -45,6 +68,8 @@ export class ProviderHub {
     private secrets: SecretStore,
     /** Subscription OAuth bearer (SuperGrok / X Premium) — preferred over the key. */
     private getXaiOAuthToken?: () => string | null,
+    /** Measured window per model id, when the box has been probed. */
+    private measuredContext?: (modelId: string) => number | undefined,
   ) {}
 
   /**
@@ -80,7 +105,9 @@ export class ProviderHub {
         new OllamaProvider({
           baseUrl: cfg.ollamaBaseUrl,
           ...(cfg.ollamaContextTokens ? { contextTokens: cfg.ollamaContextTokens } : {}),
+          ...(cfg.ollamaKeepAlive !== undefined ? { keepAlive: cfg.ollamaKeepAlive } : {}),
           extraEndpoints: activeEndpoints(cfg.ollamaExtraEndpoints),
+          ...(this.measuredContext ? { measuredContext: this.measuredContext } : {}),
         }),
       );
     }

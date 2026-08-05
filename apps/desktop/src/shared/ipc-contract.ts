@@ -38,9 +38,20 @@ export interface LocalEndpoint {
    * Pin this server's context window (tokens). Match it to the server's own
    * OLLAMA_CONTEXT_LENGTH: Ollama reloads the model whenever num_ctx changes,
    * and on slow storage that eviction costs far more than the request itself.
-   * Unset = size it from the request.
+   * Unset = measure the box and fit the window to its VRAM.
    */
   contextTokens?: number;
+  /**
+   * How long a model stays resident once idle: minutes, or 'always'. Loading
+   * costs tens of seconds, so this is the biggest lever on how fast it feels.
+   */
+  keepAlive?: number | 'always';
+  /**
+   * This box's VRAM in GB. Ollama's API never reports a card's total memory,
+   * so without this the app can only fit a window after a spill has revealed
+   * the ceiling the expensive way.
+   */
+  vramGb?: number;
 }
 
 export interface AppConfig {
@@ -50,6 +61,10 @@ export interface AppConfig {
   lmstudioBaseUrl: string;
   /** Pin the primary Ollama server's context window — see LocalEndpoint.contextTokens. */
   ollamaContextTokens?: number;
+  /** Residency for the primary Ollama server — see LocalEndpoint.keepAlive. */
+  ollamaKeepAlive?: number | 'always';
+  /** The primary Ollama box's VRAM in GB — see LocalEndpoint.vramGb. */
+  ollamaVramGb?: number;
   /** Extra Ollama servers beyond ollamaBaseUrl; models list as "model@name". */
   ollamaExtraEndpoints: LocalEndpoint[];
   /** llama.cpp llama-server endpoints (OpenAI wire, url ends in /v1; usually one model per server). */

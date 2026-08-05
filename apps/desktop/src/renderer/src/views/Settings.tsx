@@ -1125,18 +1125,91 @@ function ContextSelect({
     <select
       value={String(value)}
       title={
-        'Context window for this server. Match your OLLAMA_CONTEXT_LENGTH — a value that differs ' +
-        'from the loaded model reloads it on every request. Bigger windows need more VRAM for the ' +
-        'KV cache; past what the prompt needs they only cost memory.'
+        'Context window for this server. "auto" measures each model on this box and picks the ' +
+        'largest window that still fits entirely in VRAM — spilling even a few layers to the CPU ' +
+        'costs roughly 20x throughput. A fixed value is sent unchanged, so match your ' +
+        'OLLAMA_CONTEXT_LENGTH: a window that differs from the loaded model reloads it.'
       }
       onChange={(e) => onChange(Number(e.target.value) || undefined)}
     >
       {CTX_CHOICES.map(([tokens, label]) => (
         <option key={tokens} value={tokens}>
+          {tokens === 0 ? 'auto (fit GPU)' : label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * How long a model stays resident once idle. Loading costs tens of seconds on
+ * real hardware, so this is the biggest single lever on how fast a chat feels.
+ */
+const KEEP_CHOICES: Array<[number | 'always', string]> = [
+  [5, 'keep 5m'],
+  [15, 'keep 15m'],
+  [30, 'keep 30m'],
+  [60, 'keep 1h'],
+  [240, 'keep 4h'],
+  ['always', 'always on'],
+];
+
+function KeepAliveSelect({
+  value,
+  onChange,
+  disabled,
+  title,
+}: {
+  value: number | 'always' | undefined;
+  onChange: (keep: number | 'always') => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <select
+      value={String(value ?? 30)}
+      disabled={disabled}
+      title={
+        title ??
+        'How long this server keeps a model in memory after the last message. "always on" stops ' +
+          'it unloading while idle — it cannot stop another model evicting it when VRAM is needed.'
+      }
+      onChange={(e) => onChange(e.target.value === 'always' ? 'always' : Number(e.target.value))}
+    >
+      {KEEP_CHOICES.map(([v, label]) => (
+        <option key={String(v)} value={String(v)}>
           {label}
         </option>
       ))}
     </select>
+  );
+}
+
+/** VRAM the card has. Ollama's API never reports it, and auto-fit needs it. */
+function VramInput({
+  value,
+  onChange,
+}: {
+  value: number | undefined;
+  onChange: (gb: number | undefined) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (value ? String(value) : '');
+  return (
+    <input
+      className="endpoint-vram"
+      value={shown}
+      placeholder="VRAM GB"
+      title={
+        "This box's VRAM in GB. Ollama never reports a card's total memory, so without it " +
+        '"auto" can only fit a window after a spill has revealed the ceiling the slow way.'
+      }
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== null) onChange(Number(draft) || undefined);
+        setDraft(null);
+      }}
+    />
   );
 }
 
@@ -1150,11 +1223,16 @@ function EndpointRow({
   urlPlaceholder,
   onChange,
   onRemove,
+  /** llama-server owns its own residency; offering the control would be a lie. */
+  residency = true,
+  showVram = true,
 }: {
   ep: LocalEndpoint;
   urlPlaceholder: string;
   onChange: (next: LocalEndpoint) => void;
   onRemove: () => void;
+  residency?: boolean;
+  showVram?: boolean;
 }) {
   const [name, setName] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -1181,6 +1259,19 @@ function EndpointRow({
       </button>
       <input value={curUrl} placeholder={urlPlaceholder} onChange={(e) => setUrl(e.target.value)} />
       <ContextSelect value={ctx} onChange={(t) => onChange({ ...ep, contextTokens: t })} />
+      {showVram && (
+        <VramInput value={ep.vramGb} onChange={(gb) => onChange({ ...ep, vramGb: gb })} />
+      )}
+      <KeepAliveSelect
+        value={ep.keepAlive}
+        onChange={(k) => onChange({ ...ep, keepAlive: k })}
+        disabled={!residency}
+        title={
+          residency
+            ? undefined
+            : 'llama-server holds its model for the life of the process — residency is managed by the server, not per request.'
+        }
+      />
       <button
         disabled={!dirty}
         onClick={() => {
@@ -1263,6 +1354,14 @@ export function Settings() {
           <ContextSelect
             value={config.ollamaContextTokens ?? 0}
             onChange={(t) => void saveConfig({ ollamaContextTokens: t })}
+          />
+          <VramInput
+            value={config.ollamaVramGb}
+            onChange={(gb) => void saveConfig({ ollamaVramGb: gb })}
+          />
+          <KeepAliveSelect
+            value={config.ollamaKeepAlive}
+            onChange={(k) => void saveConfig({ ollamaKeepAlive: k })}
           />
           <button
             disabled={ollamaUrl === null || ollamaUrl === config.ollamaBaseUrl}
@@ -1355,7 +1454,8 @@ export function Settings() {
             {(config.disabledProviders ?? []).includes('llamacpp') ? 'Off' : 'On'}
           </button>
           <span className="hint" style={{ flex: 1, margin: 0 }}>
-            llama-server boxes — OpenAI wire, URL ends in /v1
+            llama-server boxes — OpenAI wire, URL ends in /v1 · window and residency are fixed at
+            server launch
           </span>
           <button
             type="button"
@@ -1378,6 +1478,8 @@ export function Settings() {
             key={i}
             ep={ep}
             urlPlaceholder="http://192.168.1.20:8080/v1"
+            residency={false}
+            showVram={false}
             onChange={(next) =>
               void saveConfig({
                 llamacppEndpoints: llamacppEps.map((e, j) => (j === i ? next : e)),
@@ -1393,7 +1495,17 @@ export function Settings() {
           keeps the URL but excludes the server from auto-routing. + adds more servers (one per
           GPU/box on your LAN): their models appear as <code>model@name</code>, and an agent whose
           model is pinned to <code>llama3:70b@gpu2</code> always runs on that box — a full GPU per
-          agent. llama.cpp endpoints speak the OpenAI API and usually serve one model each.
+          agent.
+        </p>
+        <p className="hint">
+          <strong>auto (fit GPU)</strong> measures each model on its own box and picks the largest
+          window that still fits in VRAM — spilling even a few layers onto the CPU costs roughly
+          20× throughput, and nothing warns you when it happens. Tell it the card&apos;s{' '}
+          <strong>VRAM</strong> once: Ollama&apos;s API never reports total memory, so without it
+          auto can only find the ceiling the slow way. <strong>Keep</strong> is how long a model
+          stays loaded while idle — loading costs tens of seconds, so this is the biggest lever on
+          how fast a chat feels; <em>always on</em> stops idle unloading but cannot stop another
+          model evicting it when VRAM is needed.
         </p>
       </section>
 

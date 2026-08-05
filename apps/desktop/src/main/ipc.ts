@@ -52,7 +52,8 @@ import { XaiOAuth } from './xai-oauth';
 import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
-import { ProviderHub } from './providers';
+import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
+import { ContextFitStore } from './context-fit';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
 import { VoiceHost } from './voice';
@@ -96,7 +97,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
   setInterval(() => void xaiOauth.refreshIfNeeded(), 10 * 60_000);
   void xaiOauth.refreshIfNeeded();
-  const hub = new ProviderHub(config, secrets, () => xaiOauth.token());
+  // What each local model actually costs on its own box, so the context window
+  // is chosen by measurement rather than by the user guessing (a wrong guess
+  // spills layers to CPU and costs ~20x throughput, silently).
+  const contextFit = new ContextFitStore(join(app.getPath('userData'), 'context-fit.json'));
+  const hub = new ProviderHub(
+    config,
+    secrets,
+    () => xaiOauth.token(),
+    (modelId) => contextFit.windowFor(modelId, endpointUrlFor(config.get(), modelId)),
+  );
   const mcp = new McpClientManager();
   const projects = new ProjectStore();
   projects.ensureDefault();
@@ -468,6 +478,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     warming.add(key);
     try {
       await provider.warm(model);
+      // The model is resident right now, which is the only moment its real
+      // cache cost is observable — /api/ps reports nothing about a model that
+      // is not loaded. Measure here or not at all.
+      if (provider.measure) {
+        const cfg = config.get();
+        const url = endpointUrlFor(cfg, model);
+        const chosen = contextFit.record(
+          model,
+          url,
+          await provider.measure(model),
+          Date.now(),
+          endpointVramBytes(cfg, model),
+        );
+        if (chosen) console.log(`[fit] ${model} → ${chosen} tokens on ${url}`);
+      }
     } catch {
       /* the real request will report anything that matters */
     } finally {

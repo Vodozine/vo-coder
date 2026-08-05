@@ -570,6 +570,13 @@ select:focus {
   font-family: var(--mono);
   font-size: 13px;
 }
+/* VRAM is a two-or-three digit number — it should not steal the URL's width. */
+.field-row input.endpoint-vram {
+  flex: none;
+  width: 84px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
 
 .system-prompt {
   width: 100%;

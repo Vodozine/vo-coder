@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { LlamaCppProvider } from '../src/adapters/llamacpp.ts';
-import { contextWindow, OllamaProvider } from '../src/adapters/ollama.ts';
+import {
+  contextWindow,
+  fitContextWindow,
+  keepAliveValue,
+  OllamaProvider,
+} from '../src/adapters/ollama.ts';
 import { collect, fixture, userText } from './helpers.ts';
 
 /** A fetch stub that routes by URL prefix, so each endpoint answers differently. */
@@ -174,6 +179,112 @@ describe('contextWindow sizing (Ollama truncates silently at server num_ctx)', (
       messages: [userText('hello')],
     });
     expect(sawOptions.num_ctx).toBe(16384);
+  });
+});
+
+describe('measuring an endpoint so the window can be arithmetic', () => {
+  // The real numbers from the user's P40: a 27B at 128k reported total 26.81G
+  // against 17.51G of weights, i.e. ~0.071 MB/token — 3.5x LESS than the
+  // architecture formula predicts. Measurement is the whole point.
+  const GB = 1e9;
+  const boxFetch = (over: Record<string, unknown> = {}): typeof fetch =>
+    (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith('/api/tags')
+        ? { models: [{ name: 'big:27b', size: 17.51 * GB, details: { quantization_level: 'IQ4_XS' } }] }
+        : url.endsWith('/api/show')
+          ? { model_info: { 'qwen35.context_length': 262144 } }
+          : {
+              models: [
+                {
+                  name: 'big:27b',
+                  size: 26.81 * GB,
+                  size_vram: 21.8 * GB,
+                  context_length: 131072,
+                  ...over,
+                },
+              ],
+            };
+      return new Response(JSON.stringify(body), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+
+  it('derives bytes-per-token from the live instance, not the architecture', async () => {
+    const p = new OllamaProvider({ fetch: boxFetch() });
+    const m = await p.measure('big:27b');
+    expect(m.weightsBytes).toBe(17.51 * GB);
+    expect(m.quantization).toBe('IQ4_XS');
+    expect(m.trainedContext).toBe(262144);
+    expect(m.bytesPerToken).toBeCloseTo((26.81 * GB - 17.51 * GB) / 131072, 0);
+    expect(m.spilled).toBe(true); // 21.8G of 26.81G on the card
+  });
+
+  it('reports what it can when the model is not loaded, without erroring', async () => {
+    const p = new OllamaProvider({
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/ps')) return new Response('{"models":[]}');
+        if (url.endsWith('/api/tags')) {
+          return new Response(JSON.stringify({ models: [{ name: 'm', size: 5e9 }] }));
+        }
+        return new Response('{}');
+      }) as unknown as typeof fetch,
+    });
+    const m = await p.measure('m');
+    expect(m.weightsBytes).toBe(5e9);
+    expect(m.bytesPerToken).toBeUndefined();
+  });
+
+  it('measures a sleeping box as unknown rather than throwing', async () => {
+    const p = new OllamaProvider({
+      fetch: (async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch,
+    });
+    await expect(p.measure('m')).resolves.toEqual({});
+  });
+
+  it('picks the largest bucket that fits, never one that spills', () => {
+    const m = { weightsBytes: 17.51 * GB, bytesPerToken: 71000, trainedContext: 262144 };
+    // 22.5G card: (22.5*0.9 - 17.51)G / 71000 ≈ 38k tokens → 32k, not 64k.
+    expect(fitContextWindow(m, 22.5 * GB)).toBe(32768);
+    // A 48G card has room for far more, but never past the trained ceiling.
+    expect(fitContextWindow({ ...m, trainedContext: 32768 }, 48 * GB)).toBe(32768);
+  });
+
+  it('declines to choose when the box has not said enough', () => {
+    expect(fitContextWindow({ weightsBytes: 5e9 }, 8e9)).toBeNull();
+    expect(fitContextWindow({ weightsBytes: 5e9, bytesPerToken: 100 }, undefined)).toBeNull();
+    // Weights alone exceed the card — there is no window to choose.
+    expect(fitContextWindow({ weightsBytes: 20e9, bytesPerToken: 100 }, 8e9)).toBeNull();
+  });
+});
+
+describe('keep-alive is the endpoint owner’s choice', () => {
+  it('maps minutes and always-on to Ollama’s wire form', () => {
+    expect(keepAliveValue(5)).toBe('5m');
+    expect(keepAliveValue(240)).toBe('240m');
+    expect(keepAliveValue('always')).toBe(-1);
+    expect(keepAliveValue(undefined)).toBe('30m');
+  });
+
+  it('sends the endpoint’s own value on both warm and stream', async () => {
+    const seen: Array<string | number> = [];
+    const p = new OllamaProvider({
+      keepAlive: 5,
+      extraEndpoints: [{ name: 'gpu2', url: 'http://box:11434', keepAlive: 'always' }],
+      fetch: (async (_i: RequestInfo | URL, init?: RequestInit) => {
+        seen.push((JSON.parse(String(init?.body)) as { keep_alive: string }).keep_alive);
+        return new Response(fixture('ollama-basic.ndjson.txt'), {
+          headers: { 'content-type': 'application/x-ndjson' },
+        });
+      }) as unknown as typeof fetch,
+    });
+    await p.warm('m');
+    await p.warm('m@gpu2');
+    await collect(p, { model: 'm@gpu2', messages: [userText('hi')] });
+    expect(seen).toEqual(['5m', -1, -1]);
   });
 });
 
