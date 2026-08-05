@@ -335,6 +335,10 @@ export class AgentSession {
             case 'tool_call':
               toolCalls.push({ id: event.id, name: event.name, args: event.args });
               break;
+            case 'tool_progress':
+              // Heartbeat only: keeps guardStall fed and the UI honest while a
+              // big tool call streams its args. Never enters history.
+              break;
             case 'done':
               if (event.stopReason === 'aborted') this.cancelled = true;
               else wantsTools = event.stopReason === 'tool_use' && toolCalls.length > 0;

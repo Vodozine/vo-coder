@@ -586,9 +586,14 @@ export class SessionManager {
   private static readonly GROUP_MEMBER_TOOLS = new Set(['ws_write', 'ws_run', 'map_update']);
 
   private isGroupMember(sessionId: string): boolean {
+    const groups = this.deps.projects.groups();
     const groupId = this.deps.projects.meta(sessionId)?.groupId;
-    if (!groupId) return false;
-    return this.deps.projects.groups().some((g) => g.id === groupId && !g.endedAt);
+    if (groupId && groups.some((g) => g.id === groupId && !g.endedAt)) return true;
+    // The coordinator holds the same working grant: the finishing brief has it
+    // building missing parts and fixing the assembly — a run where every
+    // member could write but the boss's ws_write timed out into a denial left
+    // a group "done" with an EMPTY project folder.
+    return groups.some((g) => !g.endedAt && g.coordinatorId === sessionId);
   }
 
   private requestPermission(

@@ -112,6 +112,8 @@ export class AnthropicProvider implements ChatProvider {
               yield { type: 'thinking_delta', text: ev.delta.thinking };
             } else if (ev.delta.type === 'input_json_delta' && toolAcc) {
               toolAcc.json += ev.delta.partial_json;
+              // Heartbeat while args accumulate — see tool_progress in types.
+              yield { type: 'tool_progress', name: toolAcc.name, chars: toolAcc.json.length };
             }
             break;
           case 'content_block_stop':

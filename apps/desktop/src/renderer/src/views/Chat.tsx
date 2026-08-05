@@ -253,7 +253,14 @@ export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking:
           </div>
         );
       })}
-      {m.streaming && (m.segments ?? []).length === 0 && <WaitingBubble />}
+      {m.streaming && m.writing && (
+        <div className="meta pulse">
+          ✍ writing {m.writing.name ?? 'a tool call'} —{' '}
+          {m.writing.chars >= 1024 ? `${(m.writing.chars / 1024).toFixed(1)}k` : m.writing.chars}{' '}
+          chars…
+        </div>
+      )}
+      {m.streaming && !m.writing && (m.segments ?? []).length === 0 && <WaitingBubble />}
       {!m.streaming &&
         !m.error &&
         !m.aborted &&

@@ -18,6 +18,26 @@ describe('OpenAI-compatible adapter (via XaiProvider)', () => {
     ]);
   });
 
+  it('streams tool-arg chunks as tool_progress heartbeats before the assembled tool_call', async () => {
+    // A model writing a whole file into one call produces minutes of arg
+    // chunks and nothing else — without heartbeats the stall watchdog kills
+    // the healthiest turn of the run (seen live, always mid-assembly).
+    const sse =
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ws_write","arguments":"{\\"path\\":"}}]}}]}\n\n' +
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"index.html\\"}"}}]}}]}\n\n' +
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n' +
+      'data: [DONE]\n\n';
+    const p = new XaiProvider({ apiKey: 'test-key', fetch: fetchReturning(sse) });
+    const events = await collect(p, { model: 'grok-4', messages: [userText('build')] });
+    expect(events).toEqual([
+      { type: 'tool_progress', name: 'ws_write', chars: 8 },
+      { type: 'tool_progress', name: 'ws_write', chars: 21 },
+      { type: 'tool_call', id: 'call_1', name: 'ws_write', args: { path: 'index.html' } },
+      { type: 'usage', inputTokens: 0, outputTokens: 0 },
+      { type: 'done', stopReason: 'tool_use' },
+    ]);
+  });
+
   it('normalizes auth failures into a single error event', async () => {
     const p = new XaiProvider({
       apiKey: 'bad-key',

@@ -230,6 +230,18 @@ export class OpenAICompatibleProvider implements ChatProvider {
             if (tc.function?.arguments) acc.json += tc.function.arguments;
             toolAcc.set(tc.index, acc);
           }
+          if (choice?.delta?.tool_calls?.length) {
+            // Args stream silently into the accumulator — surface a heartbeat
+            // so the stall watchdog (and the UI) see a live, working model.
+            yieldedAny = true;
+            let chars = 0;
+            let name = '';
+            for (const acc of toolAcc.values()) {
+              chars += acc.json.length;
+              if (acc.name) name = acc.name;
+            }
+            yield { type: 'tool_progress', ...(name ? { name } : {}), chars };
+          }
           if (choice?.finish_reason) {
             yieldedAny = true;
             yield* flushTools();

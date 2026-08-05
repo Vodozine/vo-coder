@@ -10,6 +10,14 @@ export interface GroupDeps {
   createSession: (projectId: string, agentId: string, title: string, groupId: string) => string;
   send: (sessionId: string, text: string) => void;
   addGroup: (group: GroupRun) => void;
+  /** Live groups — group_send resolves its target member through this. */
+  groups?: () => GroupRun[];
+  /**
+   * Record the group in the project's memory map. Groups used to be invisible
+   * there: the members' task nodes existed but nothing said "these were one
+   * project with one goal" — so the map could not answer what a group did.
+   */
+  record?: (group: GroupRun) => void;
   /**
    * Pre-load a member's model. A local model is read off disk on first use —
    * measured at 36-93s here — and without this a member paid that on its
@@ -52,16 +60,87 @@ export function groupToolSpecs(): ToolSpec[] {
         required: ['goal', 'parts'],
       },
     },
+    {
+      name: 'group_send',
+      description:
+        'Hand work to ONE group member, in their own chat. You are the coordinator — delegate ' +
+        'instead of doing member-level work yourself: send the assembly job to your most capable ' +
+        'member, send a missing or broken part back to its owner, give follow-up instructions or ' +
+        'a fix list. Non-blocking: it returns at once, and you are woken again when the whole ' +
+        'group goes quiet. Only do a step yourself when no member can (wrong tools, failed at it ' +
+        'twice).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          member: {
+            type: 'string',
+            description: 'Agent name of the member (as listed when the group started)',
+          },
+          message: {
+            type: 'string',
+            description:
+              'The full instruction — which files to read, the exact deliverable, where to ' +
+              'write it. They see none of your reasoning; the message must stand alone.',
+          },
+        },
+        required: ['member', 'message'],
+      },
+    },
   ];
 }
 
 export async function executeGroupTool(
+  name: string,
   args: unknown,
   deps: GroupDeps,
   projectId?: string,
   /** The chat the call came from — the group's panes render there, and only there. */
   coordinatorId?: string,
 ): Promise<{ content: string; isError?: boolean }> {
+  if (name === 'group_send') {
+    const a = (args ?? {}) as { member?: unknown; message?: unknown };
+    const memberName = typeof a.member === 'string' ? a.member.trim() : '';
+    const message = typeof a.message === 'string' ? a.message.trim() : '';
+    if (!memberName || !message) {
+      return { content: 'group_send needs member (agent name) and message.', isError: true };
+    }
+    const group = deps.groups?.().find((g) => !g.endedAt && g.coordinatorId === coordinatorId);
+    if (!group) {
+      return {
+        content: 'No live group is coordinated from this chat — group_send only works there.',
+        isError: true,
+      };
+    }
+    const norm = (s: string) => s.toLowerCase();
+    const member =
+      group.members.find((m) => norm(m.agentName) === norm(memberName)) ??
+      group.members.find(
+        (m) => norm(m.agentName).includes(norm(memberName)) || norm(m.task).includes(norm(memberName)),
+      );
+    if (!member) {
+      return {
+        content:
+          `No member matches "${memberName}". Members: ` +
+          group.members.map((m) => m.agentName).join(', ') +
+          '.',
+        isError: true,
+      };
+    }
+    // Their model may have been evicted while they sat idle — start the load
+    // now so the instruction begins at prefill, not at reading weights.
+    const agent = deps.agents().find((ag) => ag.id === member.agentId);
+    if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
+    deps.send(
+      member.sessionId,
+      `FROM VODO (your coordinator) — new instruction:\n\n${message}\n\n` +
+        'Do this now, record progress with map_update, and stop when it is done.',
+    );
+    return {
+      content:
+        `Sent to ${member.agentName}. You will be woken when the group goes quiet — review ` +
+        'their output then, before anything else.',
+    };
+  }
   const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
   const goal = typeof a.goal === 'string' ? a.goal.trim() : '';
   const parts = Array.isArray(a.parts)
@@ -85,7 +164,8 @@ export async function executeGroupTool(
       `Started ${result.group.members.length} agents in parallel:\n` +
       result.group.members.map((m) => `- ${m.agentName}: ${m.task}`).join('\n') +
       '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
-      'is doing what, then wait for their results rather than doing the work yourself.',
+      'is doing what, then wait for their results rather than doing the work yourself. Mid-run ' +
+      'you can hand any of them follow-up work with group_send.',
   };
 }
 
@@ -114,7 +194,8 @@ export function memberBrief(goal: string, member: GroupMember, all: GroupMember[
     'stronger model) will do that one step or teach you the way, and a LESSON is saved to the ' +
     'project memory. Check your briefing for lessons with your name before asking the same thing ' +
     'twice. Vodo also reviews your work: when a VODO REVIEW message arrives, fix what it lists ' +
-    'before continuing.'
+    'before continuing. Mid-project, a message starting "FROM VODO" is your coordinator handing ' +
+    'you follow-up work — do it the same way: work, update the map, stop when done.'
   );
 }
 
@@ -183,6 +264,7 @@ export async function startGroup(
     members,
   };
   deps.addGroup(group);
+  deps.record?.(group);
   for (const member of members) {
     // Loading starts NOW, in parallel across boxes, so a local member's first
     // turn begins at prefill instead of at reading gigabytes off disk.

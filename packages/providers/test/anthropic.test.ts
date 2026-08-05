@@ -22,10 +22,14 @@ describe('AnthropicProvider event normalization', () => {
     ]);
   });
 
-  it('accumulates input_json_delta into a single tool_call', async () => {
+  it('accumulates input_json_delta into a single tool_call, with progress heartbeats', async () => {
     const events = await collect(provider('anthropic-tooluse.sse.txt'), req);
     expect(events).toEqual([
       { type: 'text_delta', text: 'Let me check.' },
+      // One heartbeat per args chunk — this is what keeps the stall watchdog
+      // fed while a model writes a whole file into a single call.
+      { type: 'tool_progress', name: 'get_weather', chars: 8 },
+      { type: 'tool_progress', name: 'get_weather', chars: 16 },
       { type: 'tool_call', id: 'toolu_01', name: 'get_weather', args: { city: 'Paris' } },
       { type: 'usage', inputTokens: 30, outputTokens: 18 },
       { type: 'done', stopReason: 'tool_use' },

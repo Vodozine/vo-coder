@@ -143,6 +143,13 @@ export interface ProviderErrorInfo {
 export type ProviderEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; text: string }
+  /**
+   * Tool-call arguments are streaming in (chars accumulated so far). A model
+   * writing a 40KB file inside one call produces MINUTES of otherwise-silent
+   * generation — without this heartbeat the stall watchdog kills healthy
+   * turns, always at the worst moment: mid-assembly of the biggest artifact.
+   */
+  | { type: 'tool_progress'; name?: string; chars: number }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheReadTokens?: number }
   | { type: 'done'; stopReason: StopReason }

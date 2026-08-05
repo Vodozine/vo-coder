@@ -228,8 +228,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
       }
-      if (name === 'group_start') {
-        return executeGroupTool(args, {
+      if (name === 'group_start' || name === 'group_send') {
+        return executeGroupTool(name, args, {
           agents: () => config.get().agents,
           createSession: (pid, agentId, title, groupId) =>
             projects.createSession(pid, agentId, title, groupId).id,
@@ -239,6 +239,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           addGroup: (group) => {
             projects.addGroup(group);
             broadcastProjects();
+          },
+          groups: () => projects.groups(),
+          // The group itself becomes a map node — the memory used to hold the
+          // members' task nodes with nothing saying they were one project.
+          record: (group) => {
+            bank?.applyOps(group.projectId, [
+              {
+                op: 'upsert',
+                type: 'task',
+                title: `GROUP PROJECT: ${group.goal.slice(0, 70)}`,
+                body:
+                  `Parallel group of ${group.members.length}:\n` +
+                  group.members.map((m) => `- ${m.agentName}: ${m.task.slice(0, 120)}`).join('\n'),
+                tags: 'group,parallel',
+              },
+            ]);
           },
           warm: (provider, model) => {
             void warmModel(provider, model);
@@ -791,23 +807,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     groupFinishAttempts.set(groupId, attempts + 1);
     const brief =
       attempts === 0
-        ? 'ALL GROUP MEMBERS ARE IDLE — their parts are marked done. The job is NOT finished ' +
-          'until the final deliverable exists and is verified. Do this now, autonomously, to ' +
-          'the end:\n' +
-          '1. map_query the task nodes and ws_list the folder — confirm every part actually ' +
-          'delivered its files. A part that is missing you do YOURSELF now, with your own ' +
-          'tools, instead of waiting.\n' +
-          '2. Assemble the final deliverable from the members’ material with ' +
-          'ws_read/ws_write (for a website: one self-contained file, exactly as the goal ' +
-          'says).\n' +
-          '3. Open the result with preview_open so the user sees it.\n' +
-          '4. Read your assembly back and fix what is wrong — broken links, missing ' +
-          'sections, leftover placeholders. At most two fix rounds.\n' +
-          '5. Report done: what was built, where it lives, what the user should look at.'
+        ? 'THE GROUP IS QUIET — every member is idle. You are the coordinator: the job is NOT ' +
+          'finished until the final deliverable exists, is verified, and is shown. You DELEGATE ' +
+          '— you do member-level work yourself only when no member can. Now:\n' +
+          '1. map_query the task nodes and ws_list the folder — check what each part actually ' +
+          'delivered as FILES, not as chat text.\n' +
+          '2. Work that is missing, wrong, or still unassembled goes to a MEMBER via ' +
+          'group_send: send a broken part back to its owner with a concrete fix list; hand the ' +
+          'assembly (merge the parts into the final deliverable, exact output file named) to ' +
+          'your most capable member. One member can hold several follow-ups, but send each as ' +
+          'its own group_send.\n' +
+          '3. Then STOP and wait — you are woken again when the group goes quiet. On each ' +
+          'wake: review what came back with ws_read, group_send fixes if needed (at most two ' +
+          'rounds per member), and only take a step over yourself if a member has failed it ' +
+          'twice or lacks the tools.\n' +
+          '4. When the deliverable is real: open it with preview_open, mark the GROUP ' +
+          'PROJECT task node done with map_update, and report — what was built, where it ' +
+          'lives, what the user should look at.'
         : 'Your finishing turn was interrupted before the deliverable was done. Pick up ' +
           'EXACTLY where you stopped — ws_list first and do not redo work that is already on ' +
-          'disk. Finish the remaining steps: assemble, preview_open the result, fix what is ' +
-          'wrong, report done.';
+          'disk. Delegate what remains with group_send; preview_open the result, mark the ' +
+          'group task node done, report.';
     setTimeout(() => {
       void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);

@@ -70,6 +70,8 @@ export interface UiMessage {
   /** Open stream's first/last delta; folded into genMs when it ends. */
   genStart?: number;
   genLast?: number;
+  /** A tool call's arguments are streaming in — the "silence" is a file being written. */
+  writing?: { name?: string; chars: number };
   streaming: boolean;
   aborted?: boolean;
 }
@@ -1135,11 +1137,28 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
     case 'tool_call':
       patchDraft((m) => ({
         ...m,
+        // The args finished streaming — the live "writing…" line hands over
+        // to the real tool segment.
+        writing: undefined,
         segments: [
           ...(m.segments ?? []),
           { kind: 'tool', callId: event.id, name: event.name, status: 'pending' },
         ],
       }));
+      break;
+    case 'tool_progress':
+      // Generating a big tool call (a whole file inside one ws_write) is real
+      // token output with nothing else moving on screen — show it, and count
+      // it in the generation span so tok/s stays honest.
+      patchDraft((m) => {
+        const now = Date.now();
+        return {
+          ...m,
+          writing: { ...(event.name ? { name: event.name } : {}), chars: event.chars },
+          genStart: m.genStart ?? now,
+          genLast: now,
+        };
+      });
       break;
     case 'tool_started':
       patchTool(event.callId, (t) => ({ ...t, status: 'running' }));
@@ -1168,7 +1187,13 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
     case 'done':
       // Each stream of the turn ends here — bank its generation time before
       // the next one (after a tool call) starts its own span.
-      patchDraft((m) => sealGen(event.stopReason === 'aborted' ? { ...m, aborted: true } : m));
+      patchDraft((m) =>
+        sealGen(
+          event.stopReason === 'aborted'
+            ? { ...m, aborted: true, writing: undefined }
+            : { ...m, writing: undefined },
+        ),
+      );
       break;
     case 'error':
       patchDraft((m) => ({ ...m, error: event.error.message }));
@@ -1193,7 +1218,7 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         });
       } else if (event.status === 'idle') {
         // Seal too: a turn cut short (abort, error) may never reach 'done'.
-        patchDraft((m) => sealGen({ ...m, streaming: false }));
+        patchDraft((m) => sealGen({ ...m, streaming: false, writing: undefined }));
         patchSession((session) => ({ ...session, streaming: false }));
         // A finished review run means the proposal is on screen — show the
         // Approve / Revise / Don't accept pill.
