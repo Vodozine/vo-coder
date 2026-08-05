@@ -1999,12 +1999,24 @@ select:focus {
 }
 
 /* ---- group projects: several agents on one goal, side by side ---- */
+/* The panes sit ABOVE the coordinator's thread, never instead of it: capped
+   height, so the chat underneath stays visible and scrollable, and the whole
+   block folds to just its header bar. */
 .group-view {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 0 1 auto;
+  max-height: 58%;
   min-height: 0;
   gap: 8px;
+  margin-bottom: 8px;
+}
+.group-view.collapsed {
+  max-height: none;
+  flex: none;
+}
+.group-view .group-grid {
+  min-height: 200px;
 }
 .group-head {
   display: flex;

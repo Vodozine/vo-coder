@@ -14,20 +14,37 @@ import { AssistantBody } from './Chat';
  */
 export function GroupView({ group }: { group: GroupRun }) {
   const endGroup = useStore((s) => s.endGroup);
+  const working = useStore(
+    (s) => group.members.filter((m) => s.sessions[m.sessionId]?.streaming).length,
+  );
   const [perPage, setPerPage] = useState<4 | 8>(4);
   const [page, setPage] = useState(0);
+  // The big chat window is not where group work happens — the panes are. But
+  // the coordinator's thread still carries the plan and the results, so the
+  // panes cap their height and can fold away entirely: the chat is always
+  // visible underneath, never buried.
+  const [collapsed, setCollapsed] = useState(false);
 
   const pages = Math.max(1, Math.ceil(group.members.length / perPage));
   const current = Math.min(page, pages - 1);
   const shown = group.members.slice(current * perPage, current * perPage + perPage);
 
   return (
-    <div className="group-view">
+    <div className={`group-view${collapsed ? ' collapsed' : ''}`}>
       <header className="group-head">
+        <button
+          className="ghost"
+          title={collapsed ? 'Show the agent panes' : 'Fold the panes away — they keep working'}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed ? '▸' : '▾'}
+        </button>
         <span className="group-goal" title={group.goal}>
           <Icon name="compass" size={12} /> {group.goal}
         </span>
-        <span className="meta">{group.members.length} working</span>
+        <span className="meta">
+          {working > 0 ? `${working} of ${group.members.length} working` : 'all idle'}
+        </span>
         <div className="group-controls">
           <select
             value={String(perPage)}
@@ -72,11 +89,13 @@ export function GroupView({ group }: { group: GroupRun }) {
           </button>
         </div>
       </header>
-      <div className={`group-grid per${perPage}`}>
-        {shown.map((m) => (
-          <GroupPane key={m.sessionId} member={m} />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className={`group-grid per${perPage}`}>
+          {shown.map((m) => (
+            <GroupPane key={m.sessionId} member={m} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

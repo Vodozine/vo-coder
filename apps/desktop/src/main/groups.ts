@@ -53,6 +53,8 @@ export async function executeGroupTool(
   args: unknown,
   deps: GroupDeps,
   projectId?: string,
+  /** The chat the call came from — the group's panes render there, and only there. */
+  coordinatorId?: string,
 ): Promise<{ content: string; isError?: boolean }> {
   const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
   const goal = typeof a.goal === 'string' ? a.goal.trim() : '';
@@ -70,7 +72,7 @@ export async function executeGroupTool(
       isError: true,
     };
   }
-  const result = await startGroup(deps, projectId, '', goal, parts);
+  const result = await startGroup(deps, projectId, coordinatorId ?? '', goal, parts);
   if (!result.ok) return { content: result.error, isError: true };
   return {
     content:

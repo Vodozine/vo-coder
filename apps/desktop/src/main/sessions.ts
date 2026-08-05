@@ -21,7 +21,7 @@ interface SessionManagerDeps {
     execute(
       name: string,
       args: unknown,
-      ctx?: { projectId?: string; dir?: string },
+      ctx?: { projectId?: string; dir?: string; sessionId?: string },
     ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
   };
   /** Fired for every provider usage report, with the model that produced it. */
@@ -407,14 +407,17 @@ export class SessionManager {
               name.startsWith('map_') ||
               name.startsWith('image_') ||
               name.startsWith('look_') ||
-              name.startsWith('file_'))
+              name.startsWith('file_') ||
+              name.startsWith('group_'))
           ) {
             // The session knows its own project — tools default to it instead
             // of making the model guess a name. dir carries the chat's folder
-            // (attached or project) for look_at_image / image saves.
+            // (attached or project) for look_at_image / image saves. sessionId
+            // makes THIS chat the coordinator when a group is started here.
             return this.deps.builtins.execute(name, args, {
               projectId: this.deps.projects.meta(sessionId)?.projectId,
               dir: this.projectDirFor(sessionId),
+              sessionId,
             });
           }
           return this.deps.mcp.call(name, args);

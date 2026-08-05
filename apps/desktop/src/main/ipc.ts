@@ -193,7 +193,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...(missionsRef?.toolSpecs() ?? []),
       ...groupToolSpecs(),
     ],
-    execute: (name: string, args: unknown, ctx?: { projectId?: string; dir?: string }) => {
+    execute: (
+      name: string,
+      args: unknown,
+      ctx?: { projectId?: string; dir?: string; sessionId?: string },
+    ) => {
       // The chat's folder: an attached/session dir when the caller passes one,
       // else the project's own folder.
       const ctxDir = () =>
@@ -220,7 +224,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             projects.addGroup(group);
             broadcastProjects();
           },
-        }, ctx?.projectId);
+        }, ctx?.projectId, ctx?.sessionId);
       }
       if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
       if (name.startsWith('memory_')) return journal.executeTool(name, args);

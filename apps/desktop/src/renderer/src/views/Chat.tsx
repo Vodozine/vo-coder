@@ -756,7 +756,17 @@ export function Chat() {
   const groups = useStore((s) => s.groups);
   const startGroup = useStore((s) => s.startGroup);
   const [groupPrompt, setGroupPrompt] = useState(false);
-  const activeGroup = groups.find((g) => !g.endedAt && g.projectId === activeMeta?.projectId);
+  // Panes belong to the COORDINATOR chat — the one the group was started
+  // from. Keying by project put them on top of every chat in the project,
+  // including brand-new ones. (Groups from before coordinator tracking carry
+  // no coordinatorId; those stay project-wide until ended.)
+  const activeGroup = groups.find(
+    (g) =>
+      !g.endedAt &&
+      (g.coordinatorId
+        ? g.coordinatorId === activeSessionId
+        : g.projectId === activeMeta?.projectId),
+  );
 
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
