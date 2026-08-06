@@ -607,6 +607,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 }, 1500);
               }
             } else if (
+              // ONLY a driver-woken finishing turn is held to this. Otherwise
+              // every ordinary reply after the job is done — the user simply
+              // chatting with Vodo — would be answered with a demand to
+              // dispatch work that does not exist.
+              groupSynthesisFired.has(g.id) &&
               coordDispatched.get(g.id) === 0 &&
               g.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')
             ) {
