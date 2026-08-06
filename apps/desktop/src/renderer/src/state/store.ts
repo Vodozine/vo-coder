@@ -497,6 +497,14 @@ export const useStore = create<AppState>((set, get) => ({
 
   async openSession(sessionId) {
     const meta = get().sessionMetas.find((m) => m.id === sessionId);
+<<<<<<< HEAD
+=======
+    // Design · chats belong only to the Design tab dock — never become the
+    // main Chat. Mr Homelab's chat is NOT in that class: it is hidden from the
+    // sidebar but opens, sends and stops like any chat, because his tab is the
+    // real Chat view bound to it.
+    if (isDesignSessionMeta(meta)) return;
+>>>>>>> 8896263 (Homelab chat opens for real; readable Anthropic rate-limit errors)
     if (!get().sessions[sessionId]) {
       try {
         const { history } = await window.vo.sessionOpen(sessionId);

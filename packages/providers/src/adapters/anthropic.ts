@@ -1,5 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { errorFromStatus, isAbortError, messageOf, networkError } from '../errors.js';
+import {
+  errorFromStatus,
+  humanizeErrorBody,
+  isAbortError,
+  messageOf,
+  networkError,
+} from '../errors.js';
 import type {
   ChatProvider,
   ChatRequest,
@@ -159,7 +165,18 @@ function normalizeError(err: unknown): ProviderErrorInfo {
     return networkError(err.message);
   }
   if (err instanceof Anthropic.APIError) {
-    return errorFromStatus(err.status, err.message);
+    // The SDK's message is the raw JSON body — readable to a machine, not to
+    // a person staring at a red bubble.
+    const human = humanizeErrorBody(err.status, err.message);
+    if (err.status === 429) {
+      return errorFromStatus(
+        err.status,
+        'Rate limit reached on this Claude account — on a Pro/Max plan this is your ' +
+          'plan\'s usage window, not a fault. Wait a few minutes, or switch this chat to ' +
+          'another model or provider in the meantime.',
+      );
+    }
+    return errorFromStatus(err.status, human);
   }
   return { kind: 'unknown', message: messageOf(err) };
 }
