@@ -221,7 +221,8 @@ export class SessionManager {
         'archive of all conversations, and archive_read pulls the exact surrounding turns. ' +
         "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
         'links); map_update corrects it. image_generate renders images with the configured image ' +
-        "model into the project's designs/ folder — use it for mockups, icons, art."
+        "model into the project's designs/ folder — use it for mockups, icons, art; the result " +
+        'appears in the chat by itself, so never open Preview to show a picture you just made.'
       : '';
     // Coordinating is the default agent's job, not a specialist's: a member
     // already inside a group must get on with its own part rather than

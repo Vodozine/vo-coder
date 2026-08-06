@@ -190,6 +190,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // needs routing, which is defined further down.
   let missionsRef: MissionManager | null = null;
   let telegramRef: TelegramBridge | null = null;
+  /**
+   * Files the chat is already showing inline (image_generate results). Opening
+   * Preview for one of these throws the user onto another tab to look at a
+   * picture that is right there in the conversation. Bounded — it only has to
+   * outlive the turn that made the image.
+   */
+  const shownInChat = new Set<string>();
+  const rememberShownInChat = (path: string) => {
+    shownInChat.add(resolve(path));
+    if (shownInChat.size > 50) shownInChat.delete(shownInChat.values().next().value!);
+  };
   const builtins = {
     specs: () => [
       ...webToolSpecs(),
@@ -203,9 +214,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       {
         name: 'preview_open',
         description:
-          "Show a built file (HTML, image, PDF) in the app's Preview pane so the user sees the " +
-          'result immediately. Path is relative to the project folder. Use it after assembling ' +
-          'a deliverable — showing beats describing.',
+          "Show a built page or document (HTML, PDF, built app output) in the app's Preview " +
+          'pane so the user sees the result immediately. Path is relative to the project ' +
+          'folder. Use it after assembling a deliverable — showing beats describing. NOT for ' +
+          'images you just generated: those already render in the chat under the tool call, ' +
+          'and opening Preview only drags the user off the conversation to see them.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -229,7 +242,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           : undefined);
       if (name.startsWith('web_')) return executeWebTool(name, args);
       if (name === 'image_generate') {
-        return executeImageTool(args, config, secrets, ctxDir(), { xaiToken: () => xaiOauth.token() });
+        return executeImageTool(args, config, secrets, ctxDir(), {
+          xaiToken: () => xaiOauth.token(),
+        }).then((res) => {
+          if (res.imagePath) rememberShownInChat(res.imagePath);
+          return res;
+        });
       }
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
@@ -311,6 +329,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }
         if (!existsSync(abs)) {
           return Promise.resolve({ content: `No such file: ${rel}`, isError: true });
+        }
+        // Not an error — the job is done, just not by switching tabs.
+        if (shownInChat.has(abs)) {
+          return Promise.resolve({
+            content: `${rel} is already visible in the chat, under the tool call that made it. Preview left alone.`,
+          });
         }
         const opened = preview.openFile(abs);
         if (!opened.ok) {
