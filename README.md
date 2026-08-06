@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://vodomation.com/vo-coder.html"><strong>Website</strong></a> ·
+  <a href="https://vodozine.github.io/vo-coder/"><strong>Website</strong></a> ·
   <a href="https://github.com/Vodozine/vo-coder/releases/latest"><strong>Download</strong></a> ·
   <a href="https://github.com/Vodozine/vo-coder/discussions"><strong>Discussions</strong></a> ·
   <a href="#whats-inside">Features</a>
@@ -44,6 +44,11 @@ That framework is so different from a conventional desktop that a straight port 
 
 ## Screens
 
+<p align="center">
+  <img src="docs/img/group-8.png" alt="Group project: six specialists working one goal side by side" width="880"/><br/>
+  <sub>A group project mid-flight: six specialists on one goal, Vodo coordinating — 8 panes per page.</sub>
+</p>
+
 <table>
   <tr>
     <td width="50%"><img src="docs/img/agents-edit.png" alt="Priced model picker"/><br/><sub>Compare models by price and context — pick the right one per agent.</sub></td>
@@ -55,7 +60,7 @@ That framework is so different from a conventional desktop that a straight port 
   </tr>
 </table>
 
-More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
+Every feature, explained in detail, on the **[website ↗](https://vodozine.github.io/vo-coder/)**.
 
 ## What's inside
 <a id="whats-inside"></a>
@@ -94,18 +99,17 @@ More on the **[website ↗](https://vodomation.com/vo-coder.html)**.
 
 **🛡 Built to not hang** — a silent or throttled model can't freeze a turn (a stall watchdog aborts it), Stop always interrupts even a wedged command, and long build-and-verify runs get room to finish instead of dying halfway. Three operating modes — **Auto** (autonomous), **Plan** (read-only, proposes a plan), **Manual** (approve every action).
 
-## What's new in 1.2.7
+## What's new
 
-- **NVIDIA NIM** as a first-class cloud provider (free-tier friendly model list, dead-endpoint learning, clearer errors)
-- **Provider On/Off** toggles — keep API keys and Grok login saved while excluding a provider from routing and chat
-- **Grok login = full xAI** — SuperGrok / X Premium unlocks chat, vision, and **Grok Imagine** image models without an API key
-- **Grok Imagine** in Settings → Image model (plus curated Grok 4.5 / Imagine catalog seeds)
-- **Vision & image model pickers** filter by capability and merge live lists with the catalog
-- **Open existing folder as a project** from the sidebar (no scaffold questionnaire)
-- **Composer draft persistence** per chat; smarter chat scroll-follow
-- **Busy-endpoint retry** for 429 / 5xx / in-band ResourceExhausted
-- **Grok login pricing** — SuperGrok / X Premium shows as free (subscription) even when an xAI API key is also saved; routing and usage meters match
-- **Dogfood-safe packaging** — CodeWatch ignores `release-*` pack dirs; `npm run preview` launches the real Electron shell
+**1.2.13** — image requests stop being routed to whoever is free: "generate an image of…" now stays on your chat model and renders through the image model you configured, instead of tying at zero score and landing on a small local agent.
+
+**1.2.12** — **Mr Homelab**: an optional dedicated infrastructure agent with his own tab (Settings → Mr Homelab), the bundled **infra** MCP server, his own chats and the same memory as everyone else — out of ordinary routing, but callable by a group project. Plus **Z.ai (GLM Coding Plan)** as a provider, and two crash fixes.
+
+**1.2.11** — local models stop re-reading the whole conversation every turn (the system prefix is now stable, so a local server reuses its KV cache); LM Studio endpoints accept a plain `host:port`.
+
+**1.2.10** — **Group projects**: Vodo plans a goal, splits it into briefs, assigns your specialists and runs them side by side (4 or 8 panes per page). He delegates the assembly instead of doing it himself, every member shares the project folder, a stalled member reports to him rather than to you, and the run folds into one bundle in the sidebar — rename anything, delete the bundle and its chats go with it.
+
+**1.2.9 and earlier** — multi-endpoint local models (one Ollama per GPU, `model@endpoint` pinning, measured context fit), the memory bank and smart context, NVIDIA NIM, provider On/Off toggles, Grok subscription sign-in, and image generation in chat. Full notes on the [Releases page](https://github.com/Vodozine/vo-coder/releases).
 
 ## Install
 
