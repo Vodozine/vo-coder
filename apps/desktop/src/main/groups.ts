@@ -31,6 +31,10 @@ export interface GroupDeps {
    * FIRST group message while the others were already answering.
    */
   warm?: (provider: string, model: string) => void;
+  /** Live run state of a session ('idle' | 'streaming' | …) for group_status. */
+  statusOf?: (sessionId: string) => string;
+  /** Tail of a member's last reply — what they actually said before going quiet. */
+  lastSaid?: (sessionId: string) => string;
 }
 
 /**
@@ -93,6 +97,15 @@ export function groupToolSpecs(): ToolSpec[] {
         required: ['member', 'message'],
       },
     },
+    {
+      name: 'group_status',
+      description:
+        'Who on your team is actually working right now, and what each of them last said. Call ' +
+        'this before you claim the group is busy or wait for anyone: "they are still working" is ' +
+        'a guess, and a wrong guess leaves the job parked with nobody running. Idle members are ' +
+        'waiting for YOU — send them work with group_send or finish the job.',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ];
 }
 
@@ -111,6 +124,36 @@ export async function executeGroupTool(
    */
   dir?: string,
 ): Promise<{ content: string; isError?: boolean }> {
+  if (name === 'group_status') {
+    const group = deps.groups?.().find((g) => !g.endedAt && g.coordinatorId === coordinatorId);
+    if (!group) {
+      return {
+        content: 'No live group is coordinated from this chat.',
+        isError: true,
+      };
+    }
+    const lines = group.members.map((m) => {
+      const status = deps.statusOf?.(m.sessionId) ?? 'unknown';
+      const said = deps.lastSaid?.(m.sessionId) ?? '';
+      return (
+        `- ${m.agentName} — ${status === 'idle' ? 'IDLE (waiting for you)' : status.toUpperCase()}` +
+        `\n    task: ${m.task.slice(0, 110)}` +
+        (said ? `\n    last said: ${said.replace(/\s+/g, ' ').slice(0, 180)}` : '')
+      );
+    });
+    const working = group.members.filter(
+      (m) => (deps.statusOf?.(m.sessionId) ?? 'idle') !== 'idle',
+    ).length;
+    return {
+      content:
+        `${group.members.length} member(s), ${working} working, ${group.members.length - working} idle.\n` +
+        `${lines.join('\n')}\n\n` +
+        (working === 0
+          ? 'NOBODY IS RUNNING. No one will come back to you on their own — either group_send ' +
+            'the remaining work to a named member now, or finish the last step yourself and report.'
+          : 'Some members are still working; you will be woken when the group goes quiet.'),
+    };
+  }
   if (name === 'group_send') {
     const a = (args ?? {}) as { member?: unknown; message?: unknown };
     const memberName = typeof a.member === 'string' ? a.member.trim() : '';

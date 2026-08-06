@@ -309,6 +309,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               },
             ]);
           },
+          // Both annotated on purpose: `sessions` is still being inferred at
+          // this point (it owns these builtins), so an inferred return type
+          // here closes a cycle TypeScript cannot resolve.
+          statusOf: (sid: string): string => sessions.statusOf(sid),
+          // The tail of what a member actually said — "still working" claimed
+          // about an idle member is how a finished group sat parked.
+          lastSaid: (sid: string): string => {
+            const msgs: HarnessMessage[] = sessions.historyOf(sid);
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const m = msgs[i];
+              if (!m || m.role !== 'assistant') continue;
+              const text = m.content
+                .map((p) => (p.type === 'text' ? p.text : ''))
+                .join(' ')
+                .trim();
+              if (text) return text;
+            }
+            return '';
+          },
           warm: (provider, model) => {
             void warmModel(provider, model);
           },
@@ -571,6 +590,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                     },
                   ]);
                 }, 1500);
+              }
+            } else if (groupSynthesisFired.has(g.id)) {
+              // The deadlock this group kept hitting: woken to finish, Vodo
+              // ANSWERED instead of dispatching ("I'll integrate when they
+              // report back") and went idle. Nothing is running, so no member
+              // will ever stream — and only a member streaming re-arms the
+              // driver. The group sits at 100% done, forever, and the user
+              // typing "why don't you start?" changes nothing.
+              const quiet = g.members.every(
+                (m) => sessions.statusOf(m.sessionId) === 'idle',
+              );
+              if (quiet) {
+                groupSynthesisFired.delete(g.id);
+                setTimeout(() => maybeFinishGroup(g.id), 2500);
               }
             }
           }
@@ -1045,17 +1078,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           'assembly (merge the parts into the final deliverable, exact output file named) to ' +
           'your most capable member. One member can hold several follow-ups, but send each as ' +
           'its own group_send.\n' +
-          '3. Then STOP and wait — you are woken again when the group goes quiet. On each ' +
+          '3. Then STOP and wait — you are woken again when the group goes quiet. Never claim ' +
+          'members are "still working" without calling group_status: an idle member is waiting ' +
+          'for YOU, and waiting for someone who is already finished parks the whole job. On each ' +
           'wake: review what came back with ws_read, group_send fixes if needed (at most two ' +
           'rounds per member), and only take a step over yourself if a member has failed it ' +
           'twice or lacks the tools.\n' +
           '4. When the deliverable is real: open it with preview_open, mark the GROUP ' +
           'PROJECT task node done with map_update, and report — what was built, where it ' +
           'lives, what the user should look at.'
-        : 'Your finishing turn was interrupted before the deliverable was done. Pick up ' +
-          'EXACTLY where you stopped — ws_list first and do not redo work that is already on ' +
-          'disk. Delegate what remains with group_send; preview_open the result, mark the ' +
-          'group task node done, report.';
+        : 'THE GROUP IS STILL QUIET AND THE JOB IS STILL NOT DONE. Every member is idle — ' +
+          'nobody is working, so nobody will report back to you, and saying you will wait ' +
+          'parks the job forever. Check the facts first (group_status for who is running, ' +
+          'ws_list for what is on disk), then either group_send the remaining work to a NAMED ' +
+          'member right now, or do the last step yourself. Finish by opening the result with ' +
+          'preview_open, marking the group task node done with map_update, and reporting what ' +
+          'exists and where.';
     setTimeout(() => {
       void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);
@@ -1271,9 +1309,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // types "retry" there to continue the finish, and routing that to a
       // 12B local agent hands the whole assembly to the weakest model in the
       // fleet. Seen live. A coordinator never routes while its group runs.
-      const isLiveCoordinator = projects
+      const liveGroupHere = projects
         .groups()
-        .some((g) => !g.endedAt && g.coordinatorId === sessionId);
+        .find((g) => !g.endedAt && g.coordinatorId === sessionId);
+      const isLiveCoordinator = !!liveGroupHere;
+      // The user prodding a parked group ("why don't you start?") re-arms the
+      // completion driver. Without this the finish fires once per wave and a
+      // coordinator that answered instead of delegating can never be woken
+      // again — nothing the user types brings the group back.
+      if (liveGroupHere && liveGroupHere.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) {
+        groupSynthesisFired.delete(liveGroupHere.id);
+        groupFinishAttempts.delete(liveGroupHere.id);
+      }
       // "Generate an image of X": the answer is a picture, and the picture comes
       // from the configured image model no matter who holds the turn — the chat
       // model only has to call image_generate. Routing can only pick a WORSE
