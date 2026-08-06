@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { AgentSpec } from '@vo-coder/providers';
 import { Icon } from '../components/Icon';
+import { ModelPicker } from '../components/ModelPicker';
 import { ModeToggle } from '../components/ModeToggle';
+import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
 import { GroupView } from './GroupView';
@@ -683,6 +686,8 @@ export function Chat() {
   // Grok login prefers OAuth over API key — show subscription (free) pricing.
   const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
   const suggestFor = useStore((s) => s.suggestFor);
+  const saveAgents = useStore((s) => s.saveAgents);
+  const editAgent = useStore((s) => s.editAgent);
   const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
   const activeAgentId = activeMeta?.agentId ?? 'default';
   /** Chat rendered inside the Mr Homelab tab — his agent is fixed there. */
@@ -904,11 +909,20 @@ export function Chat() {
         ) : (
           <select value={activeAgentId} onChange={(e) => void setSessionAgent(e.target.value)}>
             <option value="default">Vodo</option>
-            {config.agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
+            {/* Mr Homelab answers in his own tab; an agent taken off duty is
+                not on offer. A chat already bound to one still shows it. */}
+            {config.agents
+              .filter(
+                (a) =>
+                  a.id === activeAgentId ||
+                  (a.id !== HOMELAB_AGENT_ID && a.enabled !== false),
+              )
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                  {a.enabled === false ? ' (off)' : ''}
+                </option>
+              ))}
           </select>
         )}
         {/* Picking an agent talks to it DIRECTLY — routing, delegation and
@@ -921,7 +935,61 @@ export function Chat() {
             direct — Vodo not routing
           </span>
         )}
-        {usingDefaults ? (
+        {isHomelabTab && activeAgent ? (
+          /* His tab is where he is configured, so the model line next to his
+             name is a real picker — the same choice Vodo's header offers. */
+          <>
+            <select
+              value={activeAgent.provider ?? ''}
+              title="Provider for Mr Homelab"
+              onChange={(e) => {
+                const provider = e.target.value;
+                void saveAgents(
+                  config.agents.map((a) =>
+                    a.id === activeAgent.id
+                      ? {
+                          ...a,
+                          ...(provider
+                            ? { provider: provider as AgentSpec['provider'] }
+                            : { provider: undefined }),
+                          // A model id belongs to one provider — never carry it over.
+                          model: undefined,
+                        }
+                      : a,
+                  ),
+                );
+              }}
+            >
+              <option value="">default provider</option>
+              {PROVIDERS.filter(Boolean).map((p) => (
+                <option key={p} value={p}>
+                  {(config.disabledProviders ?? []).includes(p) ? `${p} (off)` : p}
+                </option>
+              ))}
+            </select>
+            <div className="homelab-model-picker">
+              <ModelPicker
+                provider={activeAgent.provider ?? config.defaultProvider}
+                value={activeAgent.model ?? ''}
+                placeholder="default model"
+                onChange={(id) =>
+                  void saveAgents(
+                    config.agents.map((a) =>
+                      a.id === activeAgent.id ? { ...a, model: id || undefined } : a,
+                    ),
+                  )
+                }
+              />
+            </div>
+            <button
+              className="ghost"
+              title="His prompt, routing hints and MCP servers"
+              onClick={() => editAgent(HOMELAB_AGENT_ID)}
+            >
+              Edit
+            </button>
+          </>
+        ) : usingDefaults ? (
           <>
             <select
               value={config.defaultProvider}
@@ -965,7 +1033,11 @@ export function Chat() {
         <button
           className="ghost"
           title="Split this goal across your agents — they work side by side, each in its own chat"
-          disabled={!activeMeta || (config.agents.length === 0)}
+          disabled={
+            !activeMeta ||
+            config.agents.filter((a) => a.id !== HOMELAB_AGENT_ID && a.enabled !== false).length ===
+              0
+          }
           onClick={() => setGroupPrompt(true)}
         >
           Group project

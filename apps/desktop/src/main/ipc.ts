@@ -1308,7 +1308,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           // tab, and a specialist whose hints cover "network/server/backup"
           // would otherwise absorb half of normal chat. Groups can still
           // assign him infrastructure parts (see the group path).
-          const agents = config.get().agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID);
+          const agents = config
+            .get()
+            .agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false);
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
 

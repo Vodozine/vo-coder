@@ -172,6 +172,15 @@ interface AppState {
   clearSuggestions(): void;
   applySuggestion(ranked: RankedModel): Promise<void>;
   setView(view: View): void;
+  /**
+   * Open the Agents page with one agent's form already open. Mr Homelab is not
+   * listed there any more — this is how his tab still reaches his prompt,
+   * hints and MCP servers.
+   */
+  editAgent(id: string): void;
+  /** Agent whose form the Agents page should open on arrival, then clear. */
+  agentToEdit: string | null;
+  clearAgentToEdit(): void;
   /** Mr Homelab's tab: ensure his agent + chat exist, then open them. */
   openHomelab(): Promise<void>;
   /** The chat that was active before the Homelab tab took over. */
@@ -431,6 +440,14 @@ export const useStore = create<AppState>((set, get) => ({
     return bootPromise;
   },
 
+  agentToEdit: null,
+  editAgent(id) {
+    set({ agentToEdit: id });
+    get().setView('agents');
+  },
+  clearAgentToEdit() {
+    if (get().agentToEdit) set({ agentToEdit: null });
+  },
   setView(view) {
     const prev = get().view;
     set({ view });

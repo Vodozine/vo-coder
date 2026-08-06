@@ -196,6 +196,13 @@ export interface AgentSpec {
   injectionMode?: 'abort-and-resend' | 'queue';
   /** Comma-separated specialty keywords used when Vodo delegates work. */
   routingHints?: string;
+  /**
+   * Off duty. Undefined means on — an agent written before this flag existed
+   * keeps working. A disabled agent is skipped by routing and by group
+   * projects, but keeps its prompt, model and chats: benching a specialist for
+   * a while should not mean deleting it and building it again.
+   */
+  enabled?: boolean;
   thinkingVisibility?: 'visible' | 'hidden';
   /** Request extended thinking/reasoning from providers that support it. */
   thinking?: ChatRequest['thinking'];

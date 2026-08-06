@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AgentSpec } from '@vo-coder/providers';
 import { ModelPicker } from '../components/ModelPicker';
+import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
@@ -220,7 +221,18 @@ export function Agents() {
   const config = useStore((s) => s.config);
   const saveAgents = useStore((s) => s.saveAgents);
   const newSession = useStore((s) => s.newSession);
+  const agentToEdit = useStore((s) => s.agentToEdit);
+  const clearAgentToEdit = useStore((s) => s.clearAgentToEdit);
   const [editing, setEditing] = useState<AgentSpec | null | 'new'>(null);
+
+  // Arrived here from "Edit" in Mr Homelab's tab — open his form, then forget
+  // the request so a later visit starts on the list.
+  useEffect(() => {
+    if (!agentToEdit) return;
+    const spec = config?.agents.find((a) => a.id === agentToEdit);
+    if (spec) setEditing(spec);
+    clearAgentToEdit();
+  }, [agentToEdit, config, clearAgentToEdit]);
 
   if (!config) return <div className="empty-state">Loading…</div>;
 
@@ -234,6 +246,15 @@ export function Agents() {
     void saveAgents(config.agents.filter((a) => a.id !== id));
   };
 
+  const setEnabled = (id: string, enabled: boolean) => {
+    void saveAgents(config.agents.map((a) => (a.id === id ? { ...a, enabled } : a)));
+  };
+
+  // Mr Homelab is configured in his own tab, next to his name — he owns a whole
+  // view, so listing him here as one card among the specialists put the same
+  // settings in two places.
+  const listed = config.agents.filter((a) => a.id !== HOMELAB_AGENT_ID);
+
   return (
     <div className="settings settings-full">
       <h1>Agents</h1>
@@ -242,40 +263,57 @@ export function Agents() {
         isolated sessions running side by side. Unset fields inherit the app defaults.
       </p>
 
-      {config.agents.length === 0 && editing === null && (
+      {listed.length === 0 && editing === null && (
         <div className="empty-state left">
           <p>No agents yet. The Default agent always exists; add specialists here.</p>
         </div>
       )}
 
-      {config.agents.length > 0 && (
+      {listed.length > 0 && (
         <div className="agents-list">
-          {config.agents.map((a) => (
-            <div key={a.id} className="agent-row">
-              <div className="agent-info">
-                <strong>{a.name}</strong>
-                <span className="meta">
-                  {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
-                  {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
-                </span>
-                {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
+          {listed.map((a) => {
+            const on = a.enabled !== false;
+            return (
+              <div key={a.id} className={`agent-row${on ? '' : ' agent-row--off'}`}>
+                <div className="agent-info">
+                  <strong>
+                    {a.name}
+                    {!on && <span className="meta"> — off duty</span>}
+                  </strong>
+                  <span className="meta">
+                    {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
+                    {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
+                  </span>
+                  {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
+                </div>
+                <div className="agent-actions">
+                  <button
+                    className={on ? 'ghost' : ''}
+                    title={
+                      on
+                        ? 'Take this agent off duty: routing and group projects skip it, everything else is kept'
+                        : 'Put this agent back on duty'
+                    }
+                    onClick={() => setEnabled(a.id, !on)}
+                  >
+                    {on ? 'On' : 'Off'}
+                  </button>
+                  <button
+                    title="Start a new chat with this agent in the current project"
+                    onClick={() => void newSession(undefined, a.id)}
+                  >
+                    Chat
+                  </button>
+                  <button className="ghost" onClick={() => setEditing(a)}>
+                    Edit
+                  </button>
+                  <button className="ghost" onClick={() => remove(a.id)}>
+                    Delete
+                  </button>
+                </div>
               </div>
-              <div className="agent-actions">
-                <button
-                  title="Start a new chat with this agent in the current project"
-                  onClick={() => void newSession(undefined, a.id)}
-                >
-                  Chat
-                </button>
-                <button className="ghost" onClick={() => setEditing(a)}>
-                  Edit
-                </button>
-                <button className="ghost" onClick={() => remove(a.id)}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

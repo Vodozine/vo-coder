@@ -843,6 +843,14 @@ select:focus {
 .agent-row:hover {
   border-color: #33405a;
 }
+/* Off duty: still here, still editable, just not picked for work. */
+.agent-row--off {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.agent-row--off:hover {
+  opacity: 0.8;
+}
 .agent-info {
   display: flex;
   flex-direction: column;
@@ -1334,6 +1342,13 @@ select:focus {
 }
 .status-row.bad .status-detail {
   color: #f1b0b0;
+}
+
+/* Mr Homelab's header picker: wide enough to read a model id, not so wide it
+   pushes the buttons off the bar. */
+.homelab-model-picker {
+  min-width: 190px;
+  max-width: 300px;
 }
 
 /* ---- model picker ---- */

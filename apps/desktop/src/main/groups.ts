@@ -255,7 +255,8 @@ export async function startGroup(
   // is his ROUTING HINTS only: general ranking also scores system-prompt
   // words, and his long prompt matches ordinary copy ("about", "network")
   // enough to sneak him into unrelated jobs.
-  const allAgents = deps.agents();
+  // An agent taken off duty is not on the team for this run either.
+  const allAgents = deps.agents().filter((a) => a.enabled !== false);
   const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
   const infraHints = (homelab?.routingHints ?? '')
     .split(/[,;]+/)
