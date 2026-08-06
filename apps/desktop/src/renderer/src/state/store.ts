@@ -464,7 +464,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (!config.agents.some((a) => a.id === HOMELAB_AGENT_ID)) {
       await get().saveAgents([...config.agents, homelabAgentSpec()]);
     }
-    const existing = sessionMetas.find((m) => isHomelabSessionMeta(m));
+    // Only chats in HIS project count — a leftover "Homelab ·" chat sitting in
+    // General (from before he had his own home) must not drag him back there.
+    const existing = sessionMetas.find((m) => m.projectId === HOMELAB_PROJECT_ID);
     if (existing) {
       await get().openSession(existing.id);
       return;
@@ -521,7 +523,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       activeSessionId: sessionId,
       activeProjectId: meta?.projectId ?? get().activeProjectId,
-      view: 'chat',
+      // Opening a chat normally means "show me Chat" — but opening MR HOMELAB'S
+      // chat must stay on his tab, or pressing his nav item lit up Chat instead
+      // (his own tab opening his own conversation, then jumping away from it).
+      view: isHomelabSessionMeta(meta) ? 'homelab' : 'chat',
     });
   },
 
