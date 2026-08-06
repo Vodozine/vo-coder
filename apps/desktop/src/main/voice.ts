@@ -77,7 +77,7 @@ export class VoiceHost {
       case 'openai': {
         const apiKey = this.secrets.get('openai');
         if (!apiKey) throw new Error('OpenAI TTS needs your OpenAI key (Settings → API keys).');
-        this.activeTts = new OpenAiTts({ apiKey, voice: v.openaiVoice });
+        this.activeTts = new OpenAiTts({ apiKey, voice: v.openaiVoice, speed: v.ttsSpeed });
         break;
       }
       case 'compat': {
@@ -93,6 +93,7 @@ export class VoiceHost {
         this.activeTts = new OpenAiTts({
           apiKey,
           baseURL: cleanIdentifier(v.compatBaseUrl),
+          speed: v.ttsSpeed,
           ...(model ? { model } : {}),
           ...(compatVoice ? { voice: compatVoice } : {}),
         });
@@ -115,6 +116,7 @@ export class VoiceHost {
         this.activeTts = new SystemTts({
           ...(v.systemVoice ? { voice: v.systemVoice } : {}),
           rate: v.systemRate,
+          pitch: v.systemPitch,
         });
     }
     return this.activeTts.speak(clean);

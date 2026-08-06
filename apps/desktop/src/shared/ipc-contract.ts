@@ -155,9 +155,18 @@ export interface VoiceSettings {
    */
   tts: 'openai' | 'system' | 'compat' | 'elevenlabs' | 'none';
   openaiVoice: string;
+  /**
+   * Delivery, split by what each engine can actually do. Speed is the one knob
+   * every OpenAI-compatible /audio/speech endpoint understands (0.5 … 5, 1 =
+   * the voice's own pace); pitch exists ONLY on the local system voice, because
+   * no cloud speech API exposes one.
+   */
+  ttsSpeed: number;
   /** System voice: installed voice name + rate (-10 slow … 10 fast). */
   systemVoice: string;
   systemRate: number;
+  /** System voice pitch: -10 (low) … 10 (high); 0 = the voice's own. */
+  systemPitch: number;
   /** OpenAI-compatible custom endpoint (key: secret "tts-custom", optional). */
   compatBaseUrl: string;
   compatModel: string;
@@ -188,8 +197,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     whisperModel: '',
     tts: 'system',
     openaiVoice: 'alloy',
+    ttsSpeed: 1,
     systemVoice: '',
     systemRate: 0,
+    systemPitch: 0,
     compatBaseUrl: '',
     compatModel: '',
     compatVoice: '',

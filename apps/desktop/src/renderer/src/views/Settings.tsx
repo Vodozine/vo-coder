@@ -923,10 +923,14 @@ function VoiceSection() {
         Hold the mic (or Ctrl+Space) to dictate; the Live toggle in Chat talks back.
       </p>
       <details className="hint-more">
-        <summary>how the two differ</summary>
+        <summary>how the two differ, and what speed/pitch reach</summary>
         <p className="hint">
           Dictation inserts what you said into the composer and does not send it. Live chat speaks
-          the answers aloud and can be interrupted at any time.
+          the answers aloud and can be interrupted at any time. <strong>Speed</strong> is the one
+          control every OpenAI-compatible endpoint understands (Groq, OpenAI, Kokoro…) and is sent
+          only when it is not 1. <strong>Pitch</strong> exists only on the offline system voice —
+          no cloud speech API offers one — where it goes through SSML on Windows, an embedded
+          command on macOS, and espeak&apos;s own flag on Linux.
         </p>
       </details>
       <div className="field-row">
@@ -992,22 +996,64 @@ function VoiceSection() {
         )}
       </div>
       {v.tts === 'system' && (
+        <>
+          <div className="field-row">
+            <label>voice</label>
+            <input
+              className="grow"
+              placeholder="installed voice name (empty = default)"
+              value={v.systemVoice}
+              onChange={(e) => save({ systemVoice: e.target.value })}
+            />
+          </div>
+          <div className="field-row">
+            <label>rate / pitch</label>
+            <input
+              type="range"
+              className="grow"
+              min={-10}
+              max={10}
+              step={1}
+              title={`Speaking rate ${v.systemRate} (-10 slow … 10 fast)`}
+              value={v.systemRate}
+              onChange={(e) => save({ systemRate: Number(e.target.value) })}
+            />
+            <input
+              type="range"
+              className="grow"
+              min={-10}
+              max={10}
+              step={1}
+              title={`Pitch ${v.systemPitch ?? 0} (-10 low … 10 high)`}
+              value={v.systemPitch ?? 0}
+              onChange={(e) => save({ systemPitch: Number(e.target.value) })}
+            />
+            <span className="meta">
+              {v.systemRate > 0 ? `+${v.systemRate}` : v.systemRate} /{' '}
+              {(v.systemPitch ?? 0) > 0 ? `+${v.systemPitch}` : (v.systemPitch ?? 0)}
+            </span>
+          </div>
+        </>
+      )}
+      {(v.tts === 'openai' || v.tts === 'compat') && (
         <div className="field-row">
-          <label>voice / rate</label>
+          <label>speed</label>
           <input
+            type="range"
             className="grow"
-            placeholder="installed voice name (empty = default)"
-            value={v.systemVoice}
-            onChange={(e) => save({ systemVoice: e.target.value })}
+            min={0.5}
+            max={2}
+            step={0.05}
+            title="1 = the voice's own pace. Sent only when it differs from 1."
+            value={v.ttsSpeed ?? 1}
+            onChange={(e) => save({ ttsSpeed: Number(e.target.value) })}
           />
-          <input
-            type="number"
-            min={-10}
-            max={10}
-            title="Speaking rate: -10 slow … 10 fast"
-            value={v.systemRate}
-            onChange={(e) => save({ systemRate: Number(e.target.value) || 0 })}
-          />
+          <span className="meta">{(v.ttsSpeed ?? 1).toFixed(2)}×</span>
+          {(v.ttsSpeed ?? 1) !== 1 && (
+            <button className="ghost" onClick={() => save({ ttsSpeed: 1 })}>
+              Reset
+            </button>
+          )}
         </div>
       )}
       {v.tts === 'elevenlabs' && (
