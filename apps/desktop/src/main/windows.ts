@@ -28,6 +28,16 @@ export function createMainWindow(): BrowserWindow {
       // on its own content, which is what carries the weight here.
       sandbox: false,
       nodeIntegration: false,
+      /**
+       * Spoken replies are audio elements created AFTER a round trip to the
+       * speech endpoint — seconds later in Live chat, where there is no click
+       * at all. Chromium's default policy ties playback to a fresh user
+       * gesture and rejects those with NotAllowedError, so cloud voices went
+       * silent while the offline system voice (which plays itself, outside the
+       * page) was fine. This is the app's own window playing the app's own
+       * audio; there is nothing to protect the user from here.
+       */
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

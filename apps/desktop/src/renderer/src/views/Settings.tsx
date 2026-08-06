@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
 import type {
@@ -918,6 +918,7 @@ function CompatTtsFields({
 function TestVoiceButton() {
   const [state, setState] = useState<'idle' | 'busy' | 'ok'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const playerRef = useRef<HTMLAudioElement | null>(null);
 
   const test = async () => {
     setState('busy');
@@ -932,10 +933,24 @@ function TestVoiceButton() {
     }
     // 'native' means the system engine already spoke on its own.
     if (result.output.kind === 'audio') {
-      const blob = new Blob([result.output.data], { type: result.output.mimeType });
+      const bytes = result.output.data;
+      const blob = new Blob([bytes], { type: result.output.mimeType });
       const audio = new Audio(URL.createObjectURL(blob));
-      audio.onerror = () => setError('The endpoint returned audio this machine could not play.');
-      void audio.play().catch(() => setError('Playback was blocked.'));
+      // Held in a ref: a bare local can be collected mid-clip.
+      playerRef.current = audio;
+      audio.onerror = () =>
+        setError(
+          `The endpoint returned ${(bytes as ArrayBuffer).byteLength} bytes of ` +
+            `${result.output.kind === 'audio' ? result.output.mimeType : ''} this machine could not decode.`,
+        );
+      void audio.play().catch((err: unknown) => {
+        const e = err as { name?: string; message?: string };
+        setError(
+          e?.name === 'NotAllowedError'
+            ? 'The window refused to play audio (autoplay policy).'
+            : `Could not play it${e?.message ? `: ${e.message}` : ''}.`,
+        );
+      });
     }
     setState('ok');
     setTimeout(() => setState('idle'), 2500);

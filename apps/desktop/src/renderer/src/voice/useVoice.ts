@@ -199,8 +199,22 @@ export function useVoice(appendToInput: (text: string) => void) {
               audioRef.current = null;
               resolve();
             };
-            audio.onerror = () => resolve();
-            void audio.play().catch(() => resolve());
+            audio.onerror = () => {
+              setVoiceError('The voice returned audio this machine could not decode.');
+              resolve();
+            };
+            // A rejected play() used to vanish here, so a blocked or
+            // undecodable clip looked exactly like a working one that happened
+            // to be silent. Say what went wrong.
+            void audio.play().catch((err: unknown) => {
+              const e = err as { name?: string; message?: string };
+              setVoiceError(
+                e?.name === 'NotAllowedError'
+                  ? 'The window refused to play audio (autoplay policy).'
+                  : `Could not play the spoken reply${e?.message ? `: ${e.message}` : ''}.`,
+              );
+              resolve();
+            });
           });
         }
         // 'native' resolves only after the OS voice finished.
