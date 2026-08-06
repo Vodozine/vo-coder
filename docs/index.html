@@ -488,7 +488,7 @@
       Turn him on in Settings and a dedicated infrastructure agent gets his own tab under Terminal — a full
       chat with voice, Live, folder attach, images and Stop, wired to the bundled <b>infra</b> MCP server.
     </p>
-    <div class="split wide-right">
+    <div class="split wide-left">
       <div>
         <ul class="clean">
           <li><b>Environment discovery plus a Proxmox driver</b> — VMs, containers, snapshots, backups —
@@ -502,10 +502,23 @@
             official MCP registry and add servers with one click.</li>
         </ul>
       </div>
-      <figure class="shot">
-        <img src="img/homelab.png" alt="Mr Homelab tab: a dedicated infrastructure agent">
-        <figcaption>Off by default. On when you run your own metal.</figcaption>
-      </figure>
+      <div>
+        <div class="card">
+          <h4>He is an agent like any other</h4>
+          <p>Edit his model, routing hints and MCP servers on the Agents page — he simply comes with the
+          infrastructure prompt and the <code>infra</code> server already mounted.</p>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <h4>Nothing happens without you</h4>
+          <p>Destructive infrastructure calls sit behind their own permission tier: a read-only inventory
+          needs no approval, stopping or deleting a VM does.</p>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <h4>Off by default</h4>
+          <p>The tab doesn't exist until you tick the box. If you don't run your own metal, you'll never
+          see it.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
