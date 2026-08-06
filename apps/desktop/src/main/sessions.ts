@@ -222,8 +222,23 @@ export class SessionManager {
         "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
         'links); map_update corrects it. image_generate renders images with the configured image ' +
         "model into the project's designs/ folder — use it for mockups, icons, art; the result " +
-        'appears in the chat by itself, so never open Preview to show a picture you just made.'
+        'appears in the chat by itself, so never open Preview to show a picture you just made. ' +
+        // Seen live: asked to speak, an agent went looking for the user's Groq
+        // key in the shell environment. Keys belong to the app.
+        "The app holds the user's API keys and hands them to the right service itself — never go " +
+        'hunting for keys in the shell, the environment, or config files, and never ask the user ' +
+        'to paste one into a chat.'
       : '';
+    // Without this, "speak to me" reads as "go synthesize audio": the model has
+    // no idea the harness is already reading its replies aloud, so it shells
+    // out looking for a TTS endpoint instead of just answering.
+    const voiceNote =
+      this.deps.builtins && this.deps.config.get().voice.tts !== 'none'
+        ? '\n\nVOICE OUTPUT IS ON: the app reads your replies aloud in the voice the user chose, ' +
+          'and Live mode is a microphone loop around this same chat. You have no audio tools and ' +
+          'cannot make sound yourself — when asked to speak, just reply in plain sentences. Short ' +
+          'ones sound better aloud; skip code blocks and tables unless they were asked for.'
+        : '';
     // Coordinating is the default agent's job, not a specialist's: a member
     // already inside a group must get on with its own part rather than
     // splitting it again. The judgement is deliberately left to the model —
@@ -253,10 +268,10 @@ export class SessionManager {
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
     if (!dir) {
-      return builtinNote || teamNote || assembly || planNote
+      return builtinNote || voiceNote || teamNote || assembly || planNote
         ? {
             ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${teamNote}${assembly}${planNote}`,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
           }
         : spec;
     }
@@ -284,7 +299,7 @@ export class SessionManager {
           `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
-          `${builtinNote}${teamNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -301,7 +316,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${teamNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -325,7 +340,7 @@ export class SessionManager {
         `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}${teamNote}${assembly}${planNote}`,
+        `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
     };
   }
 
