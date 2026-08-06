@@ -18,6 +18,7 @@ import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
   buildCatalog,
   checkFit,
+  looksLikeImageRequest,
   looksLikeWorkRequest,
   ModelStrikes,
   profileHardware,
@@ -1248,10 +1249,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const isLiveCoordinator = projects
         .groups()
         .some((g) => !g.endedAt && g.coordinatorId === sessionId);
+      // "Generate an image of X": the answer is a picture, and the picture comes
+      // from the configured image model no matter who holds the turn — the chat
+      // model only has to call image_generate. Routing can only pick a WORSE
+      // tool caller here (cheapest-capable and agent ties both favour the local
+      // fleet, which is how a banana request landed on gemma4:12b and stalled),
+      // so the turn stays on the model the user picked.
+      const imageTurn = (() => {
+        if (!config.get().imageModel) return false;
+        const text = parts
+          .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+          .map((p) => p.text)
+          .join(' ');
+        return looksLikeImageRequest(text);
+      })();
       if (
         !override &&
         !opts?.noRoute &&
         !isLiveCoordinator &&
+        !imageTurn &&
         mode !== 'off' &&
         projects.meta(sessionId)?.agentId === 'default'
       ) {
@@ -1380,6 +1396,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             routed = pick;
           }
         }
+      }
+      if (imageTurn && !routed) {
+        const im = config.get().imageModel;
+        routed = {
+          provider: '',
+          model: '',
+          rationale: `image request — no handoff; image_generate renders it with ${im?.model ?? 'the image model'}`,
+        };
       }
       const result = sessions.send(sessionId, parts, override, specOverride);
       if (result.ok) {

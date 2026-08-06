@@ -36,6 +36,27 @@ export function looksLikeWorkRequest(text: string): boolean {
   return /```/.test(text) || WORK_INTENT.test(text);
 }
 
+/**
+ * "Generate an image of a walking banana": a request whose ANSWER is a picture.
+ * The chat model's entire job is one image_generate call — the configured image
+ * model renders it — so specialist/cheapest-capable routing has nothing to add
+ * and plenty to lose: seen live, "generate an image…" tied at zero score and
+ * landed on a 12B local agent that produced nothing. Needs a make-verb AND an
+ * image noun, and bails on code context so "create an icon component" and
+ * "fix the <img> tag" stay ordinary work.
+ */
+const IMAGE_MAKE =
+  /\b(generate|create|make|draw|render|paint|sketch|illustrate|imagine|produce|design)\b/i;
+const IMAGE_SUBJECT =
+  /\b(image|images|picture|pictures|photo|photos|artwork|illustration|illustrations|logo|logos|icon|icons|poster|posters|banner|banners|wallpaper|drawing|drawings|painting|paintings|sticker|stickers|thumbnail|avatar|graphic|graphics|mockup|render)\b/i;
+const CODE_CONTEXT =
+  /```|\b(component|css|html|svg|react|vue|tsx|jsx|div|tag|class|endpoint|api|function|import|npm|dockerfile|readme)\b/i;
+
+export function looksLikeImageRequest(text: string): boolean {
+  if (CODE_CONTEXT.test(text)) return false;
+  return IMAGE_MAKE.test(text) && IMAGE_SUBJECT.test(text);
+}
+
 /** 0 = trivial … 3 = hard reasoning. Drives the minimum quality bar. */
 export function complexityOf(signal: TaskSignal): number {
   let c = 0;

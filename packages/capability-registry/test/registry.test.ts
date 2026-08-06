@@ -7,6 +7,7 @@ import { checkFit } from '../src/hardware.ts';
 import { fetchOpenRouterModels } from '../src/sources/openrouter.ts';
 import {
   complexityOf,
+  looksLikeImageRequest,
   looksLikeWorkRequest,
   signalFromPrompt,
   suggest,
@@ -277,6 +278,28 @@ describe('advisory router', () => {
     }
     for (const t of ['hello', 'hey there', 'thanks!', 'what does this project do?', 'nice, cool']) {
       expect(looksLikeWorkRequest(t)).toBe(false);
+    }
+  });
+
+  it('spots a request whose answer is a picture, not code', () => {
+    for (const t of [
+      'generate an image of a walking banana',
+      'make me a picture of a cabin in the snow',
+      'draw a logo for the band',
+      'create an illustration of a lighthouse',
+      'render a poster in art deco style',
+    ]) {
+      expect(looksLikeImageRequest(t)).toBe(true);
+    }
+    // Ordinary work that merely mentions pictures — routing must stay normal.
+    for (const t of [
+      'create an icon component in React',
+      'fix the broken image tag',
+      'make the logo css bigger',
+      'look at this picture and tell me what is wrong',
+      'add a gallery',
+    ]) {
+      expect(looksLikeImageRequest(t)).toBe(false);
     }
   });
 

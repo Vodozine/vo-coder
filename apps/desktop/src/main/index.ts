@@ -30,6 +30,14 @@ function adoptLegacyProfile(): void {
 // reads a userData path. Never set in normal use.
 if (process.env.VO_USERDATA) app.setPath('userData', process.env.VO_USERDATA);
 
+// Windows stops compositing a window it considers fully covered, and
+// capturePage on it rejects with UnknownVizError — which is exactly what
+// happens during a capture run while the real app sits in front. Only for
+// capture runs; normal launches keep the occlusion optimisation.
+if (process.env.VO_CAPTURE) {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function openWindow(): void {
@@ -39,7 +47,12 @@ function openWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-  if (process.env.VO_CAPTURE) void captureAllViews(mainWindow, process.env.VO_CAPTURE);
+  if (process.env.VO_CAPTURE) {
+    const target = process.env.VO_CAPTURE;
+    void captureAllViews(mainWindow, target)
+      .catch((err) => console.error('[capture] run failed:', err))
+      .finally(() => app.quit());
+  }
 }
 
 /**
@@ -50,10 +63,26 @@ function openWindow(): void {
 async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void> {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   mkdirSync(outDir, { recursive: true });
+  // One unlucky frame must not kill the whole run: retry, then move on. A
+  // missing shot is a missing file; a throw here used to abandon every view
+  // after it.
   const snap = async (name: string) => {
     await wait(900);
-    const img = await win.webContents.capturePage();
-    writeFileSync(join(outDir, `${name}.png`), img.toPNG());
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const img = await win.webContents.capturePage();
+        if (img.isEmpty()) throw new Error('empty frame');
+        writeFileSync(join(outDir, `${name}.png`), img.toPNG());
+        console.log(`[capture] ${name}`);
+        return;
+      } catch (err) {
+        if (attempt === 3) {
+          console.error(`[capture] ${name} failed:`, err);
+          return;
+        }
+        await wait(1200);
+      }
+    }
   };
   const clickNav = (label: string) =>
     win.webContents.executeJavaScript(
@@ -67,11 +96,66 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
       `[...document.querySelectorAll(${JSON.stringify(sel)})].find(e=>e.textContent.includes(${JSON.stringify(text)}))?.click()`,
     );
 
+  /** Set a <select> by visible option text and fire React's change. */
+  const selectByText = (sel: string, text: string) =>
+    win.webContents.executeJavaScript(
+      `(()=>{const s=document.querySelector(${JSON.stringify(sel)});if(!s)return false;
+        const o=[...s.options].find(x=>x.textContent.includes(${JSON.stringify(text)}));if(!o)return false;
+        const setter=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;
+        setter.call(s,o.value);s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`,
+    );
+
   await new Promise<void>((r) => win.webContents.once('did-finish-load', () => r()));
   await wait(3500); // initial data (catalog, projects, missions)
   for (const label of ['Chat', 'Agents', 'Missions', 'Scaffold', 'Terminal', 'Settings']) {
     await clickNav(label);
     await snap(label.toLowerCase());
+  }
+
+  // Group projects: several agents on one goal, side by side. Pick the BIGGEST
+  // group (the bundle head's tooltip carries "— N chats"), because a one-member
+  // run in an 8-slot grid shows nothing of what the view is for.
+  await clickNav('Chat');
+  await wait(600);
+  const grouped = await win.webContents.executeJavaScript(
+    `(()=>{const heads=[...document.querySelectorAll('.session-row.bundle-head .session-title')];
+      const n=e=>{const m=/—\\s*(\\d+)\\s*chats/.exec(e.getAttribute('title')||'');return m?+m[1]:0};
+      const best=heads.sort((a,b)=>n(b)-n(a))[0];
+      if(!best||n(best)<2)return false;
+      window.__vocapBundle=best.closest('.group-bundle');
+      best.click();return true})()`,
+  );
+  if (grouped) {
+    await wait(700);
+    // Expanded bundle → click the first member chat inside THAT bundle.
+    await win.webContents.executeJavaScript(
+      `(window.__vocapBundle?.querySelector('.session-row.in-bundle .session-title'))?.click()`,
+    );
+    await wait(3000);
+    await selectByText('.group-head select, .group-view select', '8 per page');
+    await wait(1500);
+    await snap('group-8');
+    await selectByText('.group-head select, .group-view select', '4 per page');
+    await wait(1200);
+    await snap('group-4');
+  }
+
+  // Design suite — Pro only, so the nav item decides whether these run at all.
+  if (await clickNav('Design')) {
+    await wait(2500);
+    await snap('design-label');
+    await clickText('.design-tab', '3D Mockup');
+    await wait(2200);
+    await snap('design-mockup');
+    await clickText('.design-tab', 'Dieline');
+    await wait(1800);
+    await snap('design-dieline');
+  }
+
+  // Mr Homelab — only present when enabled; harmless no-op otherwise.
+  if (await clickNav('Mr Homelab')) {
+    await wait(2000);
+    await snap('homelab');
   }
   // Memory map — give the async map query time to render its nodes.
   await clickNav('Memory');
@@ -95,7 +179,6 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
   await click('.ctx-chip');
   await snap('chat-context');
   await wait(1200);
-  app.quit();
 }
 
 // One instance per profile. Two writers on one userData means corrupt state

@@ -5,6 +5,7 @@ export type { CatalogOptions } from './catalog.js';
 export {
   complexityOf,
   estCostPerExchange,
+  looksLikeImageRequest,
   looksLikeWorkRequest,
   signalFromPrompt,
   suggest,
