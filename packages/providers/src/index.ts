@@ -21,5 +21,6 @@ export {
   OpenAIProvider,
   OpenRouterProvider,
   XaiProvider,
+  ZaiProvider,
 } from './adapters/openai-compatible.js';
 export type { OpenAICompatibleOptions } from './adapters/openai-compatible.js';

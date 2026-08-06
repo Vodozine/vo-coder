@@ -4,7 +4,7 @@ import type { McpRegistryEntry } from '@vo-coder/core';
 import type { AppConfig, LocalEndpoint, TelegramInfo } from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'nvidia'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
 /** Providers that can be flipped off without clearing credentials. */
 const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
@@ -1374,6 +1374,13 @@ export function Settings() {
         <KeyRow provider="openai" />
         <KeyRow provider="openrouter" />
         <XaiProviderRow />
+        <KeyRow provider="zai" placeholder="paste GLM Coding Plan key" />
+        <p className="hint">
+          <strong>Z.ai (GLM)</strong> — a <strong>GLM Coding Plan</strong> subscription issues its
+          own key under <em>Coding Plan → Plan Overview</em>; usage draws that plan&apos;s quota,
+          not pay-as-you-go credits. Use that key here (a platform/credits key is a different
+          thing and is not interchangeable). Vo-Coder talks to the plan&apos;s coding endpoint.
+        </p>
         <KeyRow provider="nvidia" />
       </section>
 

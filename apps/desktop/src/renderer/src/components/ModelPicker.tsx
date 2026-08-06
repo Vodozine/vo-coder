@@ -117,7 +117,9 @@ export function ModelPicker({
     // Grok login is subscription-billed — show $0 even when an API key is also
     // saved (hub prefers OAuth). NVIDIA free tier is the same pattern.
     const freeEndpoint =
-      provider === 'nvidia' || (provider === 'xai' && xaiOauthConnected);
+      provider === 'nvidia' ||
+      provider === 'zai' ||
+      (provider === 'xai' && xaiOauthConnected);
 
     let list = [...byId.values()].map((m) => {
       const rec = catalog?.records.find((r) => r.id === m.id && (!r.provider || r.provider === provider));
@@ -188,6 +190,7 @@ export function ModelPicker({
     // Subscription / free-tier endpoints surface as $0/$0.
     if (r.inPrice === 0 && (r.outPrice ?? 0) === 0) {
       if (provider === 'xai' && xaiOauthConnected) return 'free (Grok login)';
+      if (provider === 'zai') return 'included (GLM plan)';
       if (provider === 'nvidia') return 'free endpoint';
       return '$0/$0';
     }

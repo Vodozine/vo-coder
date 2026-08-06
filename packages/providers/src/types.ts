@@ -15,6 +15,7 @@ export type ProviderId =
   | 'openrouter'
   | 'ollama'
   | 'xai'
+  | 'zai'
   | 'nvidia'
   | 'lmstudio'
   | 'llamacpp'

@@ -8,6 +8,7 @@ import {
   OpenRouterProvider,
   ProviderRegistry,
   XaiProvider,
+  ZaiProvider,
 } from '@vo-coder/providers';
 import type { AppConfig, LocalEndpoint } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
@@ -99,6 +100,10 @@ export class ProviderHub {
     if (on('xai') && xaiAuth) reg.register(new XaiProvider({ apiKey: xaiAuth }));
     const nvidiaKey = this.secrets.get('nvidia');
     if (on('nvidia') && nvidiaKey) reg.register(new NvidiaProvider({ apiKey: nvidiaKey }));
+    // Z.ai (GLM). A Coding Plan key bills against that plan's quota, not
+    // per token — the usage meter treats it as subscription-billed.
+    const zaiKey = this.secrets.get('zai');
+    if (on('zai') && zaiKey) reg.register(new ZaiProvider({ apiKey: zaiKey }));
     // Local servers need no key; registered when enabled (they error helpfully if not running).
     if (on('ollama')) {
       reg.register(

@@ -306,6 +306,40 @@ export class XaiProvider extends OpenAICompatibleProvider {
   }
 }
 
+/**
+ * Z.ai (Zhipu) — the GLM family, via a **GLM Coding Plan** subscription.
+ *
+ * Two different things live behind Z.ai's API, and picking the wrong one
+ * quietly bills the wrong pocket:
+ *   - pay-as-you-go platform credits → /api/paas/v4 (and /api/openai/v1)
+ *   - a Coding Plan subscription     → /api/coding/paas/v4  ← this one
+ * The plan issues its own key (Coding Plan → Plan Overview) that is NOT
+ * interchangeable with a platform key, and its usage draws the plan's quota
+ * rather than credits. We default to the coding endpoint; baseURL stays
+ * overridable for anyone who really does want to spend credits.
+ */
+export class ZaiProvider extends OpenAICompatibleProvider {
+  constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {
+    super('zai', { ...opts, baseURL: opts.baseURL ?? 'https://api.z.ai/api/coding/paas/v4' });
+  }
+
+  /** The coding endpoint may not serve /models — fall back to the plan's set. */
+  override async listModels(): Promise<ModelInfo[]> {
+    try {
+      const live = await super.listModels();
+      if (live.length) return live;
+    } catch {
+      /* fall through to seeds */
+    }
+    return ['glm-5.2', 'glm-4.6'].map((id) => ({
+      id,
+      provider: this.id,
+      displayName: id,
+      supportsTools: true,
+    }));
+  }
+}
+
 /** NVIDIA NIM cloud (build.nvidia.com) — OpenAI-compatible, keys are nvapi-…. */
 export class NvidiaProvider extends OpenAICompatibleProvider {
   constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {

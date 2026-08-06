@@ -130,7 +130,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // billed, not pay-per-token. NVIDIA's free tier is the same idea.
       const providerId = bound.provider?.id?.toLowerCase() ?? '';
       const freeEndpoint =
-        providerId === 'nvidia' || (providerId === 'xai' && hub.usingXaiOAuth());
+        providerId === 'nvidia' ||
+        // A GLM Coding Plan key spends plan quota, so catalog token prices
+        // would invent a cost that never appears on any bill.
+        providerId === 'zai' ||
+        (providerId === 'xai' && hub.usingXaiOAuth());
       if (!freeEndpoint) {
         try {
           const { records } = await getCatalog();

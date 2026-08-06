@@ -143,7 +143,7 @@ function ContextChip({
   );
 }
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'nvidia'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
 /** Backends where becoming ready is expensive enough to be worth pre-loading. */
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp']);
 
