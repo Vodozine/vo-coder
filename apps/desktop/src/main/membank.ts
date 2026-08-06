@@ -337,11 +337,15 @@ export class MemoryBank {
       // is in the middle of. A plan must never lose its place to a keyword
       // match, and losing it mid-scaffold is exactly how a model gets
       // confused when the window moves under it.
+      // 12, not 6: an eight-member group writes a block-status node each, and
+      // with six slots the team could not all see each other — mutual
+      // awareness is the whole reason the digest leads with active tasks.
+      // The maxChars budget still bounds the rendered size.
       const working = this.db
         .prepare(
           `SELECT id, type, title, body, status, tags FROM nodes
            WHERE project_id = ? AND type = 'task' AND status = 'active'
-           ORDER BY updated_at DESC LIMIT 6`,
+           ORDER BY updated_at DESC LIMIT 12`,
         )
         .all(projectId) as Row[];
 

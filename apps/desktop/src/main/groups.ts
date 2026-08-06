@@ -55,7 +55,13 @@ export function groupToolSpecs(): ToolSpec[] {
         'separate components, research plus implementation — and the parts do NOT depend on each ' +
         "other finishing first. Do not use it for sequential work or trivial edits. Each part's " +
         'agent gets its own chat and works in parallel; you keep coordinating and pull the ' +
-        'results together.',
+        'results together. ' +
+        'ONE BIG DELIVERABLE (one code file, one document) also splits: FIRST ws_write a ' +
+        'BLUEPRINT file — the skeleton with its contracts (signatures, interfaces, section ' +
+        'headers) and a numbered block list — then make each part one block, naming its EXACT ' +
+        'block file (blocks/01_deck.js, blocks/02_scoring.js…). Two parts must never share a ' +
+        'file. When the blocks land, ws_assemble merges them in order — blocks that depend on ' +
+        'other blocks still parallelise, because the blueprint contract is what decouples them.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -223,6 +229,12 @@ export async function executeGroupTool(
     content:
       `Started ${result.group.members.length} agents in parallel:\n` +
       result.group.members.map((m) => `- ${m.agentName}: ${m.task}`).join('\n') +
+      (result.queued.length
+        ? `\nQUEUED — ${result.queued.length} part(s) had no free member and were NOT started:\n` +
+          result.queued.map((q) => `- ${q}`).join('\n') +
+          '\nDispatch each with group_send the moment a member goes idle — they are YOUR ' +
+          'backlog now, and forgetting them ships an incomplete job.'
+        : '') +
       '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
       'is doing what, then wait for their results rather than doing the work yourself. Mid-run ' +
       'you can hand any of them follow-up work with group_send.',
@@ -254,7 +266,13 @@ export function memberBrief(
       ? 'You all share ONE project folder — ws_list / ws_read / ws_write work there. ' +
         'Deliverables are FILES in that folder, not chat text: write yours with ws_write. ' +
         'Long files: write them in several pieces (first call normal, the rest with ' +
-        'append:true) — one giant write can stall your whole turn.\n\n'
+        'append:true) — one giant write can stall your whole turn.\n\n' +
+        'IF YOUR PART NAMES A BLOCK FILE (e.g. blocks/03_scoring.js): read the BLUEPRINT file ' +
+        'first and honour its contracts exactly — the signatures and interfaces there are what ' +
+        'let everyone build at once. Write ONLY your own block file: never the final assembled ' +
+        'file, never the blueprint, never another member’s block — the merge is done later with ' +
+        'ws_assemble, in blueprint order. Title your map task node with your block name ' +
+        '("block 03 — scoring") so the team can see exactly which blocks are active and done.\n\n'
       : '') +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
@@ -294,7 +312,15 @@ export async function startGroup(
   parts: string[],
   /** Shared working folder — every member gets it as their chat's dir. */
   dir?: string,
-): Promise<{ ok: true; group: GroupRun } | { ok: false; error: string }> {
+): Promise<
+  | {
+      ok: true;
+      group: GroupRun;
+      /** Parts with no free member — NOT started; the boss dispatches them later. */
+      queued: string[];
+    }
+  | { ok: false; error: string }
+> {
   // Mr Homelab joins a group only when a part is actually about
   // infrastructure — he owns his own tab, and on a small roster he would
   // otherwise be handed "write the About page" just to fill a seat. The test
@@ -343,6 +369,10 @@ export async function startGroup(
   // requests fighting over one GPU.
   const seats = Math.min(MAX_GROUP_MEMBERS - (homelabPart ? 1 : 0), agents.length);
   const plan = agents.length ? assignTasks(rest.slice(0, seats), agents) : [];
+  // Parts beyond the seats used to be dropped SILENTLY — six blocks on three
+  // agents lost three blocks and nobody was told. They queue instead: the
+  // result names them, and the boss group_sends each as members go idle.
+  const queued = rest.slice(seats);
   if (homelabPart && homelab) {
     plan.push({ task: homelabPart, agent: homelab, matched: ['infrastructure'] });
   }
@@ -384,5 +414,5 @@ export async function startGroup(
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(member.sessionId, memberBrief(group.goal, member, members, !!dir));
   }
-  return { ok: true, group };
+  return { ok: true, group, queued };
 }

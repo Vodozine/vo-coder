@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -74,6 +75,32 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
           },
         },
         required: ['path', 'content'],
+      },
+    },
+    {
+      name: 'ws_assemble',
+      description:
+        'Build ONE file out of ordered part files — the way a block-decomposed deliverable ' +
+        'becomes real. Give the parts in their final order; the tool concatenates them and ' +
+        'writes the output in a single atomic step. Use it whenever several people (or several ' +
+        'turns) each wrote their own blocks/NN_* piece of one file. NEVER re-type blocks into ' +
+        'the output by hand: manual re-assembly is slow, serial, and where transcription errors ' +
+        'come from. Missing parts fail the call by name — nothing half-assembled is written.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          output: { type: 'string', description: 'Relative path of the file to produce' },
+          parts: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Part files in their FINAL order (e.g. blocks/01_head.js, blocks/02_core.js)',
+          },
+          separator: {
+            type: 'string',
+            description: 'Text between parts (default: one newline)',
+          },
+        },
+        required: ['output', 'parts'],
       },
     },
     {
@@ -292,6 +319,54 @@ export async function executeWorkspaceTool(
         }
         writeFileSync(target, content, 'utf8');
         return { content: `Wrote ${content.length} chars to ${a.path}` };
+      }
+      case 'ws_assemble': {
+        const outRel = String(a.output ?? '').trim();
+        const partsRaw = Array.isArray(a.parts) ? a.parts.map((p) => String(p ?? '').trim()) : [];
+        const parts = partsRaw.filter(Boolean);
+        if (!outRel || parts.length === 0) {
+          return { content: 'ws_assemble needs output and a non-empty parts list.', isError: true };
+        }
+        const outTarget = guarded(dir, outRel);
+        // Refuse an output that is also an input — reading and replacing the
+        // same file in one call is how a deliverable gets eaten.
+        const partTargets = parts.map((p) => ({ rel: p, abs: guarded(dir, p) }));
+        if (partTargets.some((p) => p.abs === outTarget)) {
+          return { content: `Output "${outRel}" is also listed as a part.`, isError: true };
+        }
+        const missing = partTargets.filter((p) => !existsSync(p.abs)).map((p) => p.rel);
+        if (missing.length) {
+          return {
+            content:
+              `Not assembled — ${missing.length} part(s) missing: ${missing.join(', ')}. ` +
+              'Nothing was written. Get those blocks delivered first, or drop them from the list.',
+            isError: true,
+          };
+        }
+        const separator = typeof a.separator === 'string' ? a.separator : '\n';
+        const pieces: string[] = [];
+        const sizes: string[] = [];
+        for (const p of partTargets) {
+          const buffer = readFileSync(p.abs);
+          if (buffer.subarray(0, 8000).includes(0)) {
+            return { content: `${p.rel} is a binary file — ws_assemble joins text.`, isError: true };
+          }
+          const text = buffer.toString('utf8');
+          pieces.push(text);
+          sizes.push(`${p.rel} (${text.length} chars)`);
+        }
+        // Temp-then-rename: a reader (or a crash) can never observe a torn
+        // half-assembled deliverable.
+        mkdirSync(dirname(outTarget), { recursive: true });
+        const joined = pieces.join(separator);
+        const tmp = `${outTarget}.assembling`;
+        writeFileSync(tmp, joined, 'utf8');
+        renameSync(tmp, outTarget);
+        return {
+          content:
+            `Assembled ${outRel} (${joined.length} chars) from ${parts.length} parts in order:\n` +
+            sizes.map((s) => `  ${s}`).join('\n'),
+        };
       }
       case 'ws_run': {
         const command = String(a.command ?? '').trim();

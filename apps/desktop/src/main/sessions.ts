@@ -257,7 +257,12 @@ export class SessionManager {
           'opens a chat per part and the user should see what they are getting. Afterwards, say ' +
           'who is doing what and let them work: do not redo their parts yourself.\n' +
           'If the work is genuinely sequential (each step needs the one before it) or small, ' +
-          'just do it — and say briefly why you are not splitting it.'
+          'just do it — and say briefly why you are not splitting it.\n' +
+          'ONE BIG DELIVERABLE splits too: ws_write a BLUEPRINT (skeleton, contracts, numbered ' +
+          'block list), make each part one block with its exact file path (blocks/01_…, ' +
+          'blocks/02_…), and when the blocks land merge them with one ws_assemble call in ' +
+          'blueprint order. Blocks that depend on other blocks still parallelise — the ' +
+          'blueprint contract is what decouples them.'
         : '';
     const assembly = this.assemblyNote(sessionId);
     // The boss's own chat while his group runs. Routing rightly pins the
@@ -274,7 +279,10 @@ export class SessionManager {
           'request to the best-fitting member with the complete instruction. Members cannot ' +
           'see this chat — only group_send reaches them. Pick up the tools yourself ONLY when ' +
           'no member has them or a member has failed the step twice. Your seat is oversight: ' +
-          'watch, review, dispatch.'
+          'watch, review, dispatch. Idle members are spare capacity — when follow-ups, fixes, ' +
+          'checks or queued parts exist, spread them across whoever is idle rather than letting ' +
+          'the team sit while one member (or you) carries everything; even a trivial job ' +
+          'lightens the load.'
         : '';
     const planNote =
       this.deps.config.get().approvalMode === 'plan'
@@ -632,7 +640,12 @@ export class SessionManager {
    * bookkeeping the brief instructs them to do. MCP calls, web_fetch and
    * everything else still gate normally.
    */
-  private static readonly GROUP_MEMBER_TOOLS = new Set(['ws_write', 'ws_run', 'map_update']);
+  private static readonly GROUP_MEMBER_TOOLS = new Set([
+    'ws_write',
+    'ws_run',
+    'ws_assemble',
+    'map_update',
+  ]);
 
   private isGroupMember(sessionId: string): boolean {
     const groups = this.deps.projects.groups();

@@ -1126,8 +1126,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           '2. Work that is missing, wrong, or still unassembled goes to a MEMBER via ' +
           'group_send: send a broken part back to its owner with a concrete fix list; hand the ' +
           'assembly (merge the parts into the final deliverable, exact output file named) to ' +
-          'your most capable member. One member can hold several follow-ups, but send each as ' +
-          'its own group_send.\n' +
+          'your most capable member. When the parts are block files, the assembly is ONE ' +
+          'ws_assemble call in blueprint order — nobody re-types blocks by hand. One member ' +
+          'can hold several follow-ups, but send each as its own group_send.\n' +
+          '2b. IDLE MEMBERS ARE SPARE CAPACITY: spread the remaining work across them — one ' +
+          'group_send each — instead of stacking several jobs on one member or doing them ' +
+          'yourself. Small jobs count: verifying a file, updating a doc, running a check. ' +
+          'Queued parts from the start go out now too.\n' +
           '3. Then STOP and wait — you are woken again when the group goes quiet. Never claim ' +
           'members are "still working" without calling group_status: an idle member is waiting ' +
           'for YOU, and waiting for someone who is already finished parks the whole job. On each ' +
