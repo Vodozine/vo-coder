@@ -260,6 +260,22 @@ export class SessionManager {
           'just do it — and say briefly why you are not splitting it.'
         : '';
     const assembly = this.assemblyNote(sessionId);
+    // The boss's own chat while his group runs. Routing rightly pins the
+    // user's messages to Vodo here — and then nothing told him a mid-run
+    // request is an ASSIGNMENT. Seen live: three members idle, the user asked
+    // for an addition, and Vodo built it himself while the team sat waiting.
+    // Recomputed per send, so it appears when a group starts and leaves when
+    // it ends (one reprefill each — the coordinator seat is a cloud model).
+    const bossNote =
+      this.deps.builtins &&
+      this.deps.projects.groups().some((g) => !g.endedAt && g.coordinatorId === sessionId)
+        ? '\n\nA GROUP YOU COORDINATE IS RUNNING. Anything the user asks for mid-run is work ' +
+          'to DELEGATE, not work to do: group_status to see who is idle, then group_send the ' +
+          'request to the best-fitting member with the complete instruction. Members cannot ' +
+          'see this chat — only group_send reaches them. Pick up the tools yourself ONLY when ' +
+          'no member has them or a member has failed the step twice. Your seat is oversight: ' +
+          'watch, review, dispatch.'
+        : '';
     const planNote =
       this.deps.config.get().approvalMode === 'plan'
         ? '\n\nPLAN MODE IS ON: make NO changes — mutating tools (ws_write, ws_run, mission ' +
@@ -268,10 +284,10 @@ export class SessionManager {
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
     if (!dir) {
-      return builtinNote || voiceNote || teamNote || assembly || planNote
+      return builtinNote || voiceNote || teamNote || bossNote || assembly || planNote
         ? {
             ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
           }
         : spec;
     }
@@ -299,7 +315,7 @@ export class SessionManager {
           `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
-          `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -316,7 +332,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -340,7 +356,7 @@ export class SessionManager {
         `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}${voiceNote}${teamNote}${assembly}${planNote}`,
+        `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
     };
   }
 
