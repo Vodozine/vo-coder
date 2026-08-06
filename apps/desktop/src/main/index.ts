@@ -106,6 +106,10 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
     );
 
   await new Promise<void>((r) => win.webContents.once('did-finish-load', () => r()));
+  // Marketing shots get a roomier window than the default: the split view and
+  // the code panes look cramped at the everyday size.
+  win.setContentSize(1600, 1000);
+  win.center();
   await wait(3500); // initial data (catalog, projects, missions)
   for (const label of ['Chat', 'Agents', 'Missions', 'Scaffold', 'Terminal', 'Settings']) {
     await clickNav(label);
