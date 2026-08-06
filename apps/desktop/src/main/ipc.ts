@@ -285,7 +285,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           const live = projects
             .groups()
             .find((g) => !g.endedAt && g.coordinatorId === ctx.sessionId);
-          if (live) ensureGroupDirs(live);
+          if (live) {
+            ensureGroupDirs(live);
+            // Proof of DELIVERY for this turn. Writing an assignment table in
+            // chat looks like delegating and reaches nobody — the members read
+            // their own chats, not the coordinator's.
+            coordDispatched.set(live.id, (coordDispatched.get(live.id) ?? 0) + 1);
+          }
         }
         return executeGroupTool(name, args, {
           agents: () => config.get().agents,
@@ -561,7 +567,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           .groups()
           .find((gr) => !gr.endedAt && gr.coordinatorId === sessionId);
         if (g) {
-          if (event.type === 'error') {
+          if (event.type === 'status' && event.status === 'streaming') {
+            // New turn: the delivery count starts at zero, so "ended without
+            // dispatching" is a fact about THIS turn.
+            coordDispatched.set(g.id, 0);
+          } else if (event.type === 'error') {
             // Driver-fired finish → re-fire the driver. A turn the USER
             // started (told Vodo "finish" by hand) has no fired flag — it
             // gets a direct auto-continue instead of dying on the floor.
@@ -592,6 +602,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                         'long files in SEVERAL ws_write calls — first normal, the rest with ' +
                         'append:true — one giant write is what stalls. Delegating the ' +
                         'remainder to a member with group_send also works.',
+                    },
+                  ]);
+                }, 1500);
+              }
+            } else if (
+              coordDispatched.get(g.id) === 0 &&
+              g.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')
+            ) {
+              // The turn ended having DELIVERED nothing — the assignments were
+              // written in chat, where no member can read them. Say exactly
+              // that, once, instead of another generic "the group is quiet".
+              coordDispatched.delete(g.id);
+              const attempts = groupFinishAttempts.get(g.id) ?? 0;
+              if (attempts < FINISH_ATTEMPTS_MAX) {
+                groupFinishAttempts.set(g.id, attempts + 1);
+                setTimeout(() => {
+                  void sessions.send(g.coordinatorId!, [
+                    {
+                      type: 'text',
+                      text:
+                        'NOTHING WAS DELIVERED. Your last turn named who does what, but the ' +
+                        'members cannot see this chat — they only ever receive what you send ' +
+                        'with group_send, and you called it zero times. Every member is idle ' +
+                        'right now, waiting. Call group_send ONCE PER MEMBER with the full ' +
+                        'instruction (the exact files, the exact deliverable, where to write ' +
+                        'it) — a table in your reply reaches nobody. If there is genuinely ' +
+                        'nothing left to hand out, finish the job yourself and report.',
                     },
                   ]);
                 }, 1500);
@@ -1034,6 +1071,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const coordUserStalled = new Set<string>();
   /** Direct coordinator continues per group — capped; a clean turn resets. */
   const coordContinues = new Map<string, number>();
+  /** group_send calls the coordinator actually made during its current turn. */
+  const coordDispatched = new Map<string, number>();
   /** Members whose current turn hit an error — their idle goes to the boss, not the user. */
   const memberStalled = new Set<string>();
   /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
@@ -1075,7 +1114,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       attempts === 0
         ? 'THE GROUP IS QUIET — every member is idle. You are the coordinator: the job is NOT ' +
           'finished until the final deliverable exists, is verified, and is shown. You DELEGATE ' +
-          '— you do member-level work yourself only when no member can. Now:\n' +
+          '— you do member-level work yourself only when no member can. Members CANNOT read ' +
+          'this chat: an assignment only exists once group_send has carried it. Now:\n' +
           '1. map_query the task nodes and ws_list the folder — check what each part actually ' +
           'delivered as FILES, not as chat text.\n' +
           '2. Work that is missing, wrong, or still unassembled goes to a MEMBER via ' +

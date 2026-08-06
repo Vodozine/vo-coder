@@ -74,6 +74,9 @@ export function groupToolSpecs(): ToolSpec[] {
     {
       name: 'group_send',
       description:
+        'THE ONLY WAY TO REACH A MEMBER. They cannot see your chat: naming assignments in your ' +
+        'reply, or writing a table of who-does-what, delivers nothing and leaves everyone idle ' +
+        'waiting for you. One call per member, every time you want work done. ' +
         'Hand work to ONE group member, in their own chat. You are the coordinator — delegate ' +
         'instead of doing member-level work yourself: send the assembly job to your most capable ' +
         'member, send a missing or broken part back to its owner, give follow-up instructions or ' +
