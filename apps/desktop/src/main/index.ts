@@ -110,11 +110,35 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
   // the code panes look cramped at the everyday size.
   win.setContentSize(1600, 1000);
   win.center();
+  /** Open a chat by (part of) its sidebar title. */
+  const openChat = (title: string) =>
+    win.webContents.executeJavaScript(
+      `(()=>{const r=[...document.querySelectorAll('.session-row .session-title')]
+        .find(e=>e.textContent.includes(${JSON.stringify(title)}));
+        if(r){r.click();return true}return false})()`,
+    );
+
   await wait(3500); // initial data (catalog, projects, missions)
-  for (const label of ['Chat', 'Agents', 'Missions', 'Scaffold', 'Terminal', 'Settings']) {
+  // Chat itself is captured last, once a deliberate conversation is open — the
+  // restored session is whatever the profile happened to leave behind.
+  for (const label of ['Agents', 'Missions', 'Scaffold', 'Terminal', 'Settings']) {
     await clickNav(label);
     await snap(label.toLowerCase());
   }
+
+  // Agent editor — open a CLOUD agent so the model picker shows real prices
+  // rather than a list of local models at $0.
+  await clickNav('Agents');
+  await wait(600);
+  await win.webContents.executeJavaScript(
+    `(()=>{const cards=[...document.querySelectorAll('.agent-row')];
+      const c=cards.find(x=>/xai|openrouter|anthropic|openai/.test(x.textContent||''))||cards[0];
+      [...c.querySelectorAll('button')].find(b=>b.textContent.trim()==='Edit')?.click();
+      return true})()`,
+  );
+  await wait(700);
+  await click('.model-picker-value');
+  await snap('agents-edit');
 
   // Group projects: several agents on one goal, side by side. Pick the BIGGEST
   // group (the bundle head's tooltip carries "— N chats"), because a one-member
@@ -156,33 +180,35 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
     await snap('design-dieline');
   }
 
+  // Preview follows the active chat's folder — still the group's, so the tree
+  // holds what those agents just built.
+  await clickNav('Preview');
+  await wait(1400);
+  await clickText('.tree-row', 'index.html');
+  await snap('preview');
+
+  // A single build conversation: open it deliberately, then shoot the chat and
+  // its context popup from there.
+  await clickNav('Chat');
+  await wait(600);
+  await openChat('make a replica');
+  await wait(2500);
+  await snap('chat');
+  await click('.ctx-chip');
+  await snap('chat-context');
+
+  // Memory is project-scoped, and the chat above set the project — so the map
+  // on screen is that project's, not a pile of everything.
+  await clickNav('Memory');
+  await wait(2200);
+  await snap('memory');
+
   // Mr Homelab — only present when enabled; harmless no-op otherwise.
   if (await clickNav('Mr Homelab')) {
     await wait(2000);
     await snap('homelab');
   }
-  // Memory map — give the async map query time to render its nodes.
-  await clickNav('Memory');
-  await wait(1800);
-  await snap('memory');
-  // Preview with a file open so it shows highlighted code, not the empty pane.
-  await clickNav('Preview');
-  await wait(1200);
-  await clickText('.tree-row', 'index.html');
-  await snap('preview');
-  // Agent editor — shows the two-column form + the priced model picker.
-  await clickNav('Agents');
-  await wait(500);
-  await clickText('.agent-row button', 'Edit');
-  await wait(500);
-  await click('.model-picker-value');
-  await snap('agents-edit');
-  // Context-window popup over the chat.
-  await clickNav('Chat');
-  await wait(600);
-  await click('.ctx-chip');
-  await snap('chat-context');
-  await wait(1200);
+  await wait(800);
 }
 
 // One instance per profile. Two writers on one userData means corrupt state
