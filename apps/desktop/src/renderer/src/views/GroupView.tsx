@@ -35,7 +35,20 @@ export function GroupView({
   const working = useStore(
     (s) => group.members.filter((m) => s.sessions[m.sessionId]?.streaming).length,
   );
-  const [perPage, setPerPage] = useState<4 | 8>(4);
+  // Remembered across view switches: this component unmounts every time the
+  // user visits Preview/Settings and back, and re-picking 8-per-page on every
+  // return is exactly the papercut that got reported.
+  const [perPage, setPerPageState] = useState<4 | 8>(() =>
+    localStorage.getItem('vo-group-per-page') === '8' ? 8 : 4,
+  );
+  const setPerPage = (n: 4 | 8) => {
+    setPerPageState(n);
+    try {
+      localStorage.setItem('vo-group-per-page', String(n));
+    } catch {
+      /* private-mode etc. — the session still works, it just forgets */
+    }
+  };
   const [page, setPage] = useState(0);
 
   // The coordinator holds one tile, members get the rest.
