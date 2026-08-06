@@ -300,7 +300,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${teamNote}${assembly}${designNote}${planNote}`,
+          `${builtinNote}${teamNote}${assembly}${planNote}`,
       };
     }
     return {

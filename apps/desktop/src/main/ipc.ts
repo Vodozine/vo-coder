@@ -54,6 +54,7 @@ import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
+import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import { extractLesson, helpToolSpecs, vodoStepIn } from './vodo-helper';
 import { SecretStore } from './secrets';
@@ -1257,7 +1258,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
             .map((p) => p.text)
             .join(' ');
-          const agents = config.get().agents;
+          // Mr Homelab is NOT in the ordinary routing pool: he owns his own
+          // tab, and a specialist whose hints cover "network/server/backup"
+          // would otherwise absorb half of normal chat. Groups can still
+          // assign him infrastructure parts (see the group path).
+          const agents = config.get().agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID);
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
 

@@ -1,5 +1,6 @@
 import { assignTasks } from '@vo-coder/core';
 import type { AgentSpec, ToolSpec } from '@vo-coder/providers';
+import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import type { GroupMember, GroupRun } from '../shared/ipc-contract';
 
 /** More than this and nobody can follow what is happening. */
@@ -248,8 +249,24 @@ export async function startGroup(
   /** Shared working folder — every member gets it as their chat's dir. */
   dir?: string,
 ): Promise<{ ok: true; group: GroupRun } | { ok: false; error: string }> {
-  const agents = deps.agents();
-  if (!agents.length) {
+  // Mr Homelab joins a group only when a part is actually about
+  // infrastructure — he owns his own tab, and on a small roster he would
+  // otherwise be handed "write the About page" just to fill a seat. The test
+  // is his ROUTING HINTS only: general ranking also scores system-prompt
+  // words, and his long prompt matches ordinary copy ("about", "network")
+  // enough to sneak him into unrelated jobs.
+  const allAgents = deps.agents();
+  const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
+  const infraHints = (homelab?.routingHints ?? '')
+    .split(/[,;]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 1);
+  const infraScore = (task: string): number => {
+    const hay = ` ${task.toLowerCase()} `;
+    return infraHints.filter((h) => hay.includes(h)).length;
+  };
+  const agents = allAgents.filter((a) => a.id !== HOMELAB_AGENT_ID);
+  if (!agents.length && !homelab) {
     return {
       ok: false,
       error:
@@ -259,10 +276,29 @@ export async function startGroup(
   }
   if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
 
+  // Mr Homelab takes the most infrastructure-shaped part directly — his seat
+  // is decided by his hints, not by a general ranking that can be swayed by
+  // prose — and the rest are spread across the other agents.
+  let homelabPart: string | undefined;
+  if (homelab) {
+    let best = 0;
+    for (const p of parts) {
+      const s = infraScore(p);
+      if (s > best) {
+        best = s;
+        homelabPart = p;
+      }
+    }
+  }
+  const rest = parts.filter((p) => p !== homelabPart);
   // Never more parts than people: a second task for the same agent runs in a
   // second session, which is not parallelism — and on a local box it is two
   // requests fighting over one GPU.
-  const plan = assignTasks(parts.slice(0, Math.min(MAX_GROUP_MEMBERS, agents.length)), agents);
+  const seats = Math.min(MAX_GROUP_MEMBERS - (homelabPart ? 1 : 0), agents.length);
+  const plan = agents.length ? assignTasks(rest.slice(0, seats), agents) : [];
+  if (homelabPart && homelab) {
+    plan.push({ task: homelabPart, agent: homelab, matched: ['infrastructure'] });
+  }
   // A one-member "group" is a normal chat with extra ceremony — and it hides
   // the fact that nothing was parallelised behind a panel that says otherwise.
   if (plan.length < 2) {

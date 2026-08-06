@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import type { AgentSpec, HarnessMessage, ModelInfo, UserPart } from '@vo-coder/providers';
+import {
+  HOMELAB_AGENT_ID,
+  HOMELAB_SESSION_PREFIX,
+  homelabAgentSpec,
+} from '../../../shared/homelab';
 import type { McpServerStatus, McpSuggestion } from '@vo-coder/core';
 import type {
   ChatSessionMeta,
@@ -96,9 +101,23 @@ export type View =
   | 'preview'
   | 'console'
   | 'missions'
-  | 'memory';
+  | 'memory'
+  | 'homelab';
 
 const emptySession = (): SessionUi => ({ messages: [], streaming: false });
+
+/** Mr Homelab's chats belong to his own tab — never the main Chat sidebar. */
+export function isHomelabSessionMeta(
+  meta: { title?: string } | null | undefined,
+): boolean {
+  return !!meta?.title && meta.title.startsWith(HOMELAB_SESSION_PREFIX);
+}
+
+/** Prefer ordinary chats; the Homelab tab owns its own conversation. */
+function firstNormalSession(metas: ChatSessionMeta[]): ChatSessionMeta | undefined {
+  return metas.find((m) => !isHomelabSessionMeta(m));
+}
+
 
 interface AppState {
   view: View;
@@ -152,6 +171,10 @@ interface AppState {
   clearSuggestions(): void;
   applySuggestion(ranked: RankedModel): Promise<void>;
   setView(view: View): void;
+  /** Mr Homelab's tab: ensure his agent + chat exist, then open them. */
+  openHomelab(): Promise<void>;
+  /** The chat that was active before the Homelab tab took over. */
+  chatSessionBeforeHomelab: string | null;
   openSession(sessionId: string): Promise<void>;
   /** Summarize-and-swap the active conversation; returns an error or null. */
   compactSession(): Promise<string | null>;
@@ -219,6 +242,7 @@ function fileToBase64(file: File): Promise<string> {
 
 export const useStore = create<AppState>((set, get) => ({
   view: 'chat',
+  chatSessionBeforeHomelab: null,
   config: null,
   secretStatus: {},
   xaiOauthConnected: false,
@@ -407,7 +431,52 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setView(view) {
+    const prev = get().view;
     set({ view });
+    // The Homelab tab IS the Chat view bound to Mr Homelab's own session —
+    // that is how it inherits voice, Live, folders and attachments for free.
+    // Entering parks the chat you were in; leaving hands it back, so the two
+    // tabs never steal each other's conversation.
+    if (view === 'homelab' && prev !== 'homelab') {
+      const cur = get().activeSessionId;
+      if (cur && !isHomelabSessionMeta(get().sessionMetas.find((m) => m.id === cur))) {
+        set({ chatSessionBeforeHomelab: cur });
+      }
+      void get().openHomelab();
+    } else if (prev === 'homelab' && view !== 'homelab') {
+      const back = get().chatSessionBeforeHomelab;
+      set({ chatSessionBeforeHomelab: null });
+      if (back) void get().openSession(back);
+    }
+  },
+
+  /**
+   * Ensure Mr Homelab exists (agent + his own chat) and make it active.
+   * Idempotent: reopening the tab returns to the same conversation, so the
+   * estate knowledge in it accumulates instead of resetting.
+   */
+  async openHomelab() {
+    const { config, sessionMetas } = get();
+    if (!config) return;
+    // The agent is a real, editable agent — model, MCP servers and hints are
+    // all tunable in Agents like any other.
+    if (!config.agents.some((a) => a.id === HOMELAB_AGENT_ID)) {
+      await get().saveAgents([...config.agents, homelabAgentSpec()]);
+    }
+    const existing = sessionMetas.find((m) => isHomelabSessionMeta(m));
+    if (existing) {
+      await get().openSession(existing.id);
+      return;
+    }
+    // Always General, never whatever project happens to be open: his tab is a
+    // fixed place, and General's folder cascade falls through to the generic
+    // folder — so he can always ws_list / ws_write scripts, inventories and
+    // notes about the estate without anyone attaching a folder first.
+    const meta = await window.vo.sessionCreate('general', HOMELAB_AGENT_ID);
+    await window.vo.sessionRename(meta.id, `${HOMELAB_SESSION_PREFIX} infrastructure`);
+    const data = await window.vo.projectsList();
+    set({ sessionMetas: data.sessions, projects: data.projects });
+    await get().openSession(meta.id);
   },
 
   async compactSession() {

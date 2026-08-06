@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './components/Icon';
 import { VodoMark } from './components/VodoMark';
 import { useStore, type View } from './state/store';
@@ -430,6 +430,23 @@ export function App() {
   const setView = useStore((s) => s.setView);
   const init = useStore((s) => s.init);
   const updateInfo = useStore((s) => s.updateInfo);
+  const homelabOn = useStore((s) => !!s.config?.homelabEnabled);
+  // Mr Homelab slots in under Terminal, and only when switched on in Settings.
+  const navItems = useMemo(() => {
+    const items: Array<{ id: string; label: string; enabled: boolean; title?: string }> = [
+      ...NAV,
+    ];
+    if (homelabOn) {
+      const at = items.findIndex((i) => i.id === 'console');
+      items.splice(at + 1, 0, {
+        id: 'homelab',
+        label: 'Mr Homelab',
+        enabled: true,
+        title: 'Your infrastructure agent — hypervisors, containers, network, backups',
+      });
+    }
+    return items;
+  }, [homelabOn]);
 
   useEffect(() => {
     void init();
@@ -444,11 +461,12 @@ export function App() {
           <VodoMark /> Vo-Coder
         </div>
         <nav>
-          {NAV.map((item) => (
+          {navItems.map((item) => (
             <button
               key={item.id}
               className={`nav-item ${view === item.id ? 'active' : ''}`}
               disabled={!item.enabled}
+              title={item.title}
               onClick={() => item.enabled && setView(item.id as View)}
             >
               {item.label}
@@ -464,7 +482,9 @@ export function App() {
         <TotalUsage />
       </aside>
       <main className="content">
-        {view === 'chat' ? (
+        {/* Homelab IS the Chat view, bound to Mr Homelab's own session — one
+            component, so voice / Live / folders / attachments all work there. */}
+        {view === 'chat' || view === 'homelab' ? (
           <Chat />
         ) : view === 'agents' ? (
           <Agents />

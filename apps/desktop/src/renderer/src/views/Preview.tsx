@@ -111,26 +111,6 @@ function BrowserPreview() {
   const open = async () => {
     setError(null);
     const target = url.trim();
-    // Loopback URL with nothing listening (app restarted, server never
-    // started) — bring the project's own static server up first instead of
-    // navigating to a dead port and showing an empty pane.
-    if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?/i.test(target) && dir) {
-      const reachable = await fetch(target, { method: 'GET', mode: 'no-cors' })
-        .then(() => true)
-        .catch(() => false);
-      if (!reachable) {
-        const served = await window.vo.previewStartStatic(dir);
-        if (served.ok && served.url) {
-          const opened = await window.vo.previewOpen(served.url);
-          if (opened.ok) {
-            setActive(served.url);
-            setUrl(served.url);
-            requestAnimationFrame(sendBounds);
-            return;
-          }
-        }
-      }
-    }
     const result = await window.vo.previewOpen(target);
     if (!result.ok) {
       setError(result.error ?? 'Could not open preview.');

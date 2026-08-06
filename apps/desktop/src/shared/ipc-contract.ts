@@ -127,6 +127,12 @@ export interface AppConfig {
    * Documents/Vo-Coder on first run; changeable in Settings.
    */
   genericDir: string;
+  /**
+   * Mr Homelab: a dedicated infrastructure agent with its own tab. Off by
+   * default — it only makes sense for people who actually run a homelab, and
+   * an always-present tab for everyone else is clutter.
+   */
+  homelabEnabled: boolean;
   /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
   telegramEnabled: boolean;
   /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
@@ -203,6 +209,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
   // cannot ask Electron for paths.
   genericDir: '',
+  homelabEnabled: false,
   telegramEnabled: false,
   telegramPaired: [],
 };

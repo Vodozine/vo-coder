@@ -1557,6 +1557,31 @@ export function Settings() {
       <UpdatesSection />
 
       <section>
+        <h2>Mr Homelab</h2>
+        <div className="field-row">
+          <label>tab</label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={!!config.homelabEnabled}
+              onChange={(e) => void saveConfig({ homelabEnabled: e.target.checked })}
+            />
+            show the Mr Homelab tab (under Terminal)
+          </label>
+        </div>
+        <p className="hint">
+          A dedicated infrastructure agent with his own chat — hypervisors and VMs, containers,
+          NAS and storage, networking, DNS and proxies, backups, monitoring, the GPUs your local
+          models run on. Same chat as anywhere else: voice, Live, folders, attachments. Connect
+          him to your gear by giving him MCP servers (the bundled <strong>infra</strong> server
+          covers Proxmox; add others in MCP servers) — edit his model, hints and servers on the
+          Agents page like any agent. He stays out of ordinary auto-routing so he never absorbs
+          normal chat, but Vodo can put him on a <strong>group project</strong> when a job has an
+          infrastructure part.
+        </p>
+      </section>
+
+      <section>
         <h2>Generic folder</h2>
         <div className="field-row">
           <label>location</label>
