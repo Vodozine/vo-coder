@@ -60,6 +60,7 @@ import { executeGroupTool, groupToolSpecs } from './groups';
 import { extractLesson, helpToolSpecs, vodoStepIn } from './vodo-helper';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
+import { fetchCompatCatalog } from './tts-catalog';
 import { VoiceHost } from './voice';
 import { setupWhisper } from './whisper-setup';
 
@@ -1995,6 +1996,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   });
   ipcMain.handle(IPC.voiceStopSpeak, () => voice.stopSpeak());
+  ipcMain.handle(IPC.voiceCompatCatalog, (_e, baseUrl: string) =>
+    fetchCompatCatalog(baseUrl, secrets.get('tts-custom') ?? null),
+  );
   ipcMain.handle(IPC.voiceSetupWhisper, async () => {
     try {
       const { binaryPath, modelPath } = await setupWhisper();

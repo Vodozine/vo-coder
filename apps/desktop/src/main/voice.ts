@@ -13,6 +13,7 @@ import {
 } from '@vo-coder/voice';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
+import { cleanIdentifier } from './tts-catalog';
 
 /** Builds STT/TTS from current settings on each call so config changes apply
  *  immediately; keys come from the same encrypted secret store as chat. */
@@ -85,11 +86,15 @@ export class VoiceHost {
         }
         // Many local endpoints (Kokoro etc.) need no key at all.
         const apiKey = this.secrets.get('tts-custom') ?? 'none';
+        // Model ids get copied out of documentation, which means backticks and
+        // quotes ride along and the endpoint answers "model does not exist".
+        const model = cleanIdentifier(v.compatModel);
+        const compatVoice = cleanIdentifier(v.compatVoice);
         this.activeTts = new OpenAiTts({
           apiKey,
-          baseURL: v.compatBaseUrl,
-          ...(v.compatModel ? { model: v.compatModel } : {}),
-          ...(v.compatVoice ? { voice: v.compatVoice } : {}),
+          baseURL: cleanIdentifier(v.compatBaseUrl),
+          ...(model ? { model } : {}),
+          ...(compatVoice ? { voice: compatVoice } : {}),
         });
         break;
       }

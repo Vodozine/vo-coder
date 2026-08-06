@@ -566,6 +566,18 @@ export interface VoApi {
     | { ok: false; error: string }
   >;
   voiceStopSpeak(): Promise<void>;
+  /**
+   * Ask an OpenAI-compatible TTS endpoint what it offers, so the model and
+   * voice can be PICKED instead of typed. Runs in main because the key lives
+   * in the secret store. Voices come from /audio/voices when the server has it
+   * (Kokoro and friends), otherwise from what the model id is known to carry.
+   */
+  voiceCompatCatalog(baseUrl: string): Promise<{
+    ok: boolean;
+    models: string[];
+    voicesFor: Record<string, string[]>;
+    error?: string;
+  }>;
   missionsList(): Promise<Mission[]>;
   missionCreate(input: MissionCreateInput): Promise<Mission>;
   missionControl(id: string, action: MissionAction): Promise<void>;
@@ -630,6 +642,7 @@ export const IPC = {
   voiceTranscribe: 'voice:transcribe',
   voiceSpeak: 'voice:speak',
   voiceStopSpeak: 'voice:stopSpeak',
+  voiceCompatCatalog: 'voice:compatCatalog',
   checkin: 'checkin:show',
   mcpSearch: 'mcp:search',
   mcpAdd: 'mcp:add',

@@ -1,7 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
-import type { AppConfig, LocalEndpoint, TelegramInfo } from '../../../shared/ipc-contract';
+import type {
+  AppConfig,
+  LocalEndpoint,
+  TelegramInfo,
+  VoiceSettings,
+} from '../../../shared/ipc-contract';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
@@ -741,6 +746,164 @@ function WhisperSetupButton() {
   );
 }
 
+/** Strip the backticks and quotes that ride along when an id is copied out of docs. */
+function cleanId(raw: string): string {
+  return raw.trim().replace(/^[`'"<]+|[`'">]+$/g, '').trim();
+}
+
+const OTHER = '__other__';
+
+/**
+ * The custom speech endpoint, asked rather than guessed: the model list comes
+ * from {base}/models and the voices from the server or from the model family.
+ * Typing them by hand is what produced a 404 for a model id that existed —
+ * the backticks came along with the copy.
+ */
+function CompatTtsFields({
+  v,
+  save,
+}: {
+  v: VoiceSettings;
+  save: (patch: Partial<VoiceSettings>) => void;
+}) {
+  const secretStatus = useStore((s) => s.secretStatus);
+  const [catalog, setCatalog] = useState<{ models: string[]; voicesFor: Record<string, string[]> }>({
+    models: [],
+    voicesFor: {},
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [freeModel, setFreeModel] = useState(false);
+  const [freeVoice, setFreeVoice] = useState(false);
+  const keyState = secretStatus['tts-custom'];
+
+  const load = useCallback(async () => {
+    if (!v.compatBaseUrl.trim()) return;
+    setBusy(true);
+    setError(null);
+    const res = await window.vo.voiceCompatCatalog(v.compatBaseUrl);
+    setBusy(false);
+    if (!res.ok) {
+      setCatalog({ models: [], voicesFor: {} });
+      setError(res.error ?? 'Could not read the endpoint.');
+      return;
+    }
+    setCatalog({ models: res.models, voicesFor: res.voicesFor });
+    if (!res.models.length) setError('The endpoint lists no models.');
+  }, [v.compatBaseUrl]);
+
+  // Re-ask whenever the endpoint or the saved key changes — "accepted key"
+  // is exactly the moment the lists become available.
+  useEffect(() => {
+    void load();
+  }, [load, keyState]);
+
+  const voices = catalog.voicesFor[cleanId(v.compatModel)] ?? [];
+  const modelKnown = catalog.models.includes(cleanId(v.compatModel));
+  const voiceKnown = voices.includes(cleanId(v.compatVoice));
+
+  return (
+    <>
+      <p className="hint">
+        Any OpenAI-compatible /audio/speech endpoint works: Groq (Orpheus voices), a local Kokoro
+        or Chatterbox server, LiteLLM proxies… Key is optional — local servers usually need none.
+      </p>
+      <div className="field-row">
+        <label>base URL</label>
+        <input
+          className="grow"
+          placeholder="https://api.groq.com/openai/v1 or http://127.0.0.1:8880/v1"
+          value={v.compatBaseUrl}
+          onChange={(e) => save({ compatBaseUrl: e.target.value })}
+          onBlur={(e) => save({ compatBaseUrl: cleanId(e.target.value) })}
+        />
+        <button className="ghost" disabled={busy} onClick={() => void load()}>
+          {busy ? 'Reading…' : 'Refresh'}
+        </button>
+      </div>
+      <div className="field-row">
+        <label>model</label>
+        {catalog.models.length > 0 && !freeModel ? (
+          <select
+            className="grow"
+            value={modelKnown ? cleanId(v.compatModel) : OTHER}
+            onChange={(e) => {
+              if (e.target.value === OTHER) {
+                setFreeModel(true);
+                return;
+              }
+              // A voice belongs to its model — never carry one across.
+              save({ compatModel: e.target.value, compatVoice: '' });
+            }}
+          >
+            {!modelKnown && (
+              <option value={OTHER}>{v.compatModel || 'pick a model'} (type my own)</option>
+            )}
+            {catalog.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+            {modelKnown && <option value={OTHER}>type my own…</option>}
+          </select>
+        ) : (
+          <input
+            className="grow"
+            placeholder="model (e.g. canopylabs/orpheus-v1-english, kokoro)"
+            value={v.compatModel}
+            onChange={(e) => save({ compatModel: e.target.value })}
+            onBlur={(e) => save({ compatModel: cleanId(e.target.value) })}
+          />
+        )}
+      </div>
+      <div className="field-row">
+        <label>voice</label>
+        {voices.length > 0 && !freeVoice ? (
+          <select
+            className="grow"
+            value={voiceKnown ? cleanId(v.compatVoice) : OTHER}
+            onChange={(e) => {
+              if (e.target.value === OTHER) {
+                setFreeVoice(true);
+                return;
+              }
+              save({ compatVoice: e.target.value });
+            }}
+          >
+            {!voiceKnown && (
+              <option value={OTHER}>{v.compatVoice || 'pick a voice'} (type my own)</option>
+            )}
+            {voices.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+            {voiceKnown && <option value={OTHER}>type my own…</option>}
+          </select>
+        ) : (
+          <input
+            className="grow"
+            placeholder={
+              catalog.models.length ? 'voice name for this model' : 'voice (e.g. daniel, af_bella)'
+            }
+            value={v.compatVoice}
+            onChange={(e) => save({ compatVoice: e.target.value })}
+            onBlur={(e) => save({ compatVoice: cleanId(e.target.value) })}
+          />
+        )}
+      </div>
+      {error && <p className="hint error-text">{error}</p>}
+      {!error && catalog.models.length > 0 && (
+        <p className="hint">
+          {catalog.models.length} speech model{catalog.models.length === 1 ? '' : 's'} from this
+          endpoint{voices.length ? ` · ${voices.length} voices for this model` : ''}.
+        </p>
+      )}
+      <KeyRow provider="tts-custom" />
+    </>
+  );
+}
+
 function VoiceSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -856,38 +1019,7 @@ function VoiceSection() {
           </div>
         </>
       )}
-      {v.tts === 'compat' && (
-        <>
-          <p className="hint">
-            Any OpenAI-compatible /audio/speech endpoint works: Groq (PlayAI voices), a local
-            Kokoro server, LiteLLM proxies… Key is optional — local servers usually need none.
-          </p>
-          <div className="field-row">
-            <label>base URL</label>
-            <input
-              className="grow"
-              placeholder="https://api.groq.com/openai/v1 or http://127.0.0.1:8880/v1"
-              value={v.compatBaseUrl}
-              onChange={(e) => save({ compatBaseUrl: e.target.value })}
-            />
-          </div>
-          <div className="field-row">
-            <label>model / voice</label>
-            <input
-              className="grow"
-              placeholder="model (e.g. playai-tts, kokoro)"
-              value={v.compatModel}
-              onChange={(e) => save({ compatModel: e.target.value })}
-            />
-            <input
-              placeholder="voice"
-              value={v.compatVoice}
-              onChange={(e) => save({ compatVoice: e.target.value })}
-            />
-          </div>
-          <KeyRow provider="tts-custom" />
-        </>
-      )}
+      {v.tts === 'compat' && <CompatTtsFields v={v} save={save} />}
     </section>
   );
 }
