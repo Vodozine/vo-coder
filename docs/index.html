@@ -93,7 +93,7 @@
   figure{margin:0}
   figcaption{color:var(--ink-faint);font-size:13.5px;padding:10px 4px 0;font-family:var(--mono)}
 
-  .split{display:grid;grid-template-columns:1fr 1fr;gap:38px;align-items:center}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:38px;align-items:start}
   .split.wide-left{grid-template-columns:1.15fr .85fr}
   .split.wide-right{grid-template-columns:.85fr 1.15fr}
   .stack-gap{margin-top:34px}
@@ -325,7 +325,7 @@
       </figure>
       <figure class="shot">
         <img src="img/agents-edit.png" alt="Agent editor with the priced model picker open">
-        <figcaption>The priced picker: cost, context size and measured quality side by side.</figcaption>
+        <figcaption>The picker: every model with its context window and per-token price — this fleet is local, so $0.</figcaption>
       </figure>
     </div>
   </div>
@@ -440,14 +440,10 @@
             on that path.</li>
         </ul>
       </div>
-      <div>
-        <figure class="shot">
-          <img src="img/terminal.png" alt="Built-in terminal with tabs">
-        </figure>
-        <figure class="shot" style="margin-top:18px">
-          <img src="img/scaffold.png" alt="Project scaffolding questionnaire">
-        </figure>
-      </div>
+      <figure class="shot">
+        <img src="img/terminal.png" alt="Built-in terminal with tabs running commands">
+        <figcaption>A real shell with tabs — the same one your agents run commands in.</figcaption>
+      </figure>
     </div>
   </div>
 </section>
