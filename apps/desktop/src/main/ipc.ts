@@ -37,7 +37,7 @@ import { ConfigStore } from './config';
 import { Journal } from './journal';
 import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
-import { ProjectStore } from './projects';
+import { HOMELAB_PROJECT_ID, ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
@@ -851,6 +851,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   });
   ipcMain.handle(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
+    // Mr Homelab's project is created on demand — his tab is the only door.
+    if (projectId === HOMELAB_PROJECT_ID) projects.ensureHomelab();
     const meta = projects.createSession(projectId, agentId);
     broadcastProjects();
     return meta;

@@ -9,6 +9,8 @@ import type { AgentSpec } from '@vo-coder/providers';
  * still letting a GROUP hand it infrastructure parts.
  */
 export const HOMELAB_AGENT_ID = 'homelab';
+/** His own project id — hidden from the sidebar; see ProjectStore.ensureHomelab. */
+export const HOMELAB_PROJECT_ID = 'homelab';
 export const HOMELAB_AGENT_NAME = 'Mr Homelab';
 /** Chat titles start with this — the tab owns them, the sidebar hides them. */
 export const HOMELAB_SESSION_PREFIX = 'Homelab ·';

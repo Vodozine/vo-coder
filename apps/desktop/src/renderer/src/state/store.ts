@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AgentSpec, HarnessMessage, ModelInfo, UserPart } from '@vo-coder/providers';
 import {
   HOMELAB_AGENT_ID,
+  HOMELAB_PROJECT_ID,
   HOMELAB_SESSION_PREFIX,
   homelabAgentSpec,
 } from '../../../shared/homelab';
@@ -468,11 +469,12 @@ export const useStore = create<AppState>((set, get) => ({
       await get().openSession(existing.id);
       return;
     }
-    // Always General, never whatever project happens to be open: his tab is a
-    // fixed place, and General's folder cascade falls through to the generic
-    // folder — so he can always ws_list / ws_write scripts, inventories and
-    // notes about the estate without anyone attaching a folder first.
-    const meta = await window.vo.sessionCreate('general', HOMELAB_AGENT_ID);
+    // His OWN project (created on demand in main, hidden from the sidebar):
+    // his conversations belong to him, not to General's chat list. It is an
+    // ordinary project underneath, so map / archive / journal work exactly as
+    // for any chat, and having no folder means the cascade falls through to
+    // the generic folder for scripts and inventories.
+    const meta = await window.vo.sessionCreate(HOMELAB_PROJECT_ID, HOMELAB_AGENT_ID);
     await window.vo.sessionRename(meta.id, `${HOMELAB_SESSION_PREFIX} infrastructure`);
     const data = await window.vo.projectsList();
     set({ sessionMetas: data.sessions, projects: data.projects });
@@ -497,6 +499,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   async openSession(sessionId) {
     const meta = get().sessionMetas.find((m) => m.id === sessionId);
+    // Opening an ordinary chat while standing in the Homelab tab means the
+    // user wants Chat — otherwise his tab would quietly show someone else's
+    // conversation with his name on the header.
+    if (get().view === 'homelab' && !isHomelabSessionMeta(meta)) {
+      set({ view: 'chat', chatSessionBeforeHomelab: null });
+    }
     if (!get().sessions[sessionId]) {
       try {
         const { history } = await window.vo.sessionOpen(sessionId);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './components/Icon';
 import { VodoMark } from './components/VodoMark';
 import { useStore, type View } from './state/store';
+import { HOMELAB_PROJECT_ID } from '../../shared/homelab';
 import { Agents } from './views/Agents';
 import { Chat, fmtCost, fmtTokens } from './views/Chat';
 import { TerminalTabs } from './views/Console';
@@ -247,7 +248,10 @@ function ProjectsPanel() {
         </div>
       )}
       <div className="projects-list">
-        {projects.map((project) => {
+        {/* Mr Homelab's project belongs to his tab, not the sidebar. */}
+        {projects
+          .filter((p) => p.id !== HOMELAB_PROJECT_ID)
+          .map((project) => {
           const sessions = sessionMetas.filter((m) => m.projectId === project.id);
           const isOpen = !collapsed.has(project.id);
           return (

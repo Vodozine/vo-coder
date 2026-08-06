@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
+import { HOMELAB_PROJECT_ID } from '../shared/homelab';
 import type { HarnessMessage } from '@vo-coder/providers';
 import type {
   ChatSessionMeta,
@@ -8,6 +9,9 @@ import type {
   ProjectInfo,
   ProjectsData,
 } from '../shared/ipc-contract';
+
+export { HOMELAB_PROJECT_ID };
+
 
 /** Stable id for the default generic home — its chats run folder-less. */
 export const GENERAL_PROJECT_ID = 'general';
@@ -85,6 +89,30 @@ export class ProjectStore {
       this.persist();
       console.log('[projects] removed project folder from General — generic chats run folder-less');
     }
+  }
+
+  /**
+   * Mr Homelab's own project: his chats belong to him, not to General's chat
+   * list. Hidden from the sidebar (his tab is the only way in) but an ordinary
+   * project underneath — so the memory bank, archive and journal work exactly
+   * as they do for every other chat. No folder of its own: the cascade falls
+   * through to the generic folder, which is where his scripts and inventories
+   * should live.
+   */
+  ensureHomelab(): ProjectInfo {
+    const data = this.load();
+    let project = data.projects.find((p) => p.id === HOMELAB_PROJECT_ID);
+    if (!project) {
+      project = {
+        id: HOMELAB_PROJECT_ID,
+        name: 'Mr Homelab',
+        createdAt: Date.now(),
+        assemble: true,
+      };
+      data.projects.push(project);
+      this.persist();
+    }
+    return { ...project };
   }
 
   list(): ProjectsData {
