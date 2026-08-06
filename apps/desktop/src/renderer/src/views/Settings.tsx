@@ -909,6 +909,52 @@ function CompatTtsFields({
   );
 }
 
+/**
+ * Speak one sentence through whatever is configured right now. Every voice
+ * fault so far has been found by sending a chat message and reading the red
+ * line underneath it — this makes the same check one click, right beside the
+ * settings that cause it.
+ */
+function TestVoiceButton() {
+  const [state, setState] = useState<'idle' | 'busy' | 'ok'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const test = async () => {
+    setState('busy');
+    setError(null);
+    const result = await window.vo.voiceSpeak(
+      'Vo-Coder speaking. If you can hear this, the voice you picked is working.',
+    );
+    if (!result.ok) {
+      setState('idle');
+      setError(result.error);
+      return;
+    }
+    // 'native' means the system engine already spoke on its own.
+    if (result.output.kind === 'audio') {
+      const blob = new Blob([result.output.data], { type: result.output.mimeType });
+      const audio = new Audio(URL.createObjectURL(blob));
+      audio.onerror = () => setError('The endpoint returned audio this machine could not play.');
+      void audio.play().catch(() => setError('Playback was blocked.'));
+    }
+    setState('ok');
+    setTimeout(() => setState('idle'), 2500);
+  };
+
+  return (
+    <>
+      <button className="ghost" disabled={state === 'busy'} onClick={() => void test()}>
+        {state === 'busy' ? 'Speaking…' : state === 'ok' ? 'Spoke ✓' : 'Test voice'}
+      </button>
+      {error && (
+        <span className="hint error-text" style={{ margin: 0 }}>
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
 function VoiceSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -994,6 +1040,7 @@ function VoiceSection() {
             onChange={(e) => save({ openaiVoice: e.target.value })}
           />
         )}
+        {v.tts !== 'none' && <TestVoiceButton />}
       </div>
       {v.tts === 'system' && (
         <>
