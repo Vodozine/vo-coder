@@ -909,12 +909,107 @@ select:focus {
   gap: 14px;
   flex-wrap: wrap;
 }
+/* Long explanations fold away: the setting stays one line, the reasoning is
+   one click below it instead of three paragraphs in the way. */
+.hint-more {
+  margin: -4px 0 10px;
+}
+.hint-more > summary {
+  cursor: pointer;
+  color: var(--text-faint, #6f7a8a);
+  font-size: 12px;
+  list-style: none;
+  user-select: none;
+}
+.hint-more > summary::-webkit-details-marker {
+  display: none;
+}
+.hint-more > summary::before {
+  content: '▸ ';
+}
+.hint-more[open] > summary::before {
+  content: '▾ ';
+}
+.hint-more > summary:hover {
+  color: var(--accent, #e8a33d);
+}
+.hint-more .hint {
+  margin-top: 6px;
+}
 .checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   color: var(--text-dim);
   font-size: 13px;
+}
+/* A checkbox row is a caption plus its box — not a 110px label column, which
+   is what squeezed "check and download updates in the background" into four
+   wrapped lines. */
+.field-row label.checkbox {
+  width: auto;
+  flex: 1 1 auto;
+  font-family: inherit;
+}
+
+/* ---- ticks and dots ----
+   The native Windows controls are small, white, and belong to a different
+   application than the one around them. Same size as the type, same palette. */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid #3a465c;
+  border-radius: 5px;
+  background: #10151d;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+}
+input[type='radio'] {
+  border-radius: 50%;
+}
+input[type='checkbox']:hover,
+input[type='radio']:hover {
+  border-color: var(--accent, #e8a33d);
+}
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--accent, #e8a33d);
+  border-color: var(--accent, #e8a33d);
+}
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid #16110a;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+input[type='radio']:checked::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16110a;
+}
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--accent, #e8a33d);
+  outline-offset: 2px;
 }
 
 /* ---- misc ---- */

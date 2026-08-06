@@ -674,15 +674,20 @@ function ImageModelSection() {
     <section>
       <h2>Image model</h2>
       <p className="hint">
-        Powers the image_generate tool — agents render mockups, icons, and art straight into the
-        project&apos;s designs/ folder and the chat. Quality is entirely this model: Google&apos;s
-        <strong> Nano Banana</strong> family on OpenRouter leads for detail and readable
-        lettering (<code>google/gemini-3-pro-image-preview</code> for the best results,{' '}
-        <code>google/gemini-3.1-flash-image</code> for nearly as good and much cheaper);{' '}
-        <strong>OpenAI gpt-image-1</strong> is the closest alternative; <strong>Flux</strong>{' '}
-        models suit painterly art; <strong>Grok Imagine</strong> (xAI) comes free with a Grok
-        subscription but is weakest on fine detail and text.
+        Renders image_generate into the project&apos;s designs/ folder. Picture quality is
+        entirely this model.
       </p>
+      <details className="hint-more">
+        <summary>which one to pick</summary>
+        <p className="hint">
+          Label art: Google&apos;s <strong>Nano Banana</strong> family on OpenRouter —{' '}
+          <code>google/gemini-3-pro-image-preview</code> (Pro; best detail, by far the best at
+          readable lettering) or <code>google/gemini-3.1-flash-image</code> (nearly as good, much
+          cheaper). <strong>OpenAI gpt-image-1</strong> is the closest alternative;{' '}
+          <strong>Flux</strong> suits painterly ornament; <strong>Grok Imagine</strong> comes free
+          with a Grok subscription but is weakest on fine detail and text. Switching costs nothing.
+        </p>
+      </details>
       <div className="field-row">
         <label>provider</label>
         <select
@@ -915,9 +920,15 @@ function VoiceSection() {
     <section>
       <h2>Voice</h2>
       <p className="hint">
-        Push-to-talk: hold the mic button beside the chat input, or Ctrl+Space. Live chat: the Live
-        toggle above it — speak, get spoken answers, interrupt any time.
+        Hold the mic (or Ctrl+Space) to dictate; the Live toggle in Chat talks back.
       </p>
+      <details className="hint-more">
+        <summary>how the two differ</summary>
+        <p className="hint">
+          Dictation inserts what you said into the composer and does not send it. Live chat speaks
+          the answers aloud and can be interrupted at any time.
+        </p>
+      </details>
       <div className="field-row">
         <label>speech→text</label>
         <select value={v.stt} onChange={(e) => save({ stt: e.target.value as typeof v.stt })}>
@@ -1225,13 +1236,13 @@ function UpdatesSection() {
             checked={config?.autoUpdate ?? true}
             onChange={(e) => void saveConfig({ autoUpdate: e.target.checked })}
           />
-          check and download updates in the background
+          download updates in the background
         </label>
       </div>
       <p className="hint">
         {config?.autoUpdate ?? true
-          ? 'Updates download in the background and install on restart — settings and keys are kept.'
-          : 'Automatic updates are off — use "Check for updates" whenever you want; installing keeps all your settings and keys.'}
+          ? 'Installs on restart — settings and keys are kept.'
+          : 'Off — check whenever you like; installing keeps your settings and keys.'}
       </p>
     </section>
   );
@@ -1499,22 +1510,30 @@ export function Settings() {
       <section>
         <h2>API keys</h2>
         <p className="hint">
-          Keys are encrypted with your OS keychain and never leave this machine except to call the
-          provider you configured. Use On/Off to keep credentials saved while excluding that provider
-          from auto-routing and chat — turn it back on any time. For xAI, Grok login and the API key
-          share one On/Off switch (signing in is not a separate always-on channel).
+          Encrypted with your OS keychain; they leave only to call the provider you configured.
         </p>
+        <details className="hint-more">
+          <summary>what On/Off does</summary>
+          <p className="hint">
+            Keeps the credentials saved while excluding that provider from auto-routing and chat —
+            turn it back on any time. For xAI, Grok login and the API key share one switch
+            (signing in is not a separate always-on channel).
+          </p>
+        </details>
         <KeyRow provider="anthropic" />
         <KeyRow provider="openai" />
         <KeyRow provider="openrouter" />
         <XaiProviderRow />
         <KeyRow provider="zai" placeholder="paste GLM Coding Plan key" />
-        <p className="hint">
-          <strong>Z.ai (GLM)</strong> — a <strong>GLM Coding Plan</strong> subscription issues its
-          own key under <em>Coding Plan → Plan Overview</em>; usage draws that plan&apos;s quota,
-          not pay-as-you-go credits. Use that key here (a platform/credits key is a different
-          thing and is not interchangeable). Vo-Coder talks to the plan&apos;s coding endpoint.
-        </p>
+        <details className="hint-more">
+          <summary>zai: the Coding Plan key, not a credits key</summary>
+          <p className="hint">
+            A <strong>GLM Coding Plan</strong> issues its own key under{' '}
+            <em>Coding Plan → Plan Overview</em> and usage draws that plan&apos;s quota, not
+            pay-as-you-go credits. A platform/credits key is a different thing and is not
+            interchangeable. Vo-Coder talks to the plan&apos;s coding endpoint.
+          </p>
+        </details>
         <KeyRow provider="nvidia" />
       </section>
 
@@ -1678,15 +1697,17 @@ export function Settings() {
             }
           />
         ))}
-        <p className="hint">
-          No keys needed — servers are picked up automatically when running. <strong>+</strong> adds
-          one per GPU/box: their models list as <code>model@name</code>, so an agent pinned to{' '}
-          <code>llama3:70b@gpu2</code> always runs on that box. <strong>window</strong> auto-fits
-          each model to the card&apos;s VRAM (spilling to CPU costs ~20× speed, silently) —{' '}
-          <strong>VRAM</strong> tells it the card&apos;s size, which Ollama never reports.{' '}
-          <strong>keep</strong> is how long a model stays loaded while idle. Hover any of them for
-          the details.
-        </p>
+        <details className="hint-more">
+          <summary>window, VRAM, keep, and one box per GPU</summary>
+          <p className="hint">
+            No keys needed — running servers are picked up automatically. <strong>+</strong> adds
+            one per GPU/box: their models list as <code>model@name</code>, so an agent pinned to{' '}
+            <code>llama3:70b@gpu2</code> always runs on that box. <strong>window</strong> auto-fits
+            each model to the card&apos;s VRAM (spilling to CPU costs ~20× speed, silently) —{' '}
+            <strong>VRAM</strong> tells it the card&apos;s size, which Ollama never reports.{' '}
+            <strong>keep</strong> is how long a model stays loaded while idle.
+          </p>
+        </details>
       </section>
 
       <McpSection />
@@ -1711,15 +1732,19 @@ export function Settings() {
           </label>
         </div>
         <p className="hint">
-          A dedicated infrastructure agent with his own chat — hypervisors and VMs, containers,
-          NAS and storage, networking, DNS and proxies, backups, monitoring, the GPUs your local
-          models run on. Same chat as anywhere else: voice, Live, folders, attachments. Connect
-          him to your gear by giving him MCP servers (the bundled <strong>infra</strong> server
-          covers Proxmox; add others in MCP servers) — edit his model, hints and servers on the
-          Agents page like any agent. He stays out of ordinary auto-routing so he never absorbs
-          normal chat, but Vodo can put him on a <strong>group project</strong> when a job has an
-          infrastructure part.
+          A dedicated infrastructure agent with his own chat and his own model picker in that tab.
         </p>
+        <details className="hint-more">
+          <summary>what he covers</summary>
+          <p className="hint">
+            Hypervisors and VMs, containers, NAS and storage, networking, DNS and proxies,
+            backups, monitoring, the GPUs your local models run on. Same chat as anywhere else:
+            voice, Live, folders, attachments. Connect him to your gear with MCP servers — the
+            bundled <strong>infra</strong> server covers Proxmox. He stays out of ordinary
+            auto-routing so he never absorbs normal chat, but Vodo can put him on a{' '}
+            <strong>group project</strong> when a job has an infrastructure part.
+          </p>
+        </details>
       </section>
 
       <section>
@@ -1741,9 +1766,8 @@ export function Settings() {
           </button>
         </div>
         <p className="hint">
-          Every chat can always write here: folder-less chats save single files, images and temp
-          work into this folder, so nothing ever fails for lack of a workspace. It is not a
-          project home — real projects (and every group project) get their own folder.
+          Where folder-less chats write, so nothing ever fails for lack of a workspace. Real
+          projects (and every group project) still get their own folder.
         </p>
       </section>
 
