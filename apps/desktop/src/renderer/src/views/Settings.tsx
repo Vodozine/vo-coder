@@ -8,7 +8,7 @@ const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'ope
 /** Providers that can be flipped off without clearing credentials. */
 const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
-function KeyRow({ provider }: { provider: string }) {
+function KeyRow({ provider, placeholder }: { provider: string; placeholder?: string }) {
   const status = useStore((s) => s.secretStatus[provider]);
   const saveSecret = useStore((s) => s.saveSecret);
   const config = useStore((s) => s.config);
@@ -74,7 +74,9 @@ function KeyRow({ provider }: { provider: string }) {
             className="grow"
             value={value}
             autoFocus={replacing}
-            placeholder={hasKey ? `paste new key (replaces …${status})` : 'paste API key'}
+            placeholder={
+              hasKey ? `paste new key (replaces …${status})` : (placeholder ?? 'paste API key')
+            }
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && value.trim()) void save();
