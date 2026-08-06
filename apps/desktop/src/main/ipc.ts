@@ -1847,8 +1847,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // folders and the app's own generated dir.
   ipcMain.handle(IPC.imageRead, (_e, path: string) => {
     try {
+      // The generic folder belongs here too: a folder-less chat writes there
+      // (that is the whole point of it), so image_generate in a General chat
+      // saved a picture the viewer then refused to open — generated, on disk,
+      // and invisible.
+      const generic = config.get().genericDir;
       const allowedRoots = [
         join(app.getPath('userData'), 'generated'),
+        ...(generic ? [generic] : []),
         ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
         ...projects.list().sessions.flatMap((s) => (s.dir ? [s.dir] : [])),
       ];

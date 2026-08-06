@@ -59,6 +59,34 @@ describe('ProxmoxClient', () => {
     );
   });
 
+  it('honours insecureTls as well as tls.rejectUnauthorized', async () => {
+    // connection_add's argument is called insecureTls, so a hand-written
+    // MCP_SETTINGS.json says insecureTls — and used to keep verifying, which
+    // reads as "the host is down" against a homelab's self-signed cert.
+    const base = { driver: 'proxmox', host: '192.168.1.8' } as const;
+    for (const conn of [
+      { ...base, insecureTls: true },
+      { ...base, tls: { rejectUnauthorized: false } },
+    ]) {
+      const { fetchFn, calls } = jsonFetch([]);
+      await new ProxmoxClient(conn, 'test-secret', fetchFn).request('/nodes');
+      expect(calls[0]!.init).toHaveProperty('dispatcher');
+    }
+    const { fetchFn, calls } = jsonFetch([]);
+    await new ProxmoxClient(base, 'test-secret', fetchFn).request('/nodes');
+    expect(calls[0]!.init).not.toHaveProperty('dispatcher');
+  });
+
+  it('names a certificate failure instead of blaming the host', async () => {
+    const failing = (async () => {
+      const err = new TypeError('fetch failed');
+      (err as { cause?: unknown }).cause = { code: 'SELF_SIGNED_CERT_IN_CHAIN' };
+      throw err;
+    }) as unknown as typeof fetch;
+    const client = new ProxmoxClient({ driver: 'proxmox', host: '192.168.1.8' }, 's', failing);
+    await expect(client.request('/nodes')).rejects.toThrow(/insecureTls/);
+  });
+
   it('classifies auth failures and node-name 596s with hints', async () => {
     const auth = new ProxmoxClient(
       { driver: 'proxmox', host: 'h' },

@@ -40,7 +40,7 @@ export class ProxmoxClient {
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     };
-    if (this.conn.tls?.rejectUnauthorized === false) {
+    if (this.conn.tls?.rejectUnauthorized === false || this.conn.insecureTls === true) {
       // Homelab self-signed certs: opt-in per connection, never the default.
       // undici's Agent type clashes with @types/node's undici-types Dispatcher
       // on RequestInit, hence the record cast; runtime is identical.
@@ -59,9 +59,19 @@ export class ProxmoxClient {
     try {
       res = await this.fetchFn(`${this.base}${endpoint}`, this.init(method, body));
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const code = String((err as { cause?: { code?: string } })?.cause?.code ?? '');
+      // A Proxmox box almost always answers with its own self-signed cert, and
+      // "unable to verify" reads like the host is down unless we say otherwise.
+      const certFailure = /certificate|self.signed|SSL|TLS/i.test(`${detail} ${code}`);
       throw new ProxmoxApiError(
-        `Could not reach Proxmox at ${this.conn.host}:${this.conn.port ?? 8006} — ${
-          err instanceof Error ? err.message : String(err)
+        `Could not reach Proxmox at ${this.conn.host}:${this.conn.port ?? 8006} — ${detail}${
+          code ? ` (${code})` : ''
+        }${
+          certFailure
+            ? '. The host answered but its certificate is not trusted — for a homelab node add ' +
+              '"insecureTls": true to this connection in MCP_SETTINGS.json (connection_add takes the same flag).'
+            : ''
         }`,
       );
     }

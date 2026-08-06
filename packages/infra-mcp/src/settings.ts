@@ -15,6 +15,13 @@ export interface ConnectionConfig {
   /** Literal secret, or "env:VAR_NAME" to read from the environment. */
   tokenSecret?: string;
   tls?: TlsConfig;
+  /**
+   * Alias for `tls: { rejectUnauthorized: false }`. connection_add takes an
+   * `insecureTls` argument, so that is the name people (and agents) write when
+   * they author MCP_SETTINGS.json by hand — and a hand-written file that reads
+   * correctly must not silently keep verifying against a self-signed cert.
+   */
+  insecureTls?: boolean;
 }
 
 export interface DiscoveryCache {
