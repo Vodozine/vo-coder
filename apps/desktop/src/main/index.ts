@@ -126,18 +126,17 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
     await snap(label.toLowerCase());
   }
 
-  // Agent editor — open a CLOUD agent so the model picker shows real prices
-  // rather than a list of local models at $0.
+  // Agent editor. The picker only lists what the catalogue knows, so point the
+  // form at a broad-catalogue provider — that is the shot that shows price and
+  // context side by side rather than a local-only list at $0.
   await clickNav('Agents');
   await wait(600);
-  await win.webContents.executeJavaScript(
-    `(()=>{const cards=[...document.querySelectorAll('.agent-row')];
-      const c=cards.find(x=>/xai|openrouter|anthropic|openai/.test(x.textContent||''))||cards[0];
-      [...c.querySelectorAll('button')].find(b=>b.textContent.trim()==='Edit')?.click();
-      return true})()`,
-  );
+  await clickText('.agent-row button', 'Edit');
   await wait(700);
+  await selectByText('.agent-form select, .agent-edit select', 'openrouter');
+  await wait(1200);
   await click('.model-picker-value');
+  await wait(600);
   await snap('agents-edit');
 
   // Group projects: several agents on one goal, side by side. Pick the BIGGEST
