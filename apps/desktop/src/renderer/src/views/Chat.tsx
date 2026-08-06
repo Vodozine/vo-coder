@@ -685,6 +685,8 @@ export function Chat() {
   const suggestFor = useStore((s) => s.suggestFor);
   const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
   const activeAgentId = activeMeta?.agentId ?? 'default';
+  /** Chat rendered inside the Mr Homelab tab — his agent is fixed there. */
+  const isHomelabTab = useStore((s) => s.view === 'homelab');
   const assembleOn = useStore(
     (s) => !!s.projects.find((p) => p.id === activeMeta?.projectId)?.assemble,
   );
@@ -893,17 +895,25 @@ export function Chat() {
       }}
     >
       <header className="chat-header">
-        <select value={activeAgentId} onChange={(e) => void setSessionAgent(e.target.value)}>
-          <option value="default">Vodo</option>
-          {config.agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+        {/* The Homelab tab belongs to Mr Homelab — swapping agents there would
+            leave the tab named after someone who is not answering in it. */}
+        {isHomelabTab ? (
+          <span className="chat-agent-fixed" title="This tab is Mr Homelab's own chat">
+            Mr Homelab
+          </span>
+        ) : (
+          <select value={activeAgentId} onChange={(e) => void setSessionAgent(e.target.value)}>
+            <option value="default">Vodo</option>
+            {config.agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        )}
         {/* Picking an agent talks to it DIRECTLY — routing, delegation and
             group projects all belong to Vodo, and nothing used to say so. */}
-        {activeAgentId !== 'default' && (config.routeMode ?? 'auto') !== 'off' && (
+        {!isHomelabTab && activeAgentId !== 'default' && (config.routeMode ?? 'auto') !== 'off' && (
           <span
             className="meta"
             title="This chat goes straight to this agent. Vodo is not routing it, so it will not pick a model, hand work to another agent, or split it across the team — switch to Vodo for that."

@@ -394,6 +394,16 @@ select:focus {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
 }
+/* Homelab tab: the agent is fixed there, so it reads as a label, not a control. */
+.chat-agent-fixed {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--accent);
+  padding: 5px 10px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 6px;
+  white-space: nowrap;
+}
 .chat-header select,
 .chat-header .model-input {
   max-width: 260px;
