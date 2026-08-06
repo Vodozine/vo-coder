@@ -202,6 +202,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     shownInChat.add(resolve(path));
     if (shownInChat.size > 50) shownInChat.delete(shownInChat.values().next().value!);
   };
+  /** Every group tool the model is offered — the dispatch reads this. */
+  const GROUP_TOOL_NAMES = new Set(groupToolSpecs().map((s) => s.name));
   const builtins = {
     specs: () => [
       ...webToolSpecs(),
@@ -253,7 +255,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
       }
-      if (name === 'group_start' || name === 'group_send') {
+      // Routed from the SPEC list, not a hand-written set: group_status was
+      // advertised to the model and then rejected as unknown, because adding a
+      // tool meant remembering to edit this line too. Now it cannot drift.
+      if (GROUP_TOOL_NAMES.has(name)) {
         // A group needs its OWN folder: members inherit it and the whole run
         // delivers files into it. The generic scratch folder is for loose
         // single files — a "project" built there is a project nobody can find.
