@@ -48,7 +48,43 @@ export interface OpenAiTtsOptions {
    * OpenAI-compatible speech API exposes one.)
    */
   speed?: number;
+  /** Audio container to ask for. Default mp3, renegotiated if refused. */
+  format?: AudioFormat;
   fetch?: typeof fetch;
+}
+
+export type AudioFormat = 'mp3' | 'wav' | 'ogg' | 'flac' | 'opus' | 'aac' | 'mulaw' | 'pcm';
+
+const MIME: Record<AudioFormat, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  opus: 'audio/ogg',
+  aac: 'audio/aac',
+  mulaw: 'audio/basic',
+  pcm: 'audio/wav',
+};
+
+/**
+ * What each endpoint+model turned out to accept. Groq's Orpheus answers only
+ * WAV and rejects the mp3 default outright — so the format is negotiated from
+ * the refusal ("response_format must be one of [wav]") and remembered, which
+ * costs one extra round trip once instead of on every sentence spoken.
+ */
+const formatMemo = new Map<string, AudioFormat>();
+
+/** Pull the accepted formats out of a 400 and pick the best one we can play. */
+export function formatFromRefusal(body: string): AudioFormat | null {
+  const list = /response_format must be one of \[([^\]]+)\]/i.exec(body)?.[1];
+  if (!list) return null;
+  const offered = list
+    .split(/[,\s]+/)
+    .map((s) => s.replace(/['"]/g, '').trim().toLowerCase())
+    .filter(Boolean) as AudioFormat[];
+  // Browser-playable first; mulaw/pcm are raw and would need a WAV header.
+  const preference: AudioFormat[] = ['mp3', 'wav', 'ogg', 'opus', 'aac', 'flac'];
+  return preference.find((p) => offered.includes(p)) ?? offered[0] ?? null;
 }
 
 export class OpenAiTts implements TtsProvider {
@@ -61,30 +97,52 @@ export class OpenAiTts implements TtsProvider {
   }
 
   async speak(text: string): Promise<TtsOutput> {
-    this.abort = new AbortController();
-    const res = await (this.opts.fetch ?? fetch)(`${this.baseURL}/audio/speech`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.opts.apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.opts.model ?? 'gpt-4o-mini-tts',
-        voice: this.opts.voice ?? 'alloy',
-        input: text,
-        response_format: 'mp3',
-        ...(Number.isFinite(this.opts.speed) && this.opts.speed !== 1
-          ? { speed: Math.max(0.5, Math.min(5, this.opts.speed!)) }
-          : {}),
-      }),
-      signal: this.abort.signal,
-    });
+    const abort = new AbortController();
+    this.abort = abort;
+    const model = this.opts.model ?? 'gpt-4o-mini-tts';
+    const memoKey = `${this.baseURL}|${model}`;
+    const post = (format: AudioFormat) =>
+      (this.opts.fetch ?? fetch)(`${this.baseURL}/audio/speech`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.opts.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          voice: this.opts.voice ?? 'alloy',
+          input: text,
+          response_format: format,
+          ...(Number.isFinite(this.opts.speed) && this.opts.speed !== 1
+            ? { speed: Math.max(0.5, Math.min(5, this.opts.speed!)) }
+            : {}),
+        }),
+        // Captured, not read off `this`: stop() clears the field, and a
+        // renegotiation retry must still be cancellable by the same barge-in.
+        signal: abort.signal,
+      });
+
+    let format: AudioFormat = formatMemo.get(memoKey) ?? this.opts.format ?? 'mp3';
+    let res = await post(format);
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      throw new Error(humanizeTtsError(res.status, detail || res.statusText, this.opts.model));
+      // "response_format must be one of [wav]" is an instruction, not a wall.
+      const offered = res.status === 400 ? formatFromRefusal(detail) : null;
+      if (!offered || offered === format) {
+        throw new Error(humanizeTtsError(res.status, detail || res.statusText, model));
+      }
+      format = offered;
+      formatMemo.set(memoKey, format);
+      res = await post(format);
+      if (!res.ok) {
+        const second = await res.text().catch(() => '');
+        throw new Error(humanizeTtsError(res.status, second || res.statusText, model));
+      }
+    } else {
+      formatMemo.set(memoKey, format);
     }
     const data = new Uint8Array(await res.arrayBuffer());
-    return { kind: 'audio', data, mimeType: 'audio/mpeg' };
+    return { kind: 'audio', data, mimeType: MIME[format] ?? 'audio/mpeg' };
   }
 
   stop(): void {

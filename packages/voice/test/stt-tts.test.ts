@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OpenAiStt } from '../src/stt/openai-stt.ts';
-import { humanizeTtsError, OpenAiTts } from '../src/tts/openai-tts.ts';
+import { formatFromRefusal, humanizeTtsError, OpenAiTts } from '../src/tts/openai-tts.ts';
 
 describe('OpenAiStt', () => {
   it('posts multipart WAV and returns trimmed text', async () => {
@@ -65,6 +65,47 @@ describe('OpenAiTts', () => {
     expect(JSON.parse(bodies[2]!).speed).toBe(5);
     await new OpenAiTts({ apiKey: 'k', speed: 0.1, fetch: fetchFn }).speak('a');
     expect(JSON.parse(bodies[3]!).speed).toBe(0.5);
+  });
+
+  it('renegotiates the audio format when the endpoint refuses mp3', async () => {
+    // Groq's Orpheus answers WAV only, and said so by rejecting the default.
+    const asked: string[] = [];
+    const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+      const fmt = JSON.parse(String(init?.body)).response_format as string;
+      asked.push(fmt);
+      if (fmt !== 'wav') {
+        return new Response(
+          '{"error":{"message":"response_format must be one of [wav]","type":"invalid_request_error"}}',
+          { status: 400 },
+        );
+      }
+      return new Response(new Uint8Array([7, 7]).buffer, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const out = await new OpenAiTts({
+      apiKey: 'k',
+      baseURL: 'https://api.groq.com/openai/v1',
+      model: 'canopylabs/orpheus-v1-english',
+      fetch: fetchFn,
+    }).speak('hello');
+    expect(asked).toEqual(['mp3', 'wav']);
+    expect(out).toMatchObject({ kind: 'audio', mimeType: 'audio/wav' });
+
+    // Remembered: the next sentence must not pay for the refusal again.
+    await new OpenAiTts({
+      apiKey: 'k',
+      baseURL: 'https://api.groq.com/openai/v1',
+      model: 'canopylabs/orpheus-v1-english',
+      fetch: fetchFn,
+    }).speak('again');
+    expect(asked).toEqual(['mp3', 'wav', 'wav']);
+  });
+
+  it('reads the offered formats out of the refusal', () => {
+    expect(formatFromRefusal('response_format must be one of [wav]')).toBe('wav');
+    // Given a choice, prefer what a browser plays smallest-first.
+    expect(formatFromRefusal('response_format must be one of [flac, wav, mp3]')).toBe('mp3');
+    expect(formatFromRefusal('something else entirely')).toBeNull();
   });
 
   it('turns a provider failure into something actionable', async () => {
