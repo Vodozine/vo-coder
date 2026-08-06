@@ -126,15 +126,13 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
     await snap(label.toLowerCase());
   }
 
-  // Agent editor. The picker only lists what the catalogue knows, so point the
-  // form at a broad-catalogue provider — that is the shot that shows price and
-  // context side by side rather than a local-only list at $0.
+  // Agent editor with the model picker open. The picker only lists providers
+  // that are usable right now, so on a profile without keys the local fleet is
+  // what it can show — switching the provider dropdown just empties it.
   await clickNav('Agents');
   await wait(600);
   await clickText('.agent-row button', 'Edit');
   await wait(700);
-  await selectByText('.agent-form select, .agent-edit select', 'openrouter');
-  await wait(1200);
   await click('.model-picker-value');
   await wait(600);
   await snap('agents-edit');
