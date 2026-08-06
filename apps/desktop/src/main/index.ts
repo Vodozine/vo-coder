@@ -121,10 +121,26 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
   await wait(3500); // initial data (catalog, projects, missions)
   // Chat itself is captured last, once a deliberate conversation is open — the
   // restored session is whatever the profile happened to leave behind.
-  for (const label of ['Agents', 'Missions', 'Scaffold', 'Terminal', 'Settings']) {
+  for (const label of ['Agents', 'Missions', 'Scaffold', 'Settings']) {
     await clickNav(label);
     await snap(label.toLowerCase());
   }
+
+  // Terminal: an empty prompt says nothing, so run two version checks — the
+  // most side-effect-free commands there are — and shoot a shell in use.
+  await clickNav('Terminal');
+  await wait(1200);
+  await win.webContents.executeJavaScript(
+    `document.querySelector('.xterm-helper-textarea, .terminal textarea, textarea')?.focus()`,
+  );
+  for (const cmd of ['node -v', 'npm -v', 'git --version']) {
+    for (const ch of cmd) {
+      win.webContents.sendInputEvent({ type: 'char', keyCode: ch } as never);
+    }
+    win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' } as never);
+    await wait(1100);
+  }
+  await snap('terminal');
 
   // Agent editor with the model picker open. The picker only lists providers
   // that are usable right now, so on a profile without keys the local fleet is
