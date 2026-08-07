@@ -268,7 +268,6 @@ function McpFinder() {
       setQuery(prefill);
       void search(prefill);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const askAgentToBuild = () => {

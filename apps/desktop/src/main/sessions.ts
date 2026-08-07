@@ -1,4 +1,9 @@
-import { AgentSession, type McpClientManager, type PermissionDecision } from '@vo-coder/core';
+import {
+  AgentSession,
+  type McpClientManager,
+  type PermissionDecision,
+  type SessionEvent,
+} from '@vo-coder/core';
 import type { AgentSpec, BoundModel, HarnessMessage, ToolSpec, UserPart } from '@vo-coder/providers';
 import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
@@ -31,7 +36,7 @@ interface SessionManagerDeps {
     usage: { inputTokens: number; outputTokens: number },
   ) => void;
   /** Observer for session events (activity journaling). */
-  onEvent?: (sessionId: string, event: import('@vo-coder/core').SessionEvent) => void;
+  onEvent?: (sessionId: string, event: SessionEvent) => void;
   /** Cheapest-adequate model pick for internal jobs (context compaction). */
   pickCheap?: (
     text: string,
