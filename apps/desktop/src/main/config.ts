@@ -42,6 +42,10 @@ export class ConfigStore {
         if (!Array.isArray(this.cache.llamacppEndpoints)) {
           this.cache.llamacppEndpoints = [];
         }
+        // Older configs predate the project gate.
+        if (!Array.isArray(this.cache.projectGateOffered)) {
+          this.cache.projectGateOffered = [];
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }

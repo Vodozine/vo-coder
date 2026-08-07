@@ -57,6 +57,7 @@ import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
+import { gateNudge, projectGate, projectMdPath } from './project-md';
 import { extractLesson, helpToolSpecs, vodoStepIn } from './vodo-helper';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
@@ -342,6 +343,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           warm: (provider, model) => {
             void warmModel(provider, model);
           },
+          hasProjectMd: (dir) => projectMdPath(dir) !== null,
         }, ctx?.projectId, ctx?.sessionId, ctxDir());
       }
       if (name === 'preview_open') {
@@ -1446,6 +1448,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 'of doing it yourself; group_status shows the whole board.]',
             },
           ];
+        }
+      }
+      // The PROJECT GATE: the one-time senior-dev brake. A folder that has
+      // quietly grown into a real development project — many code files, no
+      // git, no VO-CODER.md — gets ONE conversational intervention. The note
+      // rides the user's message (the position history cannot bury), the
+      // agent turns it into a talk instead of a questionnaire, and what is
+      // agreed lands in VO-CODER.md. Offered is persisted BEFORE the turn
+      // runs: whatever the user decides, the brake never taps twice.
+      if (projectDir && projectDir !== config.get().genericDir && !liveGroupHere && !opts?.noRoute) {
+        const offered = config.get().projectGateOffered;
+        const seen = new Set(offered.map((p) => p.toLowerCase()));
+        if (!seen.has(projectDir.toLowerCase())) {
+          const crossed = projectGate(projectDir);
+          if (crossed) {
+            config.set({ projectGateOffered: [...offered, projectDir].slice(-300) });
+            parts = [
+              ...parts,
+              { type: 'text', text: gateNudge(crossed.codeFiles, crossed.capped) },
+            ];
+          }
         }
       }
       // "Generate an image of X": the answer is a picture, and the picture comes

@@ -6,6 +6,7 @@ import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { lookToolSpecs } from './vision-look';
+import { projectMdNote } from './project-md';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
 interface SessionManagerDeps {
@@ -204,6 +205,11 @@ export class SessionManager {
   /** Folder-backed projects: tell the agent it has hands and where they work. */
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
+    // The folder's VO-CODER.md (when present) rides every prompt: its Rules
+    // bind the work, its Map orients faster than ws_list. Re-read per send but
+    // stable while the file is unchanged, so prompt caches survive; an edit
+    // costs one reprefill, which is what an edit is for.
+    const projectNote = dir ? projectMdNote(dir) : '';
     // DATE only, never time-of-day: this string sits at the top of the system
     // prompt, and anything that changes per turn breaks local models' prompt
     // caching — the box then re-reads the ENTIRE context before every reply
@@ -295,7 +301,7 @@ export class SessionManager {
       return builtinNote || voiceNote || teamNote || bossNote || assembly || planNote
         ? {
             ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
           }
         : spec;
     }
@@ -323,7 +329,7 @@ export class SessionManager {
           `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
-          `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -340,7 +346,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
+          `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -364,7 +370,7 @@ export class SessionManager {
         `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
-        `${builtinNote}${voiceNote}${teamNote}${bossNote}${assembly}${planNote}`,
+        `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
     };
   }
 

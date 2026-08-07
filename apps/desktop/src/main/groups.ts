@@ -35,6 +35,8 @@ export interface GroupDeps {
   statusOf?: (sessionId: string) => string;
   /** Tail of a member's last reply — what they actually said before going quiet. */
   lastSaid?: (sessionId: string) => string;
+  /** Does the shared folder hold a VO-CODER.md the members must read first? */
+  hasProjectMd?: (dir: string) => boolean;
 }
 
 /**
@@ -253,6 +255,7 @@ export function memberBrief(
   member: GroupMember,
   all: GroupMember[],
   sharedFolder = false,
+  projectMd = false,
 ): string {
   const others = all
     .filter((m) => m.sessionId !== member.sessionId)
@@ -273,6 +276,11 @@ export function memberBrief(
         'file, never the blueprint, never another member’s block — the merge is done later with ' +
         'ws_assemble, in blueprint order. Title your map task node with your block name ' +
         '("block 03 — scoring") so the team can see exactly which blocks are active and done.\n\n'
+      : '') +
+    (projectMd
+      ? 'The folder has a VO-CODER.md: ws_read it FIRST — its Map section orients you without ' +
+        'exploring, and its "## Rules" section binds everyone’s work here, yours included. ' +
+        'Never edit the Rules section; only the user changes rules.\n\n'
       : '') +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
@@ -412,7 +420,10 @@ export async function startGroup(
     // turn begins at prefill instead of at reading gigabytes off disk.
     const agent = agents.find((a) => a.id === member.agentId);
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
-    deps.send(member.sessionId, memberBrief(group.goal, member, members, !!dir));
+    deps.send(
+      member.sessionId,
+      memberBrief(group.goal, member, members, !!dir, !!(dir && deps.hasProjectMd?.(dir))),
+    );
   }
   return { ok: true, group, queued };
 }

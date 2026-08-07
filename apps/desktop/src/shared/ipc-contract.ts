@@ -128,6 +128,12 @@ export interface AppConfig {
    */
   genericDir: string;
   /**
+   * Folders where the one-time "this became a real project" brake has already
+   * been offered. The gate fires once per folder, ever — the user's answer
+   * (including "no") must stay answered.
+   */
+  projectGateOffered: string[];
+  /**
    * Mr Homelab: a dedicated infrastructure agent with its own tab. Off by
    * default — it only makes sense for people who actually run a homelab, and
    * an always-present tab for everyone else is clutter.
@@ -220,6 +226,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
   // cannot ask Electron for paths.
   genericDir: '',
+  projectGateOffered: [],
   homelabEnabled: false,
   telegramEnabled: false,
   telegramPaired: [],
