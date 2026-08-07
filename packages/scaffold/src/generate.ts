@@ -33,7 +33,10 @@ function template(rel: string): string {
   let lastErr: unknown;
   for (const candidate of candidates) {
     try {
-      return readFileSync(candidate, 'utf8');
+      // Normalize CRLF: an autocrlf checkout hands the renderer '\r'-tailed
+      // lines, its blank-line logic stops matching '', and every generated
+      // config grows runs of empty lines (seen on the Free worktree).
+      return readFileSync(candidate, 'utf8').replace(/\r\n/g, '\n');
     } catch (err) {
       lastErr = err;
     }
