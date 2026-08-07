@@ -571,6 +571,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             // New turn: the delivery count starts at zero, so "ended without
             // dispatching" is a fact about THIS turn.
             coordDispatched.set(g.id, 0);
+            coordSelfWork.set(g.id, 0);
+          } else if (event.type === 'tool_started') {
+            // Hands-on tools only: reading/inspecting IS oversight, and the
+            // coordination tools are his actual job.
+            if (event.name === 'ws_write' || event.name === 'ws_run' || event.name === 'ws_assemble') {
+              coordSelfWork.set(g.id, (coordSelfWork.get(g.id) ?? 0) + 1);
+            }
           } else if (event.type === 'error') {
             // Driver-fired finish → re-fire the driver. A turn the USER
             // started (told Vodo "finish" by hand) has no fired flag — it
@@ -652,7 +659,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 groupSynthesisFired.delete(g.id);
                 setTimeout(() => maybeFinishGroup(g.id), 2500);
               }
+            } else if (
+              // The boss just DID the hands-on work himself on an ordinary
+              // (user-initiated) turn while people sat idle. Seen live on a
+              // ~800k-token run: the standing "delegate" rule at the top of
+              // the prompt loses to hours of in-context precedent, so the
+              // correction lands as a MESSAGE — recency wins where position
+              // zero cannot. Capped, and a turn that dispatches resets it.
+              coordDispatched.get(g.id) === 0 &&
+              (coordSelfWork.get(g.id) ?? 0) >= 3 &&
+              g.members.some((m) => sessions.statusOf(m.sessionId) === 'idle')
+            ) {
+              const n = (coordSelfNudges.get(g.id) ?? 0) + 1;
+              coordSelfNudges.set(g.id, n);
+              if (n <= 2) {
+                const idle = g.members
+                  .filter((m) => sessions.statusOf(m.sessionId) === 'idle')
+                  .map((m) => m.agentName);
+                const did = coordSelfWork.get(g.id) ?? 0;
+                setTimeout(() => {
+                  void sessions.send(g.coordinatorId!, [
+                    {
+                      type: 'text',
+                      text:
+                        `YOU JUST DID THE HANDS-ON WORK YOURSELF — ${did} ws_write/ws_run calls ` +
+                        `this turn while ${idle.length} member(s) sat idle (${idle.join(', ')}). ` +
+                        'You are the coordinator: work like this goes to a member via group_send, ' +
+                        'with the exact files and deliverable named. Hand the NEXT step to one of ' +
+                        'them now. The only exceptions: no member has the tools, or a member ' +
+                        'already failed the step twice — if that is genuinely the case, say which ' +
+                        'exception applies and carry on.',
+                    },
+                  ]);
+                }, 1500);
+              }
             }
+            if ((coordDispatched.get(g.id) ?? 0) > 0) coordSelfNudges.delete(g.id);
           }
         }
       }
@@ -1001,6 +1043,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     groupSynthesisFired.delete(groupId);
     groupFinishAttempts.delete(groupId);
     coordStalled.delete(groupId);
+    coordSelfWork.delete(groupId);
+    coordSelfNudges.delete(groupId);
     broadcastProjects();
   });
   ipcMain.handle(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
@@ -1078,6 +1122,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const coordContinues = new Map<string, number>();
   /** group_send calls the coordinator actually made during its current turn. */
   const coordDispatched = new Map<string, number>();
+  /** ws_write/ws_run/ws_assemble calls the coordinator made himself this turn. */
+  const coordSelfWork = new Map<string, number>();
+  /** Self-work corrections sent per group — capped; a dispatching turn resets. */
+  const coordSelfNudges = new Map<string, number>();
   /** Members whose current turn hit an error — their idle goes to the boss, not the user. */
   const memberStalled = new Set<string>();
   /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
@@ -1375,6 +1423,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (liveGroupHere && liveGroupHere.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) {
         groupSynthesisFired.delete(liveGroupHere.id);
         groupFinishAttempts.delete(liveGroupHere.id);
+      }
+      // The delegation rule travels WITH the user's message. On a marathon
+      // coordinator chat (~800k tokens seen live) the standing system-prompt
+      // rule is buried under hours of pre-rule precedent of Vodo working
+      // hands-on — and the model follows the precedent. A short note at the
+      // very end of the request is the one position history cannot bury.
+      // Appended AFTER history, so provider prompt caching keeps its prefix.
+      if (liveGroupHere && !opts?.noRoute) {
+        const idleNames = liveGroupHere.members
+          .filter((m) => sessions.statusOf(m.sessionId) === 'idle')
+          .map((m) => m.agentName);
+        if (idleNames.length > 0) {
+          parts = [
+            ...parts,
+            {
+              type: 'text',
+              text:
+                `\n[group: ${idleNames.length} of ${liveGroupHere.members.length} members idle — ` +
+                `${idleNames.slice(0, 4).join(', ')}${idleNames.length > 4 ? ', …' : ''}. If this ` +
+                'request is work, group_send it to one of them with the full instruction instead ' +
+                'of doing it yourself; group_status shows the whole board.]',
+            },
+          ];
+        }
       }
       // "Generate an image of X": the answer is a picture, and the picture comes
       // from the configured image model no matter who holds the turn — the chat
