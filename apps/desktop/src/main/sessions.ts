@@ -196,11 +196,22 @@ export class SessionManager {
     // tasks first, then recency — changes only when the MAP changes; the
     // model reaches for map_query/archive_search when it needs relevance.
     const digest = this.deps.bank!.digest(projectId, 5_500);
+    // A chat bound to its OWN folder shares the project's memory with every
+    // older app built under the same project — and "active tasks first" read
+    // as marching orders: a fresh folder's chat resumed the OLD app's tasks
+    // in the old folder (seen live). The briefing itself must say whose
+    // tasks these are.
+    const ownFolder = !!this.deps.projects.meta(sessionId)?.dir;
     return (
       '\n\nSMART CONTEXT IS ON: older turns of this conversation are NOT replayed — your working ' +
       'context is this project briefing plus the most recent messages. Durable project knowledge ' +
       '(active tasks first — those are what you are in the middle of):\n' +
       (digest || '(the map is still filling in)') +
+      (ownFolder
+        ? '\nNOTE: this chat is bound to its OWN folder. Briefing tasks about OTHER folders or ' +
+          'apps are background knowledge, NOT your assignment — your assignment is only what ' +
+          'the user asks in THIS chat, in THIS folder.'
+        : '') +
       '\nFor anything older or verbatim, use archive_search / archive_read / map_query — the full ' +
       'record always exists. When you form or finish a plan, record it with map_update as a "task" ' +
       'node so it survives the window moving on.'
@@ -215,6 +226,29 @@ export class SessionManager {
     // stable while the file is unchanged, so prompt caches survive; an edit
     // costs one reprefill, which is what an edit is for.
     const projectNote = dir ? projectMdNote(dir) : '';
+    // Seen live, verbatim: "he just totally forgott what i asked him and he
+    // just kept on working in the other app i told him we could use as base".
+    // A chat bound to a fresh folder inherits the project's memory of OLDER
+    // apps — and ws_run's shell can reach any path — so the discipline has to
+    // be stated exactly where the folder is stated. Same session produced
+    // five release-* variant folders in one project root.
+    const disciplineNote =
+      '\nWORKSPACE DISCIPLINE:\n' +
+      '- THIS folder is your ONLY workspace. Other folders — earlier apps, anything the user ' +
+      'says to use "as a base", anything the project memory mentions — are REFERENCE ONLY: ' +
+      'read them when the user points you there, but NEVER write into them and never resume ' +
+      'their old tasks. "Build something like X" means build it HERE, fresh, bringing over ' +
+      'only what the user explicitly names.\n' +
+      '- Do EXACTLY what was asked — nothing extra, nothing assumed. No bonus refactors, no ' +
+      'renames, no "while I was at it". If the request is ambiguous, ask ONE short question ' +
+      'instead of guessing.\n' +
+      '- BUILDS ARE VERSIONED: bump the version (package.json or equivalent — 0.1.1 becomes ' +
+      '0.1.2) BEFORE every installer/package build, and name that version when you report. ' +
+      'Never two builds under one version.\n' +
+      '- ONE build-output folder, reused for every build (release/, dist/ — whatever this ' +
+      'project already uses). NEVER invent side folders like release-fix or build-2: versions ' +
+      'tell builds apart, folder names do not. Stray build folders are clutter — offer to ' +
+      'delete them.';
     // DATE only, never time-of-day: this string sits at the top of the system
     // prompt, and anything that changes per turn breaks local models' prompt
     // caching — the box then re-reads the ENTIRE context before every reply
@@ -334,6 +368,7 @@ export class SessionManager {
           `- Reviewing code: ws_list, ws_read the key files, give concrete findings with ` +
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
+          `${disciplineNote}` +
           `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
@@ -375,6 +410,7 @@ export class SessionManager {
         `background:true — it starts the process and returns at once. NEVER launch a GUI app or a ` +
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
+        `${disciplineNote}` +
         `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
     };
   }
