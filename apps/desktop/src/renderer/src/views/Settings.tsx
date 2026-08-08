@@ -517,6 +517,105 @@ function XaiProviderRow() {
   );
 }
 
+/**
+ * One-click game-engine bridges: fetch + build the MIT MCP server for the
+ * engine under userData/tools, then run it on the app's own Node. The card
+ * owns install/bind; once configured the server shows up in the ordinary
+ * MCP list below with connect/disconnect/remove.
+ */
+function EngineBridgeCard({ id }: { id: 'unreal' | 'unity' }) {
+  const refreshMcp = useStore((s) => s.refreshMcp);
+  const [st, setSt] = useState<{ installed: boolean; configured: boolean; project?: string } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState<'' | 'install' | 'bind'>('');
+  const [note, setNote] = useState('');
+  const ui =
+    id === 'unreal'
+      ? {
+          title: 'Unreal Engine',
+          bind: 'Bind .uproject & connect',
+          blurb:
+            'Vodo drives the Unreal editor — spawn and edit actors, materials, Blueprints, ' +
+            'build and package (sam-david/unreal-mcp, MIT, no C++ plugin needed).',
+        }
+      : {
+          title: 'Unity',
+          bind: 'Add & connect',
+          blurb:
+            'Vodo drives the Unity editor — scenes, GameObjects, components, prefabs, tests ' +
+            '(CoderGamester/mcp-unity, MIT).',
+        };
+  useEffect(() => {
+    void window.vo.bridgeStatus(id).then(setSt);
+  }, [id]);
+  const install = async () => {
+    setBusy('install');
+    setNote('');
+    const r = await window.vo.bridgeInstall(id);
+    setNote(r.ok ? 'built ✓' : `${r.step} failed — ${r.log.slice(-300)}`);
+    setBusy('');
+    void window.vo.bridgeStatus(id).then(setSt);
+  };
+  const bind = async () => {
+    setBusy('bind');
+    setNote('');
+    const r = await window.vo.bridgeBind(id);
+    if (r.ok) setNote('connected ✓');
+    else if (r.error !== 'cancelled') setNote(r.error ?? 'failed');
+    setBusy('');
+    void window.vo.bridgeStatus(id).then(setSt);
+    await refreshMcp();
+  };
+  return (
+    <div>
+      <div className="field-row">
+        <span className={`status-dot ${st?.configured ? 'on' : 'off'}`} />
+        <label>{ui.title}</label>
+        <span className="meta grow">
+          {st === null
+            ? '…'
+            : st.installed
+              ? st.project
+                ? `bound to ${st.project.split(/[\\/]/).pop()}`
+                : st.configured
+                  ? 'configured'
+                  : 'built — not connected yet'
+            : 'not installed'}
+          {note ? ` — ${note}` : ''}
+        </span>
+        <button disabled={busy !== ''} onClick={() => void install()}>
+          {busy === 'install' ? 'Building…' : st?.installed ? 'Update' : 'Install'}
+        </button>
+        <button disabled={busy !== '' || !st?.installed} onClick={() => void bind()}>
+          {busy === 'bind' ? 'Connecting…' : ui.bind}
+        </button>
+      </div>
+      <p className="hint">{ui.blurb}</p>
+      <details className="hint-more">
+        <summary>one-time setup inside {ui.title}</summary>
+        {id === 'unreal' ? (
+          <p className="hint">
+            Enable the built-in <strong>Python Editor Script Plugin</strong>, then Project
+            Settings → Python → tick <strong>Enable Remote Execution</strong>. On UE 5.3+ set the
+            Multicast Bind Address to <code>0.0.0.0</code> (group stays{' '}
+            <code>239.0.0.1:6766</code>). Optional: the <strong>Remote Control API</strong> plugin
+            unlocks extra tools. Allow UDP 6766 / TCP 6776 through the firewall, keep the editor
+            open, then bind your .uproject here and just ask Vodo.
+          </p>
+        ) : (
+          <p className="hint">
+            Unity 6+: Package Manager → add package from git URL{' '}
+            <code>https://github.com/CoderGamester/mcp-unity.git</code>, then Tools → MCP Unity →
+            Server Window (WebSocket port 8090). Keep the editor open, press the connect button
+            here, and ask Vodo for a cube.
+          </p>
+        )}
+      </details>
+    </div>
+  );
+}
+
 function McpSection() {
   const config = useStore((s) => s.config);
   const mcpStatus = useStore((s) => s.mcpStatus);
@@ -559,6 +658,8 @@ function McpSection() {
         them for you. Advanced: add any server manually by command.
       </p>
       <McpFinder />
+      <EngineBridgeCard id="unreal" />
+      <EngineBridgeCard id="unity" />
       {config.mcpServers.map((s) => {
         const status = mcpStatus.find((st) => st.name === s.name);
         return (

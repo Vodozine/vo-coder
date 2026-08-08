@@ -510,6 +510,13 @@ export interface VoApi {
   onCheckin(cb: (payload: CheckinPayload) => void): () => void;
   mcpSearch(query: string): Promise<McpRegistryEntry[]>;
   mcpAdd(config: McpServerConfig): Promise<McpServerStatus>;
+  /**
+   * Game-engine bridges (Unreal, Unity): third-party MIT MCP servers fetched
+   * and built under userData/tools, run on the app's own Node runtime.
+   */
+  bridgeStatus(id: string): Promise<{ installed: boolean; configured: boolean; project?: string }>;
+  bridgeInstall(id: string): Promise<{ ok: boolean; step: string; log: string }>;
+  bridgeBind(id: string): Promise<{ ok: boolean; error?: string; project?: string }>;
   onAdvisorSuggest(cb: (suggestion: McpSuggestion) => void): () => void;
   advisorDismiss(topic: string): Promise<void>;
   termCreate(opts: { cwd?: string; cols?: number; rows?: number }): Promise<{
@@ -664,6 +671,9 @@ export const IPC = {
   checkin: 'checkin:show',
   mcpSearch: 'mcp:search',
   mcpAdd: 'mcp:add',
+  bridgeStatus: 'bridges:status',
+  bridgeInstall: 'bridges:install',
+  bridgeBind: 'bridges:bind',
   advisorSuggest: 'advisor:suggest',
   advisorDismiss: 'advisor:dismiss',
   termCreate: 'term:create',

@@ -58,6 +58,12 @@ import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import { gateNudge, projectGate, projectMdPath } from './project-md';
+import {
+  ENGINE_BRIDGES,
+  bridgeConfig,
+  bridgeInstall,
+  bridgeInstalled,
+} from './engine-bridges';
 import { extractLesson, helpToolSpecs, vodoStepIn } from './vodo-helper';
 import { SecretStore } from './secrets';
 import { SessionManager } from './sessions';
@@ -1833,6 +1839,55 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const others = config.get().mcpServers.filter((s) => s.name !== cfg.name);
     config.set({ mcpServers: [...others, cfg] });
     return mcp.connect(cfg);
+  });
+  // ---- game-engine bridges (Unreal / Unity MCP servers) ----
+  ipcMain.handle(IPC.bridgeStatus, (_e, id: string) => {
+    const def = ENGINE_BRIDGES[id];
+    if (!def) return { installed: false, configured: false };
+    const entry = config.get().mcpServers.find((s) => s.name === def.id);
+    return {
+      installed: bridgeInstalled(app.getPath('userData'), id),
+      configured: !!entry,
+      project: def.projectPick ? entry?.env?.[def.projectPick.envVar] : undefined,
+    };
+  });
+  ipcMain.handle(IPC.bridgeInstall, (_e, id: string) =>
+    bridgeInstall(app.getPath('userData'), id),
+  );
+  ipcMain.handle(IPC.bridgeBind, async (_e, id: string) => {
+    const def = ENGINE_BRIDGES[id];
+    if (!def) return { ok: false, error: `Unknown bridge "${id}".` };
+    if (!bridgeInstalled(app.getPath('userData'), id)) {
+      return { ok: false, error: 'Install the bridge first.' };
+    }
+    let projectPath: string | undefined;
+    if (def.projectPick) {
+      const win = getWindow();
+      if (!win) return { ok: false, error: 'No window.' };
+      const picked = await dialog.showOpenDialog(win, {
+        title: `Pick the ${def.projectPick.label} file`,
+        filters: [{ name: def.projectPick.label, extensions: def.projectPick.extensions }],
+        properties: ['openFile'],
+      });
+      refocusMain();
+      if (picked.canceled || !picked.filePaths[0]) return { ok: false, error: 'cancelled' };
+      projectPath = picked.filePaths[0];
+    }
+    const cfg = bridgeConfig(
+      app.getPath('userData'),
+      id,
+      process.execPath,
+      app.isPackaged,
+      projectPath,
+    );
+    const others = config.get().mcpServers.filter((s) => s.name !== cfg.name);
+    config.set({ mcpServers: [...others, cfg] });
+    const status = await mcp.connect(cfg);
+    return {
+      ok: status.connected,
+      ...(projectPath ? { project: projectPath } : {}),
+      ...(status.error ? { error: status.error } : {}),
+    };
   });
   ipcMain.handle(IPC.advisorDismiss, (_e, topic: string) => advisor.dismiss(topic));
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
