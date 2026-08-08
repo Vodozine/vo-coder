@@ -38,10 +38,11 @@ export function GroupView({
   // Remembered across view switches: this component unmounts every time the
   // user visits Preview/Settings and back, and re-picking 8-per-page on every
   // return is exactly the papercut that got reported.
-  const [perPage, setPerPageState] = useState<4 | 8>(() =>
-    localStorage.getItem('vo-group-per-page') === '8' ? 8 : 4,
-  );
-  const setPerPage = (n: 4 | 8) => {
+  const [perPage, setPerPageState] = useState<4 | 8 | 16>(() => {
+    const stored = localStorage.getItem('vo-group-per-page');
+    return stored === '16' ? 16 : stored === '8' ? 8 : 4;
+  });
+  const setPerPage = (n: 4 | 8 | 16) => {
     setPerPageState(n);
     try {
       localStorage.setItem('vo-group-per-page', String(n));
@@ -78,12 +79,14 @@ export function GroupView({
             value={String(perPage)}
             title="How many windows per page (one is the coordinator)"
             onChange={(e) => {
-              setPerPage(Number(e.target.value) === 8 ? 8 : 4);
+              const n = Number(e.target.value);
+              setPerPage(n === 16 ? 16 : n === 8 ? 8 : 4);
               setPage(0);
             }}
           >
             <option value="4">4 per page</option>
             <option value="8">8 per page</option>
+            <option value="16">16 per page</option>
           </select>
           {pages > 1 && (
             <>
