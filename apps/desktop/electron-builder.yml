@@ -1,5 +1,11 @@
 appId: dev.vo-coder.app
 productName: Vo-Coder
+# Pin the internal name the builder derives folders from. The app was born
+# "@vo-coder/desktop" (July 2026) and renamed on Aug 4 — one machine still
+# grew a Programs\@vo-coderdesktop install after 1.2.16, so the identity is
+# forced here rather than trusted to derivation.
+extraMetadata:
+  name: vo-coder
 electronVersion: 43.2.0
 directories:
   output: release

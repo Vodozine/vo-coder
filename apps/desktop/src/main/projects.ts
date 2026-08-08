@@ -89,6 +89,32 @@ export class ProjectStore {
       this.persist();
       console.log('[projects] removed project folder from General — generic chats run folder-less');
     }
+    // Heal profiles carried over from the pre-split app: its Design library
+    // stored an ABSOLUTE folder under the old app's Roaming profile
+    // (…\@vo-coder\desktop\design-library). This edition has no Design suite,
+    // so such records must never steer a chat's workspace — seen live: the
+    // welcome card showed the fossil path while the user's generic folder was
+    // correctly set, because a project's own dir always outranks it.
+    let fossils = 0;
+    const isFossilDir = (dir: string) => /[\\/]@vo-coder[\\/]/.test(dir);
+    for (const p of data.projects) {
+      if (p.dir && isFossilDir(p.dir)) {
+        delete p.dir;
+        fossils++;
+      }
+    }
+    for (const s of data.sessions) {
+      if (s.dir && isFossilDir(s.dir)) {
+        delete s.dir;
+        fossils++;
+      }
+    }
+    if (fossils > 0) {
+      this.persist();
+      console.log(
+        `[projects] removed ${fossils} pre-split folder pointer(s) — chats fall back to the generic folder`,
+      );
+    }
   }
 
   /**
