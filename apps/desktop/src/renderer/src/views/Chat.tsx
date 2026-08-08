@@ -1042,10 +1042,14 @@ export function Chat() {
         >
           Group project
         </button>
+        {/* Always General: this button used to open the chat in the ACTIVE
+            project, so the previous chat's folder rode along — seen live: a
+            fresh chat showing the last project's workspace. A new chat is a
+            clean slate; the sidebar's per-project + is the scoped one. */}
         <button
           className="ghost"
-          title="Start a new chat in this project"
-          onClick={() => void newSession(activeMeta?.projectId)}
+          title="Start a fresh chat (General — no folder). The sidebar's + makes project chats."
+          onClick={() => void newSession('general')}
         >
           New chat
         </button>
