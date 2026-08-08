@@ -38,7 +38,7 @@ import { ConfigStore } from './config';
 import { Journal } from './journal';
 import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
-import { DESIGN_LIBRARY_ID, HOMELAB_PROJECT_ID, ProjectStore } from './projects';
+import { HOMELAB_PROJECT_ID, ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
@@ -1134,8 +1134,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const meta = projects.meta(sessionId);
       const groupTied =
         !!meta?.groupId || projects.groups().some((g) => g.coordinatorId === sessionId);
-      const pinned =
-        meta?.projectId === HOMELAB_PROJECT_ID || meta?.projectId === DESIGN_LIBRARY_ID;
+      const pinned = meta?.projectId === HOMELAB_PROJECT_ID;
       if (meta && !isGeneric && !groupTied && !pinned) {
         const target = projects.projectForDir(dir);
         if (target.id !== meta.projectId && projects.moveSession(sessionId, target.id)) {
@@ -1869,7 +1868,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         filters: [{ name: def.projectPick.label, extensions: def.projectPick.extensions }],
         properties: ['openFile'],
       });
-      refocusMain();
       if (picked.canceled || !picked.filePaths[0]) return { ok: false, error: 'cancelled' };
       projectPath = picked.filePaths[0];
     }
