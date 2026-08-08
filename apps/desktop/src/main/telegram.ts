@@ -43,9 +43,6 @@ interface TgUpdate {
 export interface TelegramAgentBackend {
   vodoSpec(): AgentSpec;
   resolve(spec: AgentSpec, override?: { provider?: string; model?: string }): BoundModel;
-  route(
-    text: string,
-  ): Promise<{ provider: string; model: string; rationale: string } | undefined>;
   tools(): ToolSpec[];
   execute(name: string, args: unknown): Promise<{ content: string; isError?: boolean }>;
   missionsSummary(): string;
@@ -59,7 +56,6 @@ interface ChatState {
   session: AgentSession;
   bound?: BoundModel;
   buffer: string;
-  routedNote?: string;
   basePrompt: string;
 }
 
@@ -347,9 +343,7 @@ export class TelegramBridge {
         } else if (event.type === 'status' && event.status === 'idle') {
           const out = fresh.buffer.trim();
           fresh.buffer = '';
-          const note = fresh.routedNote;
-          fresh.routedNote = undefined;
-          if (out) void this.sendText(chatId, note ? `${out}\n\n🧭 ${note}` : out);
+          if (out) void this.sendText(chatId, out);
         }
       },
       toolExecutor: {
@@ -371,13 +365,15 @@ export class TelegramBridge {
       ...state.session.spec,
       systemPrompt: `${state.basePrompt}\nCurrent local date-time: ${fmtStamp(Date.now())}.`,
     };
-    const pick = await this.backend.route(text).catch(() => undefined);
+    // NO routing gate here — Telegram answers with Vodo's own model, always.
+    // The gate used to pick per message, pinned turns to whatever provider it
+    // favoured (OpenRouter, seen live), and a disabled provider then meant
+    // silence on the phone while the app itself answered fine.
     const parts: UserPart[] = [{ type: 'text', text }];
-    if (pick) state.routedNote = pick.rationale;
 
     const result =
       state.session.getStatus() === 'idle'
-        ? state.session.send(parts, pick ? { provider: pick.provider, model: pick.model } : undefined)
+        ? state.session.send(parts)
         : state.session.inject(parts);
     if (!result.ok) {
       await this.sendText(chatId, `⚠ ${result.error ?? 'Could not start that.'}`);

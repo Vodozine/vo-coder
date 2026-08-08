@@ -2220,7 +2220,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const telegram = new TelegramBridge(config, secrets, {
     vodoSpec,
     resolve: resolveSpec,
-    route: (text) => routeForVodo([{ type: 'text', text }], false, false),
     tools: () => remoteTools(),
     execute: (name, args) => telegramExecute(name, args),
     missionsSummary: () => missions.describeAll(),
