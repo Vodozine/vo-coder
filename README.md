@@ -65,13 +65,15 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 ## What's inside
 <a id="whats-inside"></a>
 
-**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed. Flip any provider **On/Off** without deleting credentials so auto-routing skips it until you want it back.
+**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed. Flip any provider **On/Off** without deleting credentials so auto-routing skips it until you want it back — and agents can go **off duty** the same way, keeping their setup while routing and groups pass them by.
 
 **🧭 Smart routing, your rules** — four modes: *Auto* (cheapest adequate model per message), *My agents first* (your specialist agents get matching work, Auto as fallback), *My agents only* (every turn lands on one of your agents), or *Off*. Every routed reply shows the reasoning and estimated cost. Busy or failing endpoints (429 / 5xx / ResourceExhausted) back off and retry; models that keep failing get benched so routing moves on.
 
-**🛠 Agents with hands** — agents don't hand you instructions; they do the work. Workspace tools (list/read/write files, run commands) scoped to your project folder, gated by per-call permission prompts. Web search and page fetching are built into every session — no API key, no setup.
+**🛠 Agents with hands** — agents don't hand you instructions; they do the work. Workspace tools (list/read/write files, run commands) scoped to your project folder, gated by per-call permission prompts. Web search and page fetching are built into every session — no API key, no setup. Folder-bound chats follow strict **workspace discipline**: this folder only, other apps are read-only reference even when used "as a base", versions bumped before every build, one build-output folder — never a pile of `release-fix2` clones.
 
-**📂 Point a chat at any folder** — attach any folder to a chat (no project needed) and the agent gets tools over it: browse, read, run, and *see*. Or **open an existing folder as a project** from the sidebar — no questionnaire, just tools and memory on that path. Review a codebase, or catalog a folder of photos so you can find them later by feel — "the moody one," "the sunny beach shot."
+**📂 Point a chat at any folder** — attach any folder to a chat and the agent gets tools over it: browse, read, run, and *see*. Binding a chat to a folder also **rehomes it to the project that owns that folder** (created from the folder's name when it's new), and its memory record moves along — so two apps never share one briefing and the agent never drifts back into the wrong codebase. Review a codebase, or catalog a folder of photos so you can find them later by feel — "the moody one," "the sunny beach shot."
+
+**📐 A rulebook per folder** — when a folder quietly becomes a real project (code piling up, no git, no structure), the agent steps on the brakes **once**, like a senior colleague — and talks it through with you, one question at a time, never a questionnaire. What you agree on lands in `VO-CODER.md`: **`## Rules`** is yours and binds every agent working in that folder, every turn; **`## Map`** is theirs, kept fresh so the next session starts oriented instead of exploring. Say no and it never asks again.
 
 **👁 Real eyes for any model** — `look_at_image` runs an image file through your vision model and hands the description back as text, so even a text-only coder can "see" a screenshot or photo. Camera **RAW** files (NEF, CR2/CR3, ARW, RAF, ORF, RW2, DNG, and 20+ more) open via their embedded preview. `file_identify` decodes camera/app naming schemes — which device shot each file, and the date baked into the name. Vision model pickers filter for real vision-capable IDs (including xAI when you're on Grok login).
 
@@ -79,15 +81,17 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 **🎨 Image generation in-chat** — point an image-output model at a prompt and the result renders inline *and* lands in the project's `designs/` folder. Supports **xAI Grok Imagine** (API key or Grok login), OpenRouter image models, and OpenAI — pick them from Settings → Image model.
 
+**👥 Group projects** — Vodo splits a goal across your specialists and runs them side by side (4, 8, or 16 panes per page). One big deliverable splits too: he writes a **blueprint**, hands out numbered blocks, the whole team builds in parallel and code — not a model — merges the result. Mid-run he can seat another roster agent (`group_add`), *"use all agents"* means **all** of them or a reason per agent, and a group is not done until the deliverable actually **ran** — build, tests, start — under his eyes. Every group is one foldable row in the sidebar, always.
+
 **🚀 Missions** — background objectives Vodo pursues in its own isolated agent instances, one-shot or looping on a schedule. Missions run concurrently with your chats, so long work never blocks the conversation. Just ask: *"check my backups every hour and report problems."*
 
-**📱 Telegram remote** — pair your own Telegram bot with a one-time code and talk to Vodo from anywhere: ask questions, launch missions, get run notifications, approve tool calls with inline buttons.
+**📱 Telegram remote** — pair your own Telegram bot with a one-time code and talk to Vodo from anywhere: ask questions, launch missions, get run notifications, approve tool calls with inline buttons. Replies always come from **Vodo's own model** — turning a provider off never silences your phone.
 
 **🧠 Cross-everything memory** — a timestamped journal records activity across all projects, chats, missions, and tools. Ask Vodo *"what was I working on last Monday at 10pm?"* and it answers from the record. Pin durable facts any agent can recall.
 
 **🗂 A memory bank per project** — every conversation is kept verbatim in a local SQLite archive, and distilled into a structured **map** (decisions, files, tasks, facts, and their links) you can browse and edit in the Memory view. Turn on **Smart context** and the window becomes a buffer over that map — a chat that once replayed 290k tokens a turn drops to a few thousand, with the full record always one search away.
 
-**🎙 Voice** — push-to-talk and hands-free live chat. One-click whisper.cpp setup for fully offline speech-to-text. Text-to-speech through your system voice, OpenAI, ElevenLabs, or **any OpenAI-compatible endpoint** (Groq, local Kokoro, …) — replies are spoken sentence-by-sentence while the model is still writing.
+**🎙 Voice** — push-to-talk and hands-free live chat. One-click whisper.cpp setup for fully offline speech-to-text. Text-to-speech through your system voice, OpenAI, ElevenLabs, or **any OpenAI-compatible endpoint** (Groq, local Kokoro, …) — replies are spoken sentence-by-sentence while the model is still writing. Cloud endpoints get **model and voice dropdowns** once the key is in, plus a one-click **Test voice** and a speed control; the system voice adds rate and pitch.
 
 **👀 Live code view** — watch agents build in real time: project tree with change states, per-line diffs, syntax highlighting, git-aware review. Select any code and ask for an explanation, a rethink, or a change — right where it is.
 
@@ -95,21 +99,21 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 **🖥 Infrastructure MCP** — a bundled, generalized infrastructure server: environment discovery plus a Proxmox driver (VMs, containers, snapshots, backups) behind read < write < destructive permission tiers. Works in any MCP client, not just Vo-Coder. Finding more tools is built in: search the official MCP registry and add servers with one click.
 
+**🎮 Unreal & Unity bridges** — one click in Settings → MCP fetches and builds an MIT engine bridge ([sam-david/unreal-mcp](https://github.com/sam-david/unreal-mcp), [CoderGamester/mcp-unity](https://github.com/CoderGamester/mcp-unity)) and runs it on the app's **own** Node — no system Node needed. Unreal needs no C++ plugin (it drives the editor through UE's built-in Python Remote Execution, UE 5.3+); Unity installs as a plain Package Manager git URL (Unity 6+). Then *"spawn a cube 200 units up"* is just a sentence to Vodo — actors, Blueprints, materials and builds on one side; scenes, GameObjects, prefabs and tests on the other.
+
 **📟 The essentials** — real PTY terminal with tabs, a live app preview that starts (and stops) your project's dev server and follows whichever project you're in, per-project + all-time usage tracking, auto-updates that keep your settings and keys. Composer drafts survive tab switches; chat only auto-scrolls when you're already near the bottom.
 
 **🛡 Built to not hang** — a silent or throttled model can't freeze a turn (a stall watchdog aborts it), Stop always interrupts even a wedged command, and long build-and-verify runs get room to finish instead of dying halfway. Three operating modes — **Auto** (autonomous), **Plan** (read-only, proposes a plan), **Manual** (approve every action).
 
 ## What's new
 
-**1.2.13** — image requests stop being routed to whoever is free: "generate an image of…" now stays on your chat model and renders through the image model you configured, instead of tying at zero score and landing on a small local agent.
+**1.2.16** — the game-engine release, and the one where chats stop getting lost. **Unreal Engine & Unity bridges**: one-click MCP setup for both editors — Vodo drives them in plain language. **One folder ↔ one project**: binding a chat to a folder rehomes it (memory included) to the project that owns that folder, so two apps never share one briefing and the agent never drifts back into the old codebase. Groups grew up: *"use all agents"* means all of them, `group_add` seats another specialist mid-run, and a group is not done until the deliverable actually **ran**. Plus: one sidebar row per group always (orphaned group chats fold too), a 16-pane split view, strict workspace discipline (versioned builds, one output folder, no assumptions), and Telegram always answering as Vodo — a disabled provider can't silence your phone any more.
 
-**1.2.12** — **Mr Homelab**: an optional dedicated infrastructure agent with his own tab (Settings → Mr Homelab), the bundled **infra** MCP server, his own chats and the same memory as everyone else — out of ordinary routing, but callable by a group project. Plus **Z.ai (GLM Coding Plan)** as a provider, and two crash fixes.
+**1.2.15** — agents that ask before your project grows wild: the **VO-CODER.md project gate** (one senior-dev brake, your rules bind every agent in the folder), agent **On/Off** switches, Mr Homelab configured in his own tab, TTS model/voice pickers with a Test button + speed/pitch, folded settings with real checkboxes, **parallel blocks** (blueprint → blocks → code-merged deliverable), and the delegation guards that keep Vodo overseeing instead of building.
 
-**1.2.11** — local models stop re-reading the whole conversation every turn (the system prefix is now stable, so a local server reuses its KV cache); LM Studio endpoints accept a plain `host:port`.
+**1.2.14** — generated images appear in the chat (and stay there — no Preview hijack), and the Proxmox driver honours `insecureTls` for self-signed homelab certs.
 
-**1.2.10** — **Group projects**: Vodo plans a goal, splits it into briefs, assigns your specialists and runs them side by side (4 or 8 panes per page). He delegates the assembly instead of doing it himself, every member shares the project folder, a stalled member reports to him rather than to you, and the run folds into one bundle in the sidebar — rename anything, delete the bundle and its chats go with it.
-
-**1.2.9 and earlier** — multi-endpoint local models (one Ollama per GPU, `model@endpoint` pinning, measured context fit), the memory bank and smart context, NVIDIA NIM, provider On/Off toggles, Grok subscription sign-in, and image generation in chat. Full notes on the [Releases page](https://github.com/Vodozine/vo-coder/releases).
+**1.2.13 and earlier** — image requests stay on your model and render through your configured image model; Mr Homelab + Z.ai (GLM Coding Plan); stable prompt prefix so local models stop re-reading everything; group projects; multi-endpoint local servers with `model@endpoint` pinning. Full notes on the [Releases page](https://github.com/Vodozine/vo-coder/releases).
 
 ## Install
 
