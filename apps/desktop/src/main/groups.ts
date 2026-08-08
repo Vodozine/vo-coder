@@ -37,6 +37,8 @@ export interface GroupDeps {
   lastSaid?: (sessionId: string) => string;
   /** Does the shared folder hold a VO-CODER.md the members must read first? */
   hasProjectMd?: (dir: string) => boolean;
+  /** Persist a changed group (a member joined mid-run) and refresh the UI. */
+  updateGroup?: (group: GroupRun) => void;
 }
 
 /**
@@ -117,6 +119,32 @@ export function groupToolSpecs(): ToolSpec[] {
         'waiting for YOU — send them work with group_send or finish the job.',
       inputSchema: { type: 'object', properties: {} },
     },
+    {
+      name: 'group_add',
+      description:
+        'Seat ONE more agent from the roster into the RUNNING group and hand them their first ' +
+        'task. Use it when the job outgrew the team: queued parts are piling up, a specialty is ' +
+        'missing, or the user asks for more hands / the whole team. The new member gets their ' +
+        'own chat, the shared folder and the same rules as everyone else — afterwards reach ' +
+        'them with group_send like any member. Seats are capped; prefer re-tasking an idle ' +
+        'member when the roster is exhausted.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: {
+            type: 'string',
+            description: 'Roster agent name to bring in (must not already be a member)',
+          },
+          task: {
+            type: 'string',
+            description:
+              'Their first assignment — complete and standalone: exact files, exact ' +
+              'deliverable, where to write it. They see nothing else of this chat.',
+          },
+        },
+        required: ['agent', 'task'],
+      },
+    },
   ];
 }
 
@@ -190,7 +218,7 @@ export async function executeGroupTool(
         content:
           `No member matches "${memberName}". Members: ` +
           group.members.map((m) => m.agentName).join(', ') +
-          '.',
+          '. A roster agent who is not a member yet joins with group_add.',
         isError: true,
       };
     }
@@ -207,6 +235,73 @@ export async function executeGroupTool(
       content:
         `Sent to ${member.agentName}. You will be woken when the group goes quiet — review ` +
         'their output then, before anything else.',
+    };
+  }
+  if (name === 'group_add') {
+    const a = (args ?? {}) as { agent?: unknown; task?: unknown };
+    const agentName = typeof a.agent === 'string' ? a.agent.trim() : '';
+    const task = typeof a.task === 'string' ? a.task.trim() : '';
+    if (!agentName || !task) {
+      return { content: 'group_add needs agent (roster name) and task.', isError: true };
+    }
+    const group = deps.groups?.().find((g) => !g.endedAt && g.coordinatorId === coordinatorId);
+    if (!group) {
+      return {
+        content: 'No live group is coordinated from this chat — group_add only works there.',
+        isError: true,
+      };
+    }
+    if (group.members.length >= MAX_GROUP_MEMBERS) {
+      return {
+        content:
+          `The group is full (${MAX_GROUP_MEMBERS} seats). Hand the work to an idle member ` +
+          'with group_send instead.',
+        isError: true,
+      };
+    }
+    const norm = (s: string) => s.toLowerCase();
+    // Off-duty agents stay off duty — but Mr Homelab CAN be seated here: an
+    // explicit named request from the coordinator is a deliberate choice, not
+    // the accidental auto-seating the group_start filter guards against.
+    const roster = deps.agents().filter((ag) => ag.enabled !== false);
+    const agent =
+      roster.find((ag) => norm(ag.name) === norm(agentName)) ??
+      roster.find((ag) => norm(ag.name).includes(norm(agentName)));
+    if (!agent) {
+      return {
+        content:
+          `No enabled agent matches "${agentName}". Roster: ` +
+          `${roster.map((ag) => ag.name).join(', ') || '(empty)'}.`,
+        isError: true,
+      };
+    }
+    if (group.members.some((m) => m.agentId === agent.id)) {
+      return {
+        content: `${agent.name} is already in the group — reach them with group_send.`,
+        isError: true,
+      };
+    }
+    const member: GroupMember = {
+      sessionId: deps.createSession(group.projectId, agent.id, task.slice(0, 48), group.id, dir),
+      agentId: agent.id,
+      agentName: agent.name,
+      task,
+      matched: [],
+    };
+    const updated: GroupRun = { ...group, members: [...group.members, member] };
+    deps.updateGroup?.(updated);
+    // Re-record so the map's GROUP PROJECT node lists the new member too.
+    deps.record?.(updated);
+    if (agent.provider && agent.model) deps.warm?.(agent.provider, agent.model);
+    deps.send(
+      member.sessionId,
+      memberBrief(updated.goal, member, updated.members, !!dir, !!(dir && deps.hasProjectMd?.(dir))),
+    );
+    return {
+      content:
+        `${agent.name} joined the group (${updated.members.length}/${MAX_GROUP_MEMBERS} seats) ` +
+        'and received the task. They work in their own chat now — reach them again with ' +
+        'group_send; you will be woken when the group goes quiet.',
     };
   }
   const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
@@ -239,7 +334,8 @@ export async function executeGroupTool(
         : '') +
       '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
       'is doing what, then wait for their results rather than doing the work yourself. Mid-run ' +
-      'you can hand any of them follow-up work with group_send.',
+      'you can hand any of them follow-up work with group_send — and if the job needs more ' +
+      'hands than the seats filled, group_add seats another roster agent.',
   };
 }
 

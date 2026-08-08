@@ -183,6 +183,13 @@ export class ProjectStore {
     this.persist();
   }
 
+  /** Replace a stored group by id — how a live group grows a member. */
+  updateGroup(group: GroupRun): void {
+    const data = this.load();
+    data.groups = (data.groups ?? []).map((g) => (g.id === group.id ? group : g));
+    this.persist();
+  }
+
   /**
    * End a run without touching its sessions — the transcripts are ordinary
    * chats and stay where they are, so the work survives the group that

@@ -282,7 +282,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }
         // Older groups were spawned dir-less — heal them the moment the
         // coordinator touches the group again, so a live run picks up hands.
-        if (name === 'group_send' && ctx?.sessionId) {
+        if ((name === 'group_send' || name === 'group_add') && ctx?.sessionId) {
           const live = projects
             .groups()
             .find((g) => !g.endedAt && g.coordinatorId === ctx.sessionId);
@@ -290,7 +290,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             ensureGroupDirs(live);
             // Proof of DELIVERY for this turn. Writing an assignment table in
             // chat looks like delegating and reaches nobody — the members read
-            // their own chats, not the coordinator's.
+            // their own chats, not the coordinator's. Seating a new member
+            // with a task counts the same as sending one.
             coordDispatched.set(live.id, (coordDispatched.get(live.id) ?? 0) + 1);
           }
         }
@@ -344,6 +345,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             void warmModel(provider, model);
           },
           hasProjectMd: (dir) => projectMdPath(dir) !== null,
+          updateGroup: (group) => {
+            projects.updateGroup(group);
+            broadcastProjects();
+          },
         }, ctx?.projectId, ctx?.sessionId, ctxDir());
       }
       if (name === 'preview_open') {
@@ -556,6 +561,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         if (info) {
           groupSynthesisFired.delete(info.group.id);
           groupFinishAttempts.delete(info.group.id);
+          // New member work makes the old proof stale — the finish must be
+          // proven again after this wave lands.
+          coordProofRuns.delete(info.group.id);
         }
       }
       // The coordinator's finishing turn dying (stall abort, provider error,
@@ -579,6 +587,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             // coordination tools are his actual job.
             if (event.name === 'ws_write' || event.name === 'ws_run' || event.name === 'ws_assemble') {
               coordSelfWork.set(g.id, (coordSelfWork.get(g.id) ?? 0) + 1);
+            }
+            // ws_run doubles as PROOF — the only tool that can show the
+            // result actually building, testing, starting.
+            if (event.name === 'ws_run') {
+              coordProofRuns.set(g.id, (coordProofRuns.get(g.id) ?? 0) + 1);
             }
           } else if (event.type === 'error') {
             // Driver-fired finish → re-fire the driver. A turn the USER
@@ -611,6 +624,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                         'long files in SEVERAL ws_write calls — first normal, the rest with ' +
                         'append:true — one giant write is what stalls. Delegating the ' +
                         'remainder to a member with group_send also works.',
+                    },
+                  ]);
+                }, 1500);
+              }
+            } else if (
+              // The user's recurring miss: the group "finishes", the report
+              // reads done, and the app does not start — because nothing was
+              // ever RUN. A closing turn (driver-woken, no dispatches, all
+              // members idle) with zero ws_run since the group went quiet is
+              // exactly that moment. Said once per group, and only where
+              // there is a folder to run anything in.
+              groupSynthesisFired.has(g.id) &&
+              coordDispatched.get(g.id) === 0 &&
+              (coordProofRuns.get(g.id) ?? 0) === 0 &&
+              !coordProofNudged.has(g.id) &&
+              !!projects.meta(g.coordinatorId!)?.dir &&
+              g.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')
+            ) {
+              coordProofNudged.add(g.id);
+              coordDispatched.delete(g.id);
+              const attempts = groupFinishAttempts.get(g.id) ?? 0;
+              if (attempts < FINISH_ATTEMPTS_MAX) {
+                groupFinishAttempts.set(g.id, attempts + 1);
+                setTimeout(() => {
+                  void sessions.send(g.coordinatorId!, [
+                    {
+                      type: 'text',
+                      text:
+                        'THE FINISH WAS NEVER PROVEN. The group is closing but nothing has been ' +
+                        'RUN since the members went quiet — not the build, not the tests, not ' +
+                        'the app itself. "The files exist" is not tested. Do it now with ' +
+                        'ws_run: build and tests first, then actually START the result ' +
+                        '(background:true for a server or GUI) and read the output. If the ' +
+                        'start fails, the job is NOT done — group_send the fix to the right ' +
+                        'member (or seat a fresh specialist with group_add) and prove it again ' +
+                        'after. Report done only after a clean run.',
                     },
                   ]);
                 }, 1500);
@@ -1047,6 +1096,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     coordStalled.delete(groupId);
     coordSelfWork.delete(groupId);
     coordSelfNudges.delete(groupId);
+    coordProofRuns.delete(groupId);
+    coordProofNudged.delete(groupId);
     broadcastProjects();
   });
   ipcMain.handle(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
@@ -1128,6 +1179,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const coordSelfWork = new Map<string, number>();
   /** Self-work corrections sent per group — capped; a dispatching turn resets. */
   const coordSelfNudges = new Map<string, number>();
+  /**
+   * ws_run calls since the group last went quiet — the PROOF counter. Cleared
+   * whenever a member streams again (new work makes old proof stale), NOT per
+   * coordinator turn: proof from an earlier finishing turn still counts.
+   */
+  const coordProofRuns = new Map<string, number>();
+  /** Groups already told their finish was never proven — once, ever. */
+  const coordProofNudged = new Set<string>();
   /** Members whose current turn hit an error — their idle goes to the boss, not the user. */
   const memberStalled = new Set<string>();
   /** Stall notes sent to Vodo per member — capped so a dying model cannot spam the boss. */
@@ -1182,23 +1241,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           '2b. IDLE MEMBERS ARE SPARE CAPACITY: spread the remaining work across them — one ' +
           'group_send each — instead of stacking several jobs on one member or doing them ' +
           'yourself. Small jobs count: verifying a file, updating a doc, running a check. ' +
-          'Queued parts from the start go out now too.\n' +
+          'Queued parts from the start go out now too. If the work needs a specialty nobody ' +
+          'seated has, group_add brings another roster agent in with their first task.\n' +
           '3. Then STOP and wait — you are woken again when the group goes quiet. Never claim ' +
           'members are "still working" without calling group_status: an idle member is waiting ' +
           'for YOU, and waiting for someone who is already finished parks the whole job. On each ' +
           'wake: review what came back with ws_read, group_send fixes if needed (at most two ' +
           'rounds per member), and only take a step over yourself if a member has failed it ' +
           'twice or lacks the tools.\n' +
-          '4. When the deliverable is real: open it with preview_open, mark the GROUP ' +
+          '4. PROVE IT BEFORE YOU CALL IT DONE. Run what the project runs, with ws_run: the ' +
+          'build, the tests, and the actual START of the app or entry point (background:true ' +
+          'for a server/GUI) — then read the output. Files existing is not tested; a ' +
+          'deliverable that never ran is not done. A failed run means the group is NOT ' +
+          'finished: dispatch the fix and prove it again.\n' +
+          '5. Only after a clean run: open the deliverable with preview_open, mark the GROUP ' +
           'PROJECT task node done with map_update, and report — what was built, where it ' +
-          'lives, what the user should look at.'
+          'lives, what you RAN and what it printed, what the user should look at.'
         : 'THE GROUP IS STILL QUIET AND THE JOB IS STILL NOT DONE. Every member is idle — ' +
           'nobody is working, so nobody will report back to you, and saying you will wait ' +
           'parks the job forever. Check the facts first (group_status for who is running, ' +
           'ws_list for what is on disk), then either group_send the remaining work to a NAMED ' +
-          'member right now, or do the last step yourself. Finish by opening the result with ' +
-          'preview_open, marking the group task node done with map_update, and reporting what ' +
-          'exists and where.';
+          'member right now, or do the last step yourself. The job is not done until the ' +
+          'result actually RAN clean under ws_run — build, tests, start. Finish by opening ' +
+          'the result with preview_open, marking the group task node done with map_update, ' +
+          'and reporting what exists, where, and what it printed when you ran it.';
     setTimeout(() => {
       void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);
@@ -1432,20 +1498,74 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // hands-on — and the model follows the precedent. A short note at the
       // very end of the request is the one position history cannot bury.
       // Appended AFTER history, so provider prompt caching keeps its prefix.
+      // "Use ALL the agents" is an explicit ask that must not shrink to
+      // however many parts Vodo happened to think of. Detected from the
+      // user's own words and answered in the same recency position — with
+      // the concrete names, because "use more agents" without names reads
+      // as satisfied by any two.
+      const wholeTeamAsk =
+        /\b(all|every)\s+(the\s+|your\s+|of\s+the\s+)?agents?\b|\bwhole\s+team\b|\buse\s+everyone\b|\ball\s+of\s+them\b/i.test(
+          parts
+            .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+            .map((p) => p.text)
+            .join(' '),
+        );
       if (liveGroupHere && !opts?.noRoute) {
         const idleNames = liveGroupHere.members
           .filter((m) => sessions.statusOf(m.sessionId) === 'idle')
           .map((m) => m.agentName);
-        if (idleNames.length > 0) {
+        const unseated = wholeTeamAsk
+          ? config
+              .get()
+              .agents.filter(
+                (ag) =>
+                  ag.enabled !== false &&
+                  ag.id !== HOMELAB_AGENT_ID &&
+                  !liveGroupHere.members.some((m) => m.agentId === ag.id),
+              )
+              .map((ag) => ag.name)
+          : [];
+        if (idleNames.length > 0 || unseated.length > 0) {
+          const idleNote =
+            idleNames.length > 0
+              ? `\n[group: ${idleNames.length} of ${liveGroupHere.members.length} members idle — ` +
+                `${idleNames.slice(0, 4).join(', ')}${idleNames.length > 4 ? ', …' : ''}. If this ` +
+                'request is work, group_send it to one of them with the full instruction instead ' +
+                'of doing it yourself; group_status shows the whole board.'
+              : '\n[group:';
+          const teamAsk = wholeTeamAsk
+            ? ' The user asked for the WHOLE TEAM: give every idle member a part (one ' +
+              'group_send each)' +
+              (unseated.length > 0
+                ? `, and seat the unused roster agents with group_add — ${unseated.join(', ')}`
+                : '') +
+              ' — or say, agent by agent, why there is nothing useful for them.'
+            : '';
+          parts = [...parts, { type: 'text', text: `${idleNote}${teamAsk}]` }];
+        }
+      } else if (
+        wholeTeamAsk &&
+        !opts?.noRoute &&
+        projectDir &&
+        projectDir !== config.get().genericDir
+      ) {
+        // No group yet: the whole-team ask shapes the SPLIT — one part per
+        // enabled agent, before group_start is even called.
+        const roster = config
+          .get()
+          .agents.filter((ag) => ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID)
+          .map((ag) => ag.name);
+        if (roster.length >= 2) {
           parts = [
             ...parts,
             {
               type: 'text',
               text:
-                `\n[group: ${idleNames.length} of ${liveGroupHere.members.length} members idle — ` +
-                `${idleNames.slice(0, 4).join(', ')}${idleNames.length > 4 ? ', …' : ''}. If this ` +
-                'request is work, group_send it to one of them with the full instruction instead ' +
-                'of doing it yourself; group_status shows the whole board.]',
+                `\n[the user asked for the WHOLE TEAM — ${roster.length} enabled agents: ` +
+                `${roster.join(', ')}. Plan the split so EVERY one of them gets a part: ` +
+                `group_start with ${roster.length} parts (extra parts queue safely, and ` +
+                'group_add can seat anyone missed later) — or say, agent by agent, why there ' +
+                'is no useful part for them.]',
             },
           ];
         }
