@@ -17,6 +17,13 @@ export { HOMELAB_PROJECT_ID };
 export const GENERAL_PROJECT_ID = 'general';
 
 /**
+ * The Pro edition's Design home. It does not exist HERE — but profiles carried
+ * over from the pre-split app still hold its record, and that fossil must
+ * never own a folder (see the ensureDefault heal).
+ */
+const DESIGN_LIBRARY_FOSSIL_ID = 'design_library';
+
+/**
  * Projects group chat sessions; both persist under userData so threads survive
  * restarts. projects.json holds the structure; each session's full message
  * history lives in chats/<sessionId>.json.
@@ -95,10 +102,15 @@ export class ProjectStore {
     // so such records must never steer a chat's workspace — seen live: the
     // welcome card showed the fossil path while the user's generic folder was
     // correctly set, because a project's own dir always outranks it.
+    // The design_library record itself may hold ANY dir (fossil profiles let
+    // it grab real folders) — and then it silently OWNS that folder: binding
+    // a chat there rehomes nothing, groups nest into the hidden fossil, and
+    // the sidebar never shows the project the user expects. Seen live with a
+    // demo folder. In this edition that record never keeps a folder, period.
     let fossils = 0;
     const isFossilDir = (dir: string) => /[\\/]@vo-coder[\\/]/.test(dir);
     for (const p of data.projects) {
-      if (p.dir && isFossilDir(p.dir)) {
+      if (p.dir && (p.id === DESIGN_LIBRARY_FOSSIL_ID || isFossilDir(p.dir))) {
         delete p.dir;
         fossils++;
       }
