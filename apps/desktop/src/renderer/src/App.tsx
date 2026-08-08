@@ -294,7 +294,17 @@ function ProjectsPanel() {
                 const groupsHere = groups.filter((g) => g.projectId === project.id);
                 const inBundle = (m: (typeof sessions)[number]) =>
                   groupsHere.some((g) => g.id === m.groupId || g.coordinatorId === m.id);
-                const loose = sessions.filter((m) => !inBundle(m));
+                // Group chats whose record is gone (legacy runs, drift) used
+                // to scatter as loose rows — the exact clutter bundles exist
+                // to prevent. They fold into a synthetic bundle per groupId.
+                const orphanIds = [
+                  ...new Set(
+                    sessions
+                      .filter((m) => m.groupId && !inBundle(m))
+                      .map((m) => m.groupId as string),
+                  ),
+                ];
+                const loose = sessions.filter((m) => !inBundle(m) && !m.groupId);
                 const row = (meta: (typeof sessions)[number], bundled = false) => (
                   <div
                     key={meta.id}
@@ -385,6 +395,45 @@ function ProjectsPanel() {
                                   kind: 'group',
                                   id: g.id,
                                   name: g.goal.slice(0, 40),
+                                  chatCount: bundle.length,
+                                })
+                              }
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {openG && bundle.map((m) => row(m, true))}
+                        </div>
+                      );
+                    })}
+                    {orphanIds.map((gid) => {
+                      const bundle = sessions.filter((m) => m.groupId === gid);
+                      if (!bundle.length) return null;
+                      const openG = openGroups.has(gid);
+                      const holdsActive = bundle.some((m) => m.id === activeSessionId);
+                      const label = bundle[0]!.title;
+                      return (
+                        <div key={gid} className="group-bundle">
+                          <div
+                            className={`session-row bundle-head ${holdsActive && !openG ? 'active' : ''}`}
+                          >
+                            <button
+                              className="session-title"
+                              title={`Chats from an earlier group run — ${bundle.length} chats`}
+                              onClick={() => toggleGroup(gid)}
+                            >
+                              <span className="tree-arrow">{openG ? '▾' : '▸'}</span> ⊞{' '}
+                              {label.length > 30 ? `${label.slice(0, 30)}…` : label}
+                              <span className="bundle-count">{bundle.length}</span>
+                            </button>
+                            <button
+                              className="chip-x session-x"
+                              title="Delete this group's chats"
+                              onClick={() =>
+                                setDeleteTarget({
+                                  kind: 'group',
+                                  id: gid,
+                                  name: label.slice(0, 40),
                                   chatCount: bundle.length,
                                 })
                               }

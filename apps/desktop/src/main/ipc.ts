@@ -1079,11 +1079,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // to be nine × clicks.
   ipcMain.handle(IPC.groupDelete, (_e, groupId: string) => {
     const group = projects.groups().find((g) => g.id === groupId);
-    if (!group) return;
-    const ids = [
-      ...group.members.map((m) => m.sessionId),
-      ...(group.coordinatorId ? [group.coordinatorId] : []),
-    ];
+    // The record can be gone while its chats remain (legacy runs, drift).
+    // The sweep by session groupId is what guarantees the bundle really
+    // dies — the stored member list alone misses orphans.
+    const ids = new Set<string>([
+      ...(group?.members.map((m) => m.sessionId) ?? []),
+      ...(group?.coordinatorId ? [group.coordinatorId] : []),
+      ...projects
+        .list()
+        .sessions.filter((m) => m.groupId === groupId)
+        .map((m) => m.id),
+    ]);
     for (const id of ids) {
       // A member may be mid-stream — stop it so no zombie run outlives its chat.
       sessions.stop(id);

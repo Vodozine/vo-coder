@@ -402,7 +402,14 @@ export const useStore = create<AppState>((set, get) => ({
       // site) — bring the pane forward so the user actually sees it.
       window.vo.onPreviewShowRequested(() => get().setView('preview'));
       window.vo.onProjectsChanged((data) => {
-        set({ projects: data.projects, sessionMetas: data.sessions });
+        set({
+          projects: data.projects,
+          sessionMetas: data.sessions,
+          // Groups arrive with the same broadcast now — without this the
+          // sidebar only bundled groups known at the last explicit fetch,
+          // and everything newer scattered loose.
+          ...(data.groups ? { groups: data.groups } : {}),
+        });
         // A group Vodo just started arrives as new sessions on this broadcast;
         // the run itself lives beside them, so pull it too or the panes never
         // appear until the next restart.

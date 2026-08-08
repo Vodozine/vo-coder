@@ -120,6 +120,11 @@ export class ProjectStore {
     return {
       projects: [...data.projects],
       sessions: [...data.sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+      // Groups ride EVERY broadcast. They used to be a separate on-demand
+      // fetch, so a group started after app launch was unknown to the
+      // sidebar and its member chats scattered as loose top-level rows
+      // (seen live) until a restart happened to refetch.
+      groups: [...(data.groups ?? [])],
     };
   }
 
