@@ -402,6 +402,8 @@ export const useStore = create<AppState>((set, get) => ({
       // site) — bring the pane forward so the user actually sees it.
       window.vo.onPreviewShowRequested(() => get().setView('preview'));
       window.vo.onProjectsChanged((data) => {
+        const prev = get();
+        const activeMeta = data.sessions.find((m) => m.id === prev.activeSessionId);
         set({
           projects: data.projects,
           sessionMetas: data.sessions,
@@ -409,6 +411,12 @@ export const useStore = create<AppState>((set, get) => ({
           // sidebar only bundled groups known at the last explicit fetch,
           // and everything newer scattered loose.
           ...(data.groups ? { groups: data.groups } : {}),
+          // A chat can be REHOMED server-side (folder binding aligns project
+          // to folder) — the active project must follow the active chat, or
+          // every project-scoped view keeps reading the old home.
+          ...(activeMeta && activeMeta.projectId !== prev.activeProjectId
+            ? { activeProjectId: activeMeta.projectId }
+            : {}),
         });
         // A group Vodo just started arrives as new sessions on this broadcast;
         // the run itself lives beside them, so pull it too or the panes never

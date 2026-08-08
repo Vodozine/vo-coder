@@ -194,6 +194,29 @@ export class MemoryBank {
     }
   }
 
+  /**
+   * A chat moved to another project (folder binding realigned it): its whole
+   * archive follows, and so do the map nodes it authored — a task distilled
+   * from "build the new app" must not keep haunting the OLD project's
+   * briefings. The sync/distill watermarks are session-keyed, so they carry
+   * over untouched: no re-copy, no duplication, later turns land in the new
+   * project. OR IGNORE on nodes: a same-titled node already in the target
+   * wins, and the loser stays behind rather than violating the
+   * (project, type, title) identity.
+   */
+  moveSession(sessionId: string, toProjectId: string): void {
+    try {
+      this.db
+        .prepare('UPDATE archive SET project_id = ? WHERE session_id = ?')
+        .run(toProjectId, sessionId);
+      this.db
+        .prepare('UPDATE OR IGNORE nodes SET project_id = ? WHERE src_session = ?')
+        .run(toProjectId, sessionId);
+    } catch (err) {
+      console.error('[membank] session move failed:', err);
+    }
+  }
+
   // ---- the map: bounded, structured, superseded-not-duplicated ----
 
   private nodeId(projectId: string, type: string, title: string): number | undefined {

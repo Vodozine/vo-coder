@@ -38,7 +38,7 @@ import { ConfigStore } from './config';
 import { Journal } from './journal';
 import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
-import { HOMELAB_PROJECT_ID, ProjectStore } from './projects';
+import { DESIGN_LIBRARY_ID, HOMELAB_PROJECT_ID, ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
@@ -1114,6 +1114,34 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // next send — specs and tool mounts re-derive from the meta every turn.
   ipcMain.handle(IPC.sessionSetDir, (_e, sessionId: string, dir: string | null) => {
     projects.setSessionDir(sessionId, dir);
+    // ONE FOLDER ↔ ONE PROJECT. Binding a chat to a real folder REHOMES the
+    // chat into the project that owns that folder (created from the folder's
+    // name when none does), and its memory-bank record follows. Seen live
+    // without this: a chat left in the old app's project was bound to a
+    // fresh folder, the shared briefing still led with the OLD app's tasks,
+    // and Vodo went back to building the old app. Group-tied, Homelab and
+    // Design chats stay put — their machinery pins them — and the generic
+    // scratch folder never becomes a project.
+    if (dir) {
+      const gen = config.get().genericDir;
+      const isGeneric = !!gen && resolve(dir).toLowerCase() === resolve(gen).toLowerCase();
+      const meta = projects.meta(sessionId);
+      const groupTied =
+        !!meta?.groupId || projects.groups().some((g) => g.coordinatorId === sessionId);
+      const pinned =
+        meta?.projectId === HOMELAB_PROJECT_ID || meta?.projectId === DESIGN_LIBRARY_ID;
+      if (meta && !isGeneric && !groupTied && !pinned) {
+        const target = projects.projectForDir(dir);
+        if (target.id !== meta.projectId && projects.moveSession(sessionId, target.id)) {
+          bank?.moveSession(sessionId, target.id);
+          journal.append({
+            kind: 'project',
+            text: `chat rehomed to "${target.name}" — bound to its folder`,
+            project: target.name,
+          });
+        }
+      }
+    }
     broadcastProjects();
   });
 

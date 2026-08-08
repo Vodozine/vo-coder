@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { app } from 'electron';
 import { HOMELAB_PROJECT_ID } from '../shared/homelab';
 import type { HarnessMessage } from '@vo-coder/providers';
@@ -251,6 +251,35 @@ export class ProjectStore {
       else delete meta.dir;
       this.persist();
     }
+  }
+
+  /**
+   * One folder ↔ one project: the project that owns this dir, created from
+   * the folder's name when nobody does yet. Path compare is case-blind —
+   * Windows hands out the same folder in mixed casings.
+   */
+  projectForDir(dir: string): ProjectInfo {
+    const key = resolve(dir).toLowerCase();
+    const owner = this.load().projects.find(
+      (p) => p.dir && resolve(p.dir).toLowerCase() === key,
+    );
+    if (owner) return owner;
+    return this.createProject(basename(resolve(dir)) || dir, dir);
+  }
+
+  /**
+   * Rehome a chat to another project. Only the parent changes — the history
+   * file, groupId and dir all stay; the caller migrates the memory bank.
+   */
+  moveSession(sessionId: string, projectId: string): boolean {
+    const data = this.load();
+    const meta = data.sessions.find((s) => s.id === sessionId);
+    if (!meta || meta.projectId === projectId) return false;
+    if (!data.projects.some((p) => p.id === projectId)) return false;
+    meta.projectId = projectId;
+    meta.updatedAt = Date.now();
+    this.persist();
+    return true;
   }
 
   touch(id: string, autoTitle?: string): void {
