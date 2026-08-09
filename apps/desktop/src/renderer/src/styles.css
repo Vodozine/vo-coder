@@ -1347,7 +1347,11 @@ input[type='radio']:focus-visible {
 .cw-line {
   display: flex;
   line-height: 1.5;
-  white-space: pre;
+  /* pre-WRAP, not pre: long prose lines (agent reports, markdown) forced a
+     sideways scroll to read anything — seen live. Indentation is preserved;
+     the line wraps inside its text span, continuations aligned past the
+     gutter. */
+  white-space: pre-wrap;
 }
 .cw-num {
   width: 46px;
@@ -1360,6 +1364,8 @@ input[type='radio']:focus-visible {
 }
 .cw-text {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .cw-line.add {
   background: rgba(111, 194, 118, 0.13);

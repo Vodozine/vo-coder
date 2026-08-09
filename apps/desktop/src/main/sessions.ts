@@ -248,7 +248,11 @@ export class SessionManager {
       '- ONE build-output folder, reused for every build (release/, dist/ — whatever this ' +
       'project already uses). NEVER invent side folders like release-fix or build-2: versions ' +
       'tell builds apart, folder names do not. Stray build folders are clutter — offer to ' +
-      'delete them.';
+      'delete them.\n' +
+      '- TEAM PAPERWORK lives under .vodo/team/ — blueprints, block files, and any notes, ' +
+      'reports or checklists written for other agents or for review go there, NEVER into the ' +
+      'project root or docs/. Seen live: a project grew 330 coordination files. Your report ' +
+      'to the USER is your chat reply, not another file; the durable trail is the memory map.';
     // DATE only, never time-of-day: this string sits at the top of the system
     // prompt, and anything that changes per turn breaks local models' prompt
     // caching — the box then re-reads the ENTIRE context before every reply
@@ -303,10 +307,11 @@ export class SessionManager {
           'who is doing what and let them work: do not redo their parts yourself.\n' +
           'If the work is genuinely sequential (each step needs the one before it) or small, ' +
           'just do it — and say briefly why you are not splitting it.\n' +
-          'ONE BIG DELIVERABLE splits too: ws_write a BLUEPRINT (skeleton, contracts, numbered ' +
-          'block list), make each part one block with its exact file path (blocks/01_…, ' +
-          'blocks/02_…), and when the blocks land merge them with one ws_assemble call in ' +
-          'blueprint order. Blocks that depend on other blocks still parallelise — the ' +
+          'ONE BIG DELIVERABLE splits too: ws_write a BLUEPRINT at .vodo/team/BLUEPRINT.md ' +
+          '(skeleton, contracts, numbered block list), make each part one block with its exact ' +
+          'file path (.vodo/team/blocks/01_…, .vodo/team/blocks/02_…), and when the blocks ' +
+          'land merge them with one ws_assemble call in blueprint order, into the real ' +
+          'deliverable path. Blocks that depend on other blocks still parallelise — the ' +
           'blueprint contract is what decouples them.'
         : '';
     const assembly = this.assemblyNote(sessionId);

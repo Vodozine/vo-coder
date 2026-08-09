@@ -82,11 +82,14 @@ export function groupToolSpecs(): ToolSpec[] {
         'agent gets its own chat and works in parallel; you keep coordinating and pull the ' +
         'results together. ' +
         'ONE BIG DELIVERABLE (one code file, one document) also splits: FIRST ws_write a ' +
-        'BLUEPRINT file — the skeleton with its contracts (signatures, interfaces, section ' +
-        'headers) and a numbered block list — then make each part one block, naming its EXACT ' +
-        'block file (blocks/01_deck.js, blocks/02_scoring.js…). Two parts must never share a ' +
-        'file. When the blocks land, ws_assemble merges them in order — blocks that depend on ' +
-        'other blocks still parallelise, because the blueprint contract is what decouples them.',
+        'BLUEPRINT file at .vodo/team/BLUEPRINT.md — the skeleton with its contracts ' +
+        '(signatures, interfaces, section headers) and a numbered block list — then make each ' +
+        'part one block, naming its EXACT block file (.vodo/team/blocks/01_deck.js, ' +
+        '.vodo/team/blocks/02_scoring.js…). Two parts must never share a file. When the blocks ' +
+        'land, ws_assemble merges them in order into the REAL deliverable path — blocks that ' +
+        'depend on other blocks still parallelise, because the blueprint contract is what ' +
+        'decouples them. ALL coordination files (blueprint, blocks, team notes, checklists) ' +
+        'live under .vodo/team/ — the project root is for the product, never the paperwork.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -400,12 +403,16 @@ export function memberBrief(
         'Deliverables are FILES in that folder, not chat text: write yours with ws_write. ' +
         'Long files: write them in several pieces (first call normal, the rest with ' +
         'append:true) — one giant write can stall your whole turn.\n\n' +
-        'IF YOUR PART NAMES A BLOCK FILE (e.g. blocks/03_scoring.js): read the BLUEPRINT file ' +
-        'first and honour its contracts exactly — the signatures and interfaces there are what ' +
-        'let everyone build at once. Write ONLY your own block file: never the final assembled ' +
-        'file, never the blueprint, never another member’s block — the merge is done later with ' +
-        'ws_assemble, in blueprint order. Title your map task node with your block name ' +
-        '("block 03 — scoring") so the team can see exactly which blocks are active and done.\n\n'
+        'TEAM PAPERWORK GOES IN .vodo/team/ — any notes, reports, checklists or scratch ' +
+        'files meant for the team (or for Vodo) are written under .vodo/team/, NEVER into ' +
+        'the project root. The root holds the product the user asked for, nothing else.\n\n' +
+        'IF YOUR PART NAMES A BLOCK FILE (e.g. .vodo/team/blocks/03_scoring.js): read the ' +
+        'BLUEPRINT at .vodo/team/BLUEPRINT.md first and honour its contracts exactly — the ' +
+        'signatures and interfaces there are what let everyone build at once. Write ONLY your ' +
+        'own block file: never the final assembled file, never the blueprint, never another ' +
+        'member’s block — the merge is done later with ws_assemble, in blueprint order. Title ' +
+        'your map task node with your block name ("block 03 — scoring") so the team can see ' +
+        'exactly which blocks are active and done.\n\n'
       : '') +
     (projectMd
       ? 'The folder has a VO-CODER.md: ws_read it FIRST — its Map section orients you without ' +
