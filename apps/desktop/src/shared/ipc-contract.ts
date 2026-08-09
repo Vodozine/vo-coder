@@ -133,6 +133,8 @@ export interface AppConfig {
    * (including "no") must stay answered.
    */
   projectGateOffered: string[];
+  /** Skills turned OFF in Settings — installed but out of the catalog. */
+  disabledSkills: string[];
   /**
    * Mr Homelab: a dedicated infrastructure agent with its own tab. Off by
    * default — it only makes sense for people who actually run a homelab, and
@@ -227,6 +229,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // cannot ask Electron for paths.
   genericDir: '',
   projectGateOffered: [],
+  disabledSkills: [],
   homelabEnabled: false,
   telegramEnabled: false,
   telegramPaired: [],
@@ -517,6 +520,14 @@ export interface VoApi {
   bridgeStatus(id: string): Promise<{ installed: boolean; configured: boolean; project?: string }>;
   bridgeInstall(id: string): Promise<{ ok: boolean; step: string; log: string }>;
   bridgeBind(id: string): Promise<{ ok: boolean; error?: string; project?: string }>;
+  /**
+   * Skills: packaged know-how (Claude-format SKILL.md folders or bare .md)
+   * the agents read on demand through skill_read. Import copies the source
+   * under userData/skills; the catalog rides every system prompt.
+   */
+  skillsList(): Promise<Array<{ slug: string; name: string; description: string; files: string[] }>>;
+  skillsImport(kind: 'folder' | 'file'): Promise<{ ok: boolean; name?: string; error?: string }>;
+  skillsRemove(slug: string): Promise<boolean>;
   onAdvisorSuggest(cb: (suggestion: McpSuggestion) => void): () => void;
   advisorDismiss(topic: string): Promise<void>;
   termCreate(opts: { cwd?: string; cols?: number; rows?: number }): Promise<{
@@ -674,6 +685,9 @@ export const IPC = {
   bridgeStatus: 'bridges:status',
   bridgeInstall: 'bridges:install',
   bridgeBind: 'bridges:bind',
+  skillsList: 'skills:list',
+  skillsImport: 'skills:import',
+  skillsRemove: 'skills:remove',
   advisorSuggest: 'advisor:suggest',
   advisorDismiss: 'advisor:dismiss',
   termCreate: 'term:create',

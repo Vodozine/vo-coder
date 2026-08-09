@@ -58,6 +58,7 @@ import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import { gateNudge, projectGate, projectMdPath } from './project-md';
+import { importSkill, listSkills, readSkill, removeSkill, skillsCatalog } from './skills';
 import {
   ENGINE_BRIDGES,
   bridgeConfig,
@@ -237,6 +238,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           required: ['path'],
         },
       },
+      {
+        name: 'skill_read',
+        description:
+          'Read one of the installed SKILLS — packaged instructions for a specific kind of ' +
+          'task (your briefing lists the catalog when any are installed). Call it BEFORE ' +
+          'improvising on a task a skill covers, and follow what it says. Returns the full ' +
+          'instructions plus any bundled files with their locations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Skill name (or slug) from the catalog' },
+          },
+          required: ['name'],
+        },
+      },
     ],
     execute: (
       name: string,
@@ -251,6 +267,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           ? projects.list().projects.find((p) => p.id === ctx.projectId)?.dir
           : undefined);
       if (name.startsWith('web_')) return executeWebTool(name, args);
+      if (name === 'skill_read') {
+        const want = String((args as { name?: unknown })?.name ?? '').trim();
+        const userData = app.getPath('userData');
+        const hit = readSkill(userData, want);
+        if (!hit) {
+          const names = listSkills(userData)
+            .map((s) => s.name)
+            .join(', ');
+          return Promise.resolve({
+            content: `No skill matches "${want}". Installed: ${names || '(none)'}.`,
+            isError: true,
+          });
+        }
+        if ((config.get().disabledSkills ?? []).includes(hit.meta.slug)) {
+          return Promise.resolve({
+            content: `The skill "${hit.meta.name}" is turned OFF in Settings — not using it.`,
+            isError: true,
+          });
+        }
+        return Promise.resolve({ content: hit.content });
+      }
       if (name === 'image_generate') {
         return executeImageTool(args, config, secrets, ctxDir(), {
           xaiToken: () => xaiOauth.token(),
@@ -471,6 +508,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     send: sendToWindow,
     builtins,
     modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
+    skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
     ...(bank
       ? {
           bank: {
@@ -1887,6 +1925,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...(status.error ? { error: status.error } : {}),
     };
   });
+  // ---- skills: packaged know-how, read on demand via skill_read ----
+  ipcMain.handle(IPC.skillsList, () => listSkills(app.getPath('userData')));
+  ipcMain.handle(IPC.skillsImport, async (_e, kind: 'folder' | 'file') => {
+    const win = getWindow();
+    if (!win) return { ok: false, error: 'No window.' };
+    const picked = await dialog.showOpenDialog(
+      win,
+      kind === 'folder'
+        ? { title: 'Pick a skill folder (SKILL.md inside)', properties: ['openDirectory'] }
+        : {
+            title: 'Pick a skill markdown file',
+            filters: [{ name: 'Markdown', extensions: ['md'] }],
+            properties: ['openFile'],
+          },
+    );
+    refocusMain();
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false, error: 'cancelled' };
+    const res = importSkill(app.getPath('userData'), picked.filePaths[0]);
+    return res.ok ? { ok: true, name: res.name } : { ok: false, error: res.error };
+  });
+  ipcMain.handle(IPC.skillsRemove, (_e, slug: string) =>
+    removeSkill(app.getPath('userData'), String(slug ?? '')),
+  );
   ipcMain.handle(IPC.advisorDismiss, (_e, topic: string) => advisor.dismiss(topic));
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url);

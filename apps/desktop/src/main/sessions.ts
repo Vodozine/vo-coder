@@ -54,6 +54,8 @@ interface SessionManagerDeps {
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
+  /** The skills catalog note (empty when no skills are installed/enabled). */
+  skillsCatalog?: () => string;
 }
 
 const IMAGE_STUB =
@@ -226,6 +228,9 @@ export class SessionManager {
     // stable while the file is unchanged, so prompt caches survive; an edit
     // costs one reprefill, which is what an edit is for.
     const projectNote = dir ? projectMdNote(dir) : '';
+    // The skills card catalog: names + one-liners only; the body loads
+    // through skill_read on demand. Stable ordering, so prompt caches hold.
+    const skillsNote = this.deps.skillsCatalog?.() ?? '';
     // Seen live, verbatim: "he just totally forgott what i asked him and he
     // just kept on working in the other app i told him we could use as base".
     // A chat bound to a fresh folder inherits the project's memory of OLDER
@@ -342,10 +347,10 @@ export class SessionManager {
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
     if (!dir) {
-      return builtinNote || voiceNote || teamNote || bossNote || assembly || planNote
+      return builtinNote || skillsNote || voiceNote || teamNote || bossNote || assembly || planNote
         ? {
             ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
           }
         : spec;
     }
@@ -374,7 +379,7 @@ export class SessionManager {
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
           `${disciplineNote}` +
-          `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -391,7 +396,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -416,7 +421,7 @@ export class SessionManager {
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
         `${disciplineNote}` +
-        `${builtinNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+        `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
     };
   }
 

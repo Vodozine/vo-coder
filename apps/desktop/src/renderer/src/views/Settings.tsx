@@ -616,6 +616,84 @@ function EngineBridgeCard({ id }: { id: 'unreal' | 'unity' }) {
   );
 }
 
+/**
+ * Skills: packaged know-how (Claude-format SKILL.md folders or bare .md
+ * how-tos) the agents read on demand through skill_read. Only the one-line
+ * catalog rides the system prompt; Off keeps a skill installed but out of
+ * the catalog.
+ */
+function SkillsSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [skills, setSkills] = useState<
+    Array<{ slug: string; name: string; description: string; files: string[] }>
+  >([]);
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    void window.vo.skillsList().then(setSkills);
+  }, []);
+  if (!config) return null;
+  const disabled = new Set(config.disabledSkills ?? []);
+  const refresh = () => void window.vo.skillsList().then(setSkills);
+  const toggle = (slug: string) => {
+    const next = disabled.has(slug)
+      ? (config.disabledSkills ?? []).filter((s) => s !== slug)
+      : [...(config.disabledSkills ?? []), slug];
+    void saveConfig({ disabledSkills: next });
+  };
+  const add = async (kind: 'folder' | 'file') => {
+    setNote('');
+    const r = await window.vo.skillsImport(kind);
+    if (r.ok) setNote(`imported "${r.name}"`);
+    else if (r.error !== 'cancelled') setNote(r.error ?? 'import failed');
+    refresh();
+  };
+  const remove = async (slug: string) => {
+    await window.vo.skillsRemove(slug);
+    refresh();
+  };
+  return (
+    <section>
+      <h2>Skills</h2>
+      <p className="hint">
+        Packaged know-how the agents read on demand — import skills made for Claude (a folder
+        with SKILL.md inside) or any markdown how-to. Only a one-line catalog rides the prompt.
+      </p>
+      <details className="hint-more">
+        <summary>how skills work here</summary>
+        <p className="hint">
+          Every agent sees the catalog (name + one line per skill) and calls skill_read when a
+          task matches — the full instructions load only then. Foreign tool names are translated
+          at read time (bash → ws_run, CLAUDE.md → VO-CODER.md), so skills written for other
+          harnesses work without editing. Off keeps a skill installed but out of the catalog.
+        </p>
+      </details>
+      {skills.map((s) => (
+        <div key={s.slug} className="field-row">
+          <span className={`status-dot ${disabled.has(s.slug) ? 'off' : 'on'}`} />
+          <label>{s.name}</label>
+          <span className="meta grow">
+            {s.description}
+            {s.files.length ? ` — ${s.files.length} bundled file(s)` : ''}
+          </span>
+          <button className="ghost" onClick={() => toggle(s.slug)}>
+            {disabled.has(s.slug) ? 'On' : 'Off'}
+          </button>
+          <button className="ghost" onClick={() => void remove(s.slug)}>
+            Remove
+          </button>
+        </div>
+      ))}
+      {skills.length === 0 && <p className="hint">No skills installed yet.</p>}
+      <div className="field-row">
+        <button onClick={() => void add('folder')}>Add skill folder…</button>
+        <button onClick={() => void add('file')}>Add .md file…</button>
+        {note && <span className="meta">{note}</span>}
+      </div>
+    </section>
+  );
+}
+
 function McpSection() {
   const config = useStore((s) => s.config);
   const mcpStatus = useStore((s) => s.mcpStatus);
@@ -1919,6 +1997,7 @@ export function Settings() {
       </section>
 
       <McpSection />
+      <SkillsSection />
       <VisionSection />
       <ImageModelSection />
       <VoiceSection />

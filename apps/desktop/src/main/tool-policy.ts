@@ -29,4 +29,6 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   'archive_search',
   'archive_read',
   'map_query',
+  // Reading installed know-how touches nothing outside the skills folder.
+  'skill_read',
 ]);

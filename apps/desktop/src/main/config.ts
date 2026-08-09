@@ -46,6 +46,10 @@ export class ConfigStore {
         if (!Array.isArray(this.cache.projectGateOffered)) {
           this.cache.projectGateOffered = [];
         }
+        // Older configs predate skills.
+        if (!Array.isArray(this.cache.disabledSkills)) {
+          this.cache.disabledSkills = [];
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }
