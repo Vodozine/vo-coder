@@ -6,6 +6,27 @@ import type { GroupMember, GroupRun } from '../shared/ipc-contract';
 /** More than this and nobody can follow what is happening. */
 export const MAX_GROUP_MEMBERS = 8;
 
+/**
+ * Does this task read as INFRASTRUCTURE work, measured by Mr Homelab's own
+ * routing hints? Whole words only, and callers require TWO independent
+ * signals (INFRA_SIGNALS_MIN): his hints contain everyday dev words
+ * ("server", "network"), and a single substring hit inside ordinary copy
+ * kept conscripting him — seen live: the infra specialist spent a whole
+ * group run generating website images because a part said "preview server".
+ */
+export function infraSignals(routingHints: string | undefined, task: string): number {
+  const hints = (routingHints ?? '')
+    .split(/[,;]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 1);
+  const hay = task.toLowerCase();
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return hints.filter((h) => new RegExp(`(^|\\W)${esc(h)}(\\W|$)`).test(hay)).length;
+}
+
+/** Seats and group_add both demand this many distinct hint matches. */
+export const INFRA_SIGNALS_MIN = 2;
+
 export interface GroupDeps {
   agents: () => AgentSpec[];
   createSession: (
@@ -281,6 +302,19 @@ export async function executeGroupTool(
         isError: true,
       };
     }
+    // The deliberate door gets the same test as the automatic seat: Mr
+    // Homelab takes INFRASTRUCTURE work only. Seen live: he was summoned by
+    // name into a website group and spent the run generating images.
+    if (agent.id === HOMELAB_AGENT_ID && infraSignals(agent.routingHints, task) < INFRA_SIGNALS_MIN) {
+      return {
+        content:
+          'Mr Homelab only takes INFRASTRUCTURE work — VMs, containers, networking, backups ' +
+          '(the task must match his routing hints at least twice, whole words). This task does ' +
+          'not read as infra: hand it to another member, or restate it with the actual infra ' +
+          'terms if it truly is.',
+        isError: true,
+      };
+    }
     const member: GroupMember = {
       sessionId: deps.createSession(group.projectId, agent.id, task.slice(0, 48), group.id, dir),
       agentId: agent.id,
@@ -425,23 +459,16 @@ export async function startGroup(
     }
   | { ok: false; error: string }
 > {
-  // Mr Homelab joins a group only when a part is actually about
+  // Mr Homelab joins a group only when a part is GENUINELY about
   // infrastructure — he owns his own tab, and on a small roster he would
   // otherwise be handed "write the About page" just to fill a seat. The test
-  // is his ROUTING HINTS only: general ranking also scores system-prompt
-  // words, and his long prompt matches ordinary copy ("about", "network")
-  // enough to sneak him into unrelated jobs.
+  // is his ROUTING HINTS with whole-word matching and a two-signal minimum:
+  // his hints carry everyday dev words ("server", "network"), and one
+  // substring hit in ordinary copy kept conscripting him anyway.
   // An agent taken off duty is not on the team for this run either.
   const allAgents = deps.agents().filter((a) => a.enabled !== false);
   const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
-  const infraHints = (homelab?.routingHints ?? '')
-    .split(/[,;]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s.length > 1);
-  const infraScore = (task: string): number => {
-    const hay = ` ${task.toLowerCase()} `;
-    return infraHints.filter((h) => hay.includes(h)).length;
-  };
+  const infraScore = (task: string): number => infraSignals(homelab?.routingHints, task);
   const agents = allAgents.filter((a) => a.id !== HOMELAB_AGENT_ID);
   if (!agents.length && !homelab) {
     return {
@@ -458,7 +485,7 @@ export async function startGroup(
   // prose — and the rest are spread across the other agents.
   let homelabPart: string | undefined;
   if (homelab) {
-    let best = 0;
+    let best = INFRA_SIGNALS_MIN - 1;
     for (const p of parts) {
       const s = infraScore(p);
       if (s > best) {
