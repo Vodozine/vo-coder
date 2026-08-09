@@ -32,7 +32,7 @@ The design follows one metaphor all the way down: the **tool shed**. The harness
 
 And because an assistant should not be trapped in one window, Vodo works as one continuous entity across surfaces: the desktop chat, background **missions** running on schedules, your **Telegram** account when you're away from the machine — all sharing one **memory journal**, so "what was I working on last Monday?" has an answer no matter where you ask it.
 
-Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models (Ollama, LM Studio) are first-class citizens, not an afterthought. Agents act through permission prompts — in a chat you see every file write and command before it happens. Missions are the deliberate exception: they run unattended, so approving the mission is what approves its work, and the prompt that creates one says so.
+Everything runs on your machine. API keys are encrypted with your OS keychain and go only to the providers you configured. Local models are first-class citizens, not an afterthought — Ollama, LM Studio, and llama.cpp, with one server per GPU and `model@endpoint` pinning so a whole LAN of mismatched cards becomes one fleet. Agents act through permission prompts — in a chat you see every file write and command before it happens. Missions are the deliberate exception: they run unattended, so approving the mission is what approves its work, and the prompt that creates one says so.
 
 ## The story
 
@@ -41,6 +41,14 @@ Vo-Coder is a **pet project**. I built it for myself and I use it daily — it's
 It's also a port of something bigger. Vo-Coder began as the brain of **Vodomation OS** — my own highly customized Linux distro with its own desktop environment, currently in the works. There it runs far deeper than any desktop app can: most of Vodomation's built-in apps don't need compiling, so Vo-Coder can change and extend *every one of them while you use them* — the multimedia and design apps included. Ask **Vaudio** (the audio app) for an effect that doesn't exist, and Vo-Coder writes the audio plugin on the fly. An OS that grows with you.
 
 That framework is so different from a conventional desktop that a straight port was impossible — so this standalone Vo-Coder was **rebuilt from scratch** to bring the same brain to Windows, macOS, and Linux.
+
+## The soul and the brain
+
+Vo-Coder is built on one honest observation about AI: **the model is a brain, and brains are rented.** Providers swap them, deprecate them, throttle them — and some days the same brain is simply weaker than it was yesterday. So everything that makes your assistant *yours* lives outside the model, in the harness: the memory, the rules, the working discipline, the name and the face. That part is the **soul**, and it lives on your disk.
+
+Which means Vodo never really forgets — **he sleeps.** Between sessions no time passes for him: close the app on Friday, come back whenever, and he wakes with a briefing of everything that matters, active tasks first. And while he sleeps, he **dreams** — a background distiller folds your raw conversations into the durable map (decisions, files, tasks, facts and their links), the same way a sleeping brain replays the day and keeps what counts. The journal underneath remembers your whole life together — every project, chat, mission, and Telegram message, timestamped — so *"what was I working on last Monday?"* has an answer no matter where you ask it.
+
+Swap the brain and the soul persists. Put Grok in the seat today and a local model tomorrow — same memory, same rules, same Vodo. When a model is deprecated, nothing about *your* assistant dies. The brain is rented. **The soul is yours** — sitting in plain files and a local database, versioned and backed up like anything else you'd never want to lose.
 
 ## Screens
 
@@ -65,7 +73,7 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 ## What's inside
 <a id="whats-inside"></a>
 
-**🤖 Seven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), NVIDIA (NIM cloud), Ollama, LM Studio. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed. Flip any provider **On/Off** without deleting credentials so auto-routing skips it until you want it back — and agents can go **off duty** the same way, keeping their setup while routing and groups pass them by.
+**🤖 Nine providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), Z.ai (GLM Coding Plan), NVIDIA (NIM cloud), Ollama, LM Studio, llama.cpp. Keys live encrypted in your OS keychain. Grok also supports **subscription sign-in** (SuperGrok / X Premium) — no API key needed. Flip any provider **On/Off** without deleting credentials so auto-routing skips it until you want it back — and agents can go **off duty** the same way, keeping their setup while routing and groups pass them by.
 
 **🧭 Smart routing, your rules** — four modes: *Auto* (cheapest adequate model per message), *My agents first* (your specialist agents get matching work, Auto as fallback), *My agents only* (every turn lands on one of your agents), or *Off*. Every routed reply shows the reasoning and estimated cost. Busy or failing endpoints (429 / 5xx / ResourceExhausted) back off and retry; models that keep failing get benched so routing moves on.
 
