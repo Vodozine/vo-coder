@@ -3,6 +3,7 @@ import type { AgentSpec } from '@vo-coder/providers';
 import { Icon } from '../components/Icon';
 import { ModelPicker } from '../components/ModelPicker';
 import { ModeToggle } from '../components/ModeToggle';
+import { ZoomButtons } from '../components/ZoomButtons';
 import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
@@ -1029,6 +1030,7 @@ export function Chat() {
             {activeAgent?.model ?? config.defaultModel}
           </span>
         )}
+        <ZoomButtons />
         <div className="spacer" />
         <button
           className="ghost"
@@ -1074,8 +1076,11 @@ export function Chat() {
           onToggle={() => setGroupOpen(!groupOpen)}
           onOpenSolo={(sid) => {
             // Full-size view of one member = that chat active, grid folded.
-            // The header's ▸ brings the grid back.
-            soloOpenRef.current = true;
+            // The header's ▸ brings the grid back. Latch ONLY when the
+            // session actually changes — for the already-active chat (the
+            // coordinator, usually) the restore effect never runs, and a
+            // stuck latch would swallow the next genuine group restore.
+            if (sid !== activeSessionId) soloOpenRef.current = true;
             void openSession(sid);
             setGroupOpen(false);
           }}

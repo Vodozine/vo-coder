@@ -133,6 +133,7 @@ export function GroupView({
           <CoordinatorPane
             sessionId={coordinatorId}
             isActive={coordinatorId === activeSessionId}
+            onOpenSolo={onOpenSolo}
           />
         </div>
       )}
@@ -145,7 +146,15 @@ export function GroupView({
  * main composer below the grid is its input, so the tile carries no input of
  * its own — it is the chat window, relocated, not a second chat.
  */
-function CoordinatorPane({ sessionId, isActive }: { sessionId: string; isActive: boolean }) {
+function CoordinatorPane({
+  sessionId,
+  isActive,
+  onOpenSolo,
+}: {
+  sessionId: string;
+  isActive: boolean;
+  onOpenSolo: (sessionId: string) => void;
+}) {
   const session = useStore((s) => s.sessions[sessionId]);
   const primeSession = useStore((s) => s.primeSession);
   const openSession = useStore((s) => s.openSession);
@@ -181,6 +190,13 @@ function CoordinatorPane({ sessionId, isActive }: { sessionId: string; isActive:
               talk
             </button>
           )}
+          <button
+            className="ghost"
+            title="Open the coordinator full size (▸ in the header brings the grid back)"
+            onClick={() => onOpenSolo(sessionId)}
+          >
+            open
+          </button>
         </span>
       </header>
       <div className="group-pane-body" ref={scrollRef}>

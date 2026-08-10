@@ -7,6 +7,7 @@ import {
   homelabAgentSpec,
 } from '../../../shared/homelab';
 import type { McpServerStatus, McpSuggestion } from '@vo-coder/core';
+import { clampUiZoom } from '../../../shared/ipc-contract';
 import type {
   ChatSessionMeta,
   GroupRun,
@@ -26,6 +27,18 @@ import type {
 } from '../../../shared/ipc-contract';
 
 export type FileChangeState = 'baseline' | 'added' | 'modified' | 'deleted';
+
+/**
+ * Apply the whole-app UI zoom: webFrame via preload, plus a CSS var so styles
+ * that mirror native DIP geometry (the caption-button reserve) can divide it
+ * out. Called at boot and from the Settings ± buttons — the renderer owns
+ * zoom, so a reload re-applies it from config on its own.
+ */
+export function applyUiZoom(z: unknown): void {
+  const factor = clampUiZoom(z);
+  window.vo.setZoom(factor);
+  document.documentElement.style.setProperty('--ui-zoom', String(factor));
+}
 
 export type Segment =
   | { kind: 'text'; text: string }
@@ -435,6 +448,7 @@ export const useStore = create<AppState>((set, get) => ({
       window.vo.xaiOauthStatus(),
     ]);
     set({ config, secretStatus, mcpStatus, xaiOauthConnected: xaiOauth.connected });
+    applyUiZoom(config.uiZoom);
     void get().loadModels(config.defaultProvider);
     void get().loadCatalog();
     void window.vo.usageGet().then((usage) => set({ usage }));

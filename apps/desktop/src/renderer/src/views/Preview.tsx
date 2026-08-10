@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/store';
+import { Chat } from './Chat';
 import { CodeWatch } from './CodeWatch';
 
 /**
- * Preview is two things: a live browser pane for the running app (dev-server
- * HMR) and a live code view that follows the work as files are written.
+ * Preview is three things: a live browser pane for the running app
+ * (dev-server HMR), a live code view that follows the work as files are
+ * written, and a split view — the chat and the browser pane side by side.
  */
 
-function BrowserPreview() {
+function BrowserPreview({ suspend = false }: { suspend?: boolean }) {
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
   // Same cascade the workspace tools use in main: the chat's attached folder
   // wins over the project's. Group chats (General has no dir) live entirely
@@ -35,8 +37,14 @@ function BrowserPreview() {
   const [devReady, setDevReady] = useState<{ command: string; port: number } | null>(null);
   const [startingDev, setStartingDev] = useState(false);
   const regionRef = useRef<HTMLDivElement>(null);
+  // Ref, not just the prop: detect()/open() schedule requestAnimationFrame
+  // callbacks whose closures predate the drag — a slow previewDetect landing
+  // mid-drag would reattach the overlay under the captured pointer.
+  const suspendRef = useRef(suspend);
+  suspendRef.current = suspend;
 
   const sendBounds = () => {
+    if (suspendRef.current) return;
     const rect = regionRef.current?.getBoundingClientRect();
     if (rect) {
       void window.vo.previewBounds({
@@ -95,7 +103,11 @@ function BrowserPreview() {
   }, [activeProject?.id, dir]);
 
   useEffect(() => {
-    if (!active) return;
+    // suspend (divider drag) runs the same cleanup as leaving browser mode:
+    // the native overlay would otherwise swallow pointer events mid-drag, so
+    // it detaches for the duration and the false-edge re-run reattaches it
+    // at the final rect.
+    if (!active || suspend) return;
     sendBounds();
     const observer = new ResizeObserver(sendBounds);
     if (regionRef.current) observer.observe(regionRef.current);
@@ -106,7 +118,7 @@ function BrowserPreview() {
       // Leaving browser mode hides the pane but keeps the page loaded.
       void window.vo.previewHide();
     };
-  }, [active]);
+  }, [active, suspend]);
 
   const open = async () => {
     setError(null);
@@ -230,7 +242,35 @@ function BrowserPreview() {
 }
 
 export function Preview() {
-  const [mode, setMode] = useState<'browser' | 'code'>('code');
+  const [mode, setMode] = useState<'browser' | 'code' | 'split'>('code');
+  // Split view: chat ∥ divider ∥ browser pane. The ratio survives view
+  // switches and restarts (same idiom as the group grid's per-page pick).
+  const [ratio, setRatio] = useState(() => {
+    const stored = Number(localStorage.getItem('vo-preview-split'));
+    return Number.isFinite(stored) && stored >= 0.25 && stored <= 0.75 ? stored : 0.5;
+  });
+  const [dragging, setDragging] = useState(false);
+  const splitRef = useRef<HTMLDivElement>(null);
+  // Written at computation time, not render time — pointerup can outrun the
+  // last pointermove's re-render, and the persisted ratio must be the one
+  // the user actually released at.
+  const ratioRef = useRef(ratio);
+
+  const dragTo = (clientX: number) => {
+    const rect = splitRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const next = Math.min(0.75, Math.max(0.25, (clientX - rect.left) / rect.width));
+    ratioRef.current = next;
+    setRatio(next);
+  };
+  const endDrag = () => {
+    setDragging(false);
+    try {
+      localStorage.setItem('vo-preview-split', String(ratioRef.current));
+    } catch {
+      /* private-mode etc. — the session still works, it just forgets */
+    }
+  };
 
   return (
     <div className="preview-view">
@@ -241,8 +281,44 @@ export function Preview() {
         <button className={mode === 'browser' ? 'active' : ''} onClick={() => setMode('browser')}>
           Browser
         </button>
+        <button
+          className={mode === 'split' ? 'active' : ''}
+          title="Chat and the app preview side by side — drag the center line to resize"
+          onClick={() => setMode('split')}
+        >
+          Split
+        </button>
       </div>
-      {mode === 'browser' ? <BrowserPreview /> : <CodeWatch />}
+      {mode === 'split' ? (
+        <div className="preview-split" ref={splitRef}>
+          <div className="split-chat" style={{ width: `${ratio * 100}%` }}>
+            <Chat />
+          </div>
+          {/* The preview pane is a NATIVE view above the renderer — once the
+              pointer crosses it, our events stop. So the drag detaches the
+              overlay (suspend) and works against the checkered placeholder;
+              release reattaches at the final rect. */}
+          <div
+            className="split-divider"
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDragging(true);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) dragTo(e.clientX);
+            }}
+            onPointerUp={endDrag}
+            onLostPointerCapture={endDrag}
+          />
+          <div className="split-preview">
+            <BrowserPreview suspend={dragging} />
+          </div>
+        </div>
+      ) : mode === 'browser' ? (
+        <BrowserPreview />
+      ) : (
+        <CodeWatch />
+      )}
     </div>
   );
 }

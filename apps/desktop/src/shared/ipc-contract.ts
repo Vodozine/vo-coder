@@ -145,6 +145,8 @@ export interface AppConfig {
   telegramEnabled: boolean;
   /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
   telegramPaired: Array<{ id: number; name?: string }>;
+  /** Whole-app UI scale (webFrame zoom on the main window); 1 = 100%. */
+  uiZoom: number;
 }
 
 export interface VoiceSettings {
@@ -233,7 +235,22 @@ export const DEFAULT_CONFIG: AppConfig = {
   homelabEnabled: false,
   telegramEnabled: false,
   telegramPaired: [],
+  uiZoom: 1,
 };
+
+/** UI zoom bounds: below 0.8 the caption-button math and hit targets fall
+ *  apart; above 1.5 the fixed 200px sidebar leaves no room for content. */
+export const UI_ZOOM_MIN = 0.8;
+export const UI_ZOOM_MAX = 1.5;
+export const UI_ZOOM_STEP = 0.1;
+
+/** Normalize any stored/edited zoom to a safe factor: non-numbers → 1, then
+ *  clamp and round to one decimal (repeated ±0.1 drifts in binary float). */
+export function clampUiZoom(z: unknown): number {
+  const n = typeof z === 'number' && Number.isFinite(z) ? z : 1;
+  const clamped = Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, n));
+  return Math.round(clamped * 10) / 10;
+}
 
 /** Attachment limits enforced at the boundary. */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -451,6 +468,8 @@ export interface TelegramInfo {
 export interface VoApi {
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  /** Apply UI zoom to this window (webFrame, synchronous — no IPC round trip). */
+  setZoom(factor: number): void;
   setSecret(provider: string, value: string): Promise<Record<string, string | null>>;
   secretStatus(): Promise<Record<string, string | null>>;
   listModels(provider: string): Promise<ModelInfo[]>;

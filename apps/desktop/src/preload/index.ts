@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import { IPC } from '../shared/ipc-contract';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { clampUiZoom, IPC } from '../shared/ipc-contract';
 import type {
   AppConfig,
   ChatEventPayload,
@@ -23,6 +23,12 @@ function subscribe<T>(channel: string) {
 const api: VoApi = {
   getConfig: () => ipcRenderer.invoke(IPC.getConfig),
   setConfig: (patch: Partial<AppConfig>) => ipcRenderer.invoke(IPC.setConfig, patch),
+  // Zoom is per-WebContents, so setting it from the preload's isolated world
+  // scales the whole page. Clamp here too: setZoomFactor(0) throws, and
+  // config.json is hand-editable.
+  setZoom: (factor: number) => {
+    webFrame.setZoomFactor(clampUiZoom(factor));
+  },
   setSecret: (provider, value) => ipcRenderer.invoke(IPC.setSecret, provider, value),
   secretStatus: () => ipcRenderer.invoke(IPC.secretStatus),
   listModels: (provider) => ipcRenderer.invoke(IPC.listModels, provider),

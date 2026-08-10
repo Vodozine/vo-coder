@@ -7,6 +7,7 @@ import type {
   TelegramInfo,
   VoiceSettings,
 } from '../../../shared/ipc-contract';
+import { ZoomButtons } from '../components/ZoomButtons';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
@@ -2114,7 +2115,29 @@ export function Settings() {
           Save prompt
         </button>
       </section>
+      <DisplaySection />
       </div>
     </div>
+  );
+}
+
+/**
+ * Whole-app zoom. Applied instantly through webFrame (no restart), persisted
+ * in config so the next boot re-applies it. The preview overlay compensates
+ * in main (previewBounds × zoomFactor), so nothing drifts. The same buttons
+ * sit in the chat header, next to the provider picks.
+ */
+function DisplaySection() {
+  return (
+    <section>
+      <h2>Display</h2>
+      <div className="field-row">
+        <label>UI zoom</label>
+        <ZoomButtons showValue />
+      </div>
+      <p className="hint">
+        Scales the whole interface — for small screens where the UI reads too fine.
+      </p>
+    </section>
   );
 }

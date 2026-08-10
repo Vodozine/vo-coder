@@ -2532,6 +2532,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.previewClose, () => preview.close());
   ipcMain.handle(IPC.previewHide, () => preview.hide());
   ipcMain.handle(IPC.previewReload, () => preview.reload());
-  ipcMain.handle(IPC.previewBounds, (_e, bounds: PreviewBounds) => preview.setBounds(bounds));
+  ipcMain.handle(IPC.previewBounds, (e, bounds: PreviewBounds) => {
+    // The renderer measures in CSS pixels; the native view is placed in
+    // window DIPs. CSS px × zoomFactor = DIP, whatever the OS display scale —
+    // without this, any UI zoom (Settings or the stock Ctrl+± accelerators)
+    // shifts the overlay off its placeholder.
+    const z = e.sender.getZoomFactor();
+    preview.setBounds({
+      x: bounds.x * z,
+      y: bounds.y * z,
+      width: bounds.width * z,
+      height: bounds.height * z,
+    });
+  });
   ipcMain.handle(IPC.previewState, () => preview.stateValidated());
 }
