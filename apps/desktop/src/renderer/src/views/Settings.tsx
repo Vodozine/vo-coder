@@ -875,6 +875,103 @@ function cleanId(raw: string): string {
 
 const OTHER = '__other__';
 
+type InstalledVoice = { name: string; language?: string; gender?: string };
+
+/**
+ * The voices this machine actually has, read from the same speech engine that
+ * will do the speaking. Nobody knows "Microsoft Zira Desktop" by heart, and a
+ * name typed one character off is silently ignored by SAPI — so it is picked.
+ * A machine with no speech engine gets the old text field back.
+ */
+function SystemVoicePicker({
+  value,
+  save,
+}: {
+  value: string;
+  save: (patch: { systemVoice: string }) => void;
+}) {
+  const [voices, setVoices] = useState<InstalledVoice[] | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void window.vo.voiceSystemVoices().then((list) => {
+      if (live) setVoices(list);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (voices === null) {
+    return (
+      <select className="grow" disabled>
+        <option>Reading installed voices…</option>
+      </select>
+    );
+  }
+
+  // No engine to ask (a Linux box without espeak, mostly) — typing a name is
+  // still better than an empty list pretending there are none.
+  if (voices.length === 0) {
+    return (
+      <input
+        className="grow"
+        placeholder="installed voice name (empty = default)"
+        value={value}
+        onChange={(e) => save({ systemVoice: e.target.value })}
+      />
+    );
+  }
+
+  // macOS ships ~100 voices across every locale, so they group by language,
+  // with the one this app is running in first.
+  const uiLang = navigator.language.split('-')[0]!.toLowerCase();
+  const groups = new Map<string, InstalledVoice[]>();
+  for (const v of voices) {
+    const key = v.language ?? '';
+    const list = groups.get(key);
+    if (list) list.push(v);
+    else groups.set(key, [v]);
+  }
+  const ordered = [...groups.entries()].sort(([a], [b]) => {
+    const rank = (l: string) => (l.split('-')[0]!.toLowerCase() === uiLang ? 0 : 1);
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
+  const label = (v: InstalledVoice) => (v.gender ? `${v.name} — ${v.gender}` : v.name);
+  const installed = voices.some((v) => v.name === value);
+
+  return (
+    <select
+      className="grow"
+      value={value}
+      onChange={(e) => save({ systemVoice: e.target.value })}
+      title="Voices installed on this machine — add more in the OS speech settings"
+    >
+      <option value="">System default</option>
+      {/* A profile carried over from another machine keeps its choice visible
+          rather than snapping back to the default without saying so. */}
+      {value && !installed && <option value={value}>{value} (not installed here)</option>}
+      {ordered.map(([lang, list]) =>
+        lang ? (
+          <optgroup key={lang} label={lang}>
+            {list.map((v) => (
+              <option key={v.name} value={v.name}>
+                {label(v)}
+              </option>
+            ))}
+          </optgroup>
+        ) : (
+          list.map((v) => (
+            <option key={v.name} value={v.name}>
+              {label(v)}
+            </option>
+          ))
+        ),
+      )}
+    </select>
+  );
+}
+
 /**
  * The custom speech endpoint, asked rather than guessed: the model list comes
  * from {base}/models and the voices from the server or from the model family.
@@ -1178,12 +1275,7 @@ function VoiceSection() {
         <>
           <div className="field-row">
             <label>voice</label>
-            <input
-              className="grow"
-              placeholder="installed voice name (empty = default)"
-              value={v.systemVoice}
-              onChange={(e) => save({ systemVoice: e.target.value })}
-            />
+            <SystemVoicePicker value={v.systemVoice} save={save} />
           </div>
           <div className="field-row">
             <label>rate / pitch</label>

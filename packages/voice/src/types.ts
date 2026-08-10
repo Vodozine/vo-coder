@@ -19,3 +19,12 @@ export interface TtsProvider {
   speak(text: string): Promise<TtsOutput>;
   stop(): void;
 }
+
+/** One voice installed on this machine, as the local speech engine names it. */
+export interface SystemVoice {
+  /** Exactly what SelectVoice / `say -v` / `espeak -v` matches on. */
+  name: string;
+  /** BCP-47-ish tag the engine reported, e.g. "en-US", "is-IS". */
+  language?: string;
+  gender?: string;
+}

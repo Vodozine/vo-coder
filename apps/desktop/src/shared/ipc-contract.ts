@@ -656,6 +656,12 @@ export interface VoApi {
     voicesFor: Record<string, string[]>;
     error?: string;
   }>;
+  /**
+   * Voices installed on THIS machine, asked of the same engine that speaks
+   * them. Empty when the platform has no speech engine — the picker falls
+   * back to a text field rather than claiming there are none.
+   */
+  voiceSystemVoices(): Promise<Array<{ name: string; language?: string; gender?: string }>>;
   missionsList(): Promise<Mission[]>;
   missionCreate(input: MissionCreateInput): Promise<Mission>;
   missionControl(id: string, action: MissionAction): Promise<void>;
@@ -721,6 +727,7 @@ export const IPC = {
   voiceSpeak: 'voice:speak',
   voiceStopSpeak: 'voice:stopSpeak',
   voiceCompatCatalog: 'voice:compatCatalog',
+  voiceSystemVoices: 'voice:systemVoices',
   checkin: 'checkin:show',
   mcpSearch: 'mcp:search',
   mcpAdd: 'mcp:add',

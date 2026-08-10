@@ -8,6 +8,7 @@ export { OpenAiTts } from './tts/openai-tts.js';
 export type { OpenAiTtsOptions } from './tts/openai-tts.js';
 export { SystemTts } from './tts/system-tts.js';
 export type { SystemTtsOptions } from './tts/system-tts.js';
+export { listSystemVoices } from './tts/system-voices.js';
 export { ElevenLabsTts } from './tts/elevenlabs-tts.js';
 export type { ElevenLabsTtsOptions } from './tts/elevenlabs-tts.js';
 export { speakable } from './speakable.js';

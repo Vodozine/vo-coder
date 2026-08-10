@@ -2675,6 +2675,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.voiceCompatCatalog, (_e, baseUrl: string) =>
     fetchCompatCatalog(baseUrl, secrets.get('tts-custom') ?? null),
   );
+  ipcMain.handle(IPC.voiceSystemVoices, () => voice.listVoices());
   ipcMain.handle(IPC.voiceSetupWhisper, async () => {
     try {
       const { binaryPath, modelPath } = await setupWhisper();

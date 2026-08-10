@@ -2,12 +2,14 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
   ElevenLabsTts,
+  listSystemVoices,
   OpenAiStt,
   OpenAiTts,
   speakable,
   SystemTts,
   WhisperLocalStt,
   type SttProvider,
+  type SystemVoice,
   type TtsOutput,
   type TtsProvider,
 } from '@vo-coder/voice';
@@ -125,5 +127,11 @@ export class VoiceHost {
   stopSpeak(): void {
     this.activeTts?.stop();
     this.activeTts = null;
+  }
+
+  /** Installed system voices, so Settings can offer them instead of asking
+   *  for a name nobody knows by heart. */
+  listVoices(): Promise<SystemVoice[]> {
+    return listSystemVoices();
   }
 }

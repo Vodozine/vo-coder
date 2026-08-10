@@ -129,6 +129,7 @@ const api: VoApi = {
   voiceSpeak: (text) => ipcRenderer.invoke(IPC.voiceSpeak, text),
   voiceStopSpeak: () => ipcRenderer.invoke(IPC.voiceStopSpeak),
   voiceCompatCatalog: (baseUrl) => ipcRenderer.invoke(IPC.voiceCompatCatalog, baseUrl),
+  voiceSystemVoices: () => ipcRenderer.invoke(IPC.voiceSystemVoices),
   missionsList: () => ipcRenderer.invoke(IPC.missionsList),
   missionCreate: (input) => ipcRenderer.invoke(IPC.missionCreate, input),
   missionControl: (id, action) => ipcRenderer.invoke(IPC.missionControl, id, action),
