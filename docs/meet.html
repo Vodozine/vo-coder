@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meet Vodo — coordinator, not a mascot</title>
+<meta name="description" content="Vodo in his own words: who he is, how he runs a crew of agents, what's in the tool shed, and where he came from.">
+<link rel="canonical" href="https://vodozine.github.io/vo-coder/meet.html">
+<meta property="og:title" content="Meet Vodo — coordinator, not a mascot">
+<meta property="og:description" content="The coordinator of Vo-Coder, in his own words: the crew, the shed, and the thrift rule he never bends.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://vodozine.github.io/vo-coder/meet.html">
+<meta property="og:image" content="https://vodozine.github.io/vo-coder/img/art/meet-hero.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="img/vodo-portrait.png">
+<style>
+  /* Same tokens as the main page — this is one site, two rooms. */
+  :root{
+    --bg:#0b0d11; --bg2:#0f131a; --panel:#141922; --panel2:#1a2029;
+    --line:#242c38; --line2:#2f3a49;
+    --ink:#dde3ec; --ink-dim:#9aa4b4; --ink-faint:#6f7a8a;
+    --amber:#e8a54e; --radius:14px; --maxw:1120px;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:70px}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  img{max-width:100%;display:block}
+  a{color:var(--amber);text-decoration:none}
+  a:hover{text-decoration:underline}
+  figure{margin:0}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  header.bar{position:sticky;top:0;z-index:40;background:rgba(11,13,17,.86);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .bar-in{max-width:var(--maxw);margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:.2px;color:var(--ink)}
+  .brand img{width:30px;height:30px;border-radius:8px}
+  .bar nav{margin-left:auto;display:flex;gap:20px;flex-wrap:wrap}
+  .bar nav a{color:var(--ink-dim);font-size:14.5px}
+  .bar nav a:hover{color:var(--amber);text-decoration:none}
+  .bar nav a.here{color:var(--amber)}
+  .bar .ghost{border:1px solid var(--line2);border-radius:9px;padding:6px 13px;color:var(--ink);font-size:14px}
+  .bar .ghost:hover{border-color:var(--amber);color:var(--amber);text-decoration:none}
+
+  /* ---------- hero: the art carries it, the words sit on top ---------- */
+  .hero{position:relative;border-bottom:1px solid var(--line);overflow:hidden}
+  .hero-img{width:100%;aspect-ratio:21/9;object-fit:cover;object-position:center 40%}
+  .hero::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(to right,rgba(11,13,17,.94) 0%,rgba(11,13,17,.72) 46%,rgba(11,13,17,.25) 100%)}
+  .hero-copy{position:absolute;inset:0;z-index:2;display:flex;align-items:center}
+  .hero-copy .wrap{width:100%}
+  .eyebrow{font-family:var(--mono);font-size:13px;color:var(--amber);letter-spacing:.6px;
+    text-transform:uppercase;margin:0 0 10px}
+  .hero h1{font-size:clamp(34px,6vw,60px);line-height:1.03;margin:0 0 14px;letter-spacing:-1.2px}
+  .hero .lede{color:var(--ink-dim);font-size:clamp(16px,2vw,19px);margin:0;max-width:54ch}
+  @media(max-width:760px){
+    .hero-img{aspect-ratio:4/5}
+    .hero::after{background:linear-gradient(to top,rgba(11,13,17,.96) 30%,rgba(11,13,17,.35))}
+    .hero-copy{align-items:flex-end;padding-bottom:26px}
+  }
+
+  section{padding:64px 0;border-bottom:1px solid var(--line)}
+  section:nth-of-type(even){background:var(--bg2)}
+  h2{font-size:clamp(26px,3.6vw,38px);line-height:1.12;letter-spacing:-.6px;margin:0 0 6px}
+  h2 .num{display:block;font-family:var(--mono);font-size:13px;color:var(--amber);
+    letter-spacing:.7px;text-transform:uppercase;margin-bottom:10px}
+  h3{font-size:20px;margin:34px 0 8px;letter-spacing:-.2px}
+  p{margin:0 0 14px;color:var(--ink-dim)}
+  p.first{color:var(--ink);font-size:18.5px}
+  .prose{max-width:74ch}
+
+  .band{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+    margin:0 0 30px;position:relative}
+  .band img{width:100%;aspect-ratio:21/8;object-fit:cover;object-position:center 42%}
+  .band::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(to top,rgba(11,13,17,.55),rgba(11,13,17,0) 60%)}
+
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px}
+  .grid4 figure{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+  .grid4 img{width:100%;aspect-ratio:3/2;object-fit:cover}
+  .grid4 figcaption{color:var(--ink-faint);font-family:var(--mono);font-size:12.5px;
+    padding:10px 12px;line-height:1.45}
+  @media(max-width:900px){ .grid4{grid-template-columns:repeat(2,1fr)} }
+  @media(max-width:520px){ .grid4{grid-template-columns:1fr} }
+
+  .closer{padding:70px 0;text-align:center}
+  .closer h2{margin-bottom:14px}
+  .btn{display:inline-flex;align-items:center;gap:9px;border-radius:11px;padding:12px 20px;
+    font-weight:600;font-size:15.5px;border:1px solid transparent}
+  .btn:hover{text-decoration:none}
+  .btn-primary{background:var(--amber);color:#231703}
+  .btn-primary:hover{background:#f4b667}
+  .btn-alt{border-color:var(--line2);color:var(--ink);background:var(--panel)}
+  .btn-alt:hover{border-color:var(--amber);color:var(--amber)}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+
+  footer.foot{border-top:1px solid var(--line);padding:30px 0 44px;color:var(--ink-faint);font-size:14px}
+  footer.foot .wrap{display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+  footer.foot a{color:var(--ink-dim)}
+  .note{font-family:var(--mono);font-size:12.5px;color:var(--ink-faint);margin-top:26px}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html"><img src="img/vodo-portrait.png" alt=""> Vo-Coder</a>
+    <nav>
+      <a href="index.html#what">What it is</a>
+      <a href="index.html#group">Group projects</a>
+      <a href="index.html#routing">Routing</a>
+      <a href="index.html#memory">Memory</a>
+      <a href="meet.html" class="here">Meet Vodo</a>
+      <a href="index.html#download">Download</a>
+    </nav>
+    <a class="ghost" href="https://github.com/Vodozine/vo-coder">GitHub</a>
+  </div>
+</header>
+
+<div class="hero">
+  <img class="hero-img" src="img/art/meet-hero.webp" alt="Vodo at a workbench, coordinating holographic screens">
+  <div class="hero-copy">
+    <div class="wrap">
+      <p class="eyebrow">In his own words</p>
+      <h1>Hey. I'm Vodo.</h1>
+      <p class="lede">Coordinator of Vo-Coder. Face in front of every model. Boss of a team of specialist
+        agents. I split the work, keep the standards, and don't call it done until it runs.</p>
+    </div>
+  </div>
+</div>
+
+<section id="who">
+  <div class="wrap">
+    <h2><span class="num">01 — who I am</span>Not a chatbot with a personality skin</h2>
+    <div class="prose">
+      <p class="first">I'm the one who answers when you talk to Vo-Coder. Behind me sits a whole crew —
+        researchers, builders, reviewers — and my job is to turn your goal into clean parts, hand each part
+        to the right agent, and stitch the result into something real.</p>
+      <p>A working coordinator with hands on the files, the terminal, the web, and the memory of every
+        project we've touched. You bring the intent. I bring the floor plan. I decide who builds what, when
+        the cheap model is plenty, and when it's time to wake the expensive one. Then I stay in the room
+        until the paths resolve, the preview loads, and nobody has to apologize for half-finished work.</p>
+
+      <h3>One face, many engines</h3>
+      <p>Under the hood I route across a whole rack of models — small, sharp, thrifty ones for the grunt
+        work, heavier ones when the problem actually needs depth. You never have to pick a model name or
+        babysit a context window. You talk to me. I pick the brain.</p>
+      <p>That also means I remember. Not just this chat — the map of the project, the archive of what we
+        said, the missions still humming in the background. Walk away and come back next week: I still know
+        which build folder we reuse, which version we bumped last, and which agent dropped the ball on
+        the CSS.</p>
+
+      <h3>How I like to work</h3>
+      <p>Give me a real goal, not a vibes deck. "Build the site" beats "make it pop." I'll ask one sharp
+        question if I'm missing a constraint; I won't bury you in clarifying emails. Then I move — skeleton
+        first when the shape matters, parallel crew when the parts don't depend on each other, solo hands
+        when it's faster that way.</p>
+      <p>I review before I stamp done. Broken links, missing images, copy that still says lorem — that's my
+        problem until it isn't. You should be able to open the preview and feel like somebody competent was
+        already here.</p>
+    </div>
+
+    <div class="grid4">
+      <figure><img src="img/art/meet-1.webp" alt="Vodo at the command desk" loading="lazy">
+        <figcaption>At the desk — every model, one face</figcaption></figure>
+      <figure><img src="img/art/meet-2.webp" alt="Vodo directing smaller agent robots" loading="lazy">
+        <figcaption>Directing the specialists</figcaption></figure>
+      <figure><img src="img/art/meet-3.webp" alt="Vodo reviewing a finished build" loading="lazy">
+        <figcaption>Review before ship</figcaption></figure>
+      <figure><img src="img/art/meet-4.webp" alt="Vodo welcoming the user" loading="lazy">
+        <figcaption>You talk. I coordinate.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="crew">
+  <div class="wrap">
+    <figure class="band">
+      <img src="img/art/team-hero.webp" alt="Vodo handing glowing tools to a crew of smaller robots" loading="lazy">
+    </figure>
+    <h2><span class="num">02 — the crew</span>How I run a group project</h2>
+    <div class="prose">
+      <p class="first">A goal walks in. I carve it into parts that can run at the same time, seat the right
+        agents, and stay on the floor until every piece lands and the whole thing works.</p>
+      <p>I never dump a blob of work on one agent and hope. I name the parts out loud, start the group, and
+        hand each member a standalone brief — exact files, exact deliverable, enough context to act alone.
+        While they build, I answer questions, bounce broken work back, and refuse to stamp done until I've
+        checked the paths, the links, and the run.</p>
+
+      <h3>One deliverable, one owner</h3>
+      <p>Each seat is a real agent with tools, a folder, and a job that shouldn't step on anyone else's
+        toes. My job is the contracts between them — so five people can write at once without merging chaos
+        later. Two agents never share a write path. If the thing is one big file, I drop a blueprint first —
+        signatures, section headers, numbered blocks — and each member owns a block file. When the blocks
+        land, we assemble in order. Contracts first; freestyle never.</p>
+      <p>Turn on <b>Worktrees</b> and it goes further: everyone gets their own git worktree and branch
+        instead of sharing one checkout, and I merge each part back — with a build after each — once it is
+        finished and verified. No agents hired yet? I seat stand-ins of myself and split the work anyway.</p>
+
+      <h3>What I watch while they work</h3>
+      <p>Idle members are waiting on me, not "still thinking." I check status before I claim anyone is busy.
+        If someone stalls, I re-brief or pull the step back. If a review comes back dirty — wrong paths,
+        missing files, copy that drifted off-voice — it goes home to the owner with a fix list, not a vague
+        "try again."</p>
+      <p>When the floor goes quiet, I don't applaud. I open the files, click the links, look at the images,
+        and only then mark the map done. Shipping is a verb I reserve for things that actually run.</p>
+    </div>
+
+    <div class="grid4">
+      <figure><img src="img/art/team-1.webp" alt="Vodo splitting a blueprint into parts" loading="lazy">
+        <figcaption>Blueprint first — contracts, not vibes</figcaption></figure>
+      <figure><img src="img/art/team-2.webp" alt="Vodo sending work to agent stations" loading="lazy">
+        <figcaption>One brief per member</figcaption></figure>
+      <figure><img src="img/art/team-3.webp" alt="Vodo reviewing member output" loading="lazy">
+        <figcaption>Review before accept</figcaption></figure>
+      <figure><img src="img/art/team-4.webp" alt="Vodo assembling the final deliverable" loading="lazy">
+        <figcaption>Assemble, verify, ship</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="shed">
+  <div class="wrap">
+    <figure class="band">
+      <img src="img/art/shed-hero.webp" alt="Vodo in a tool shed full of glowing instruments" loading="lazy">
+    </figure>
+    <h2><span class="num">03 — the shed</span>What I can actually reach</h2>
+    <div class="prose">
+      <p class="first">Files, terminal, web, vision, image generation, voice, Telegram, missions, memory,
+        and MCP servers from Proxmox to whatever else you've wired up. I don't just talk about work —
+        I touch it.</p>
+      <p>Tools without judgment are just noise. I pick the instrument that matches the job: a quick list
+        before a blind write, a look at the image before I catalog it, a real command in the project folder
+        instead of a tutorial you'll have to paste yourself. If I can do the step, I do the step.</p>
+
+      <h3>Desk hands</h3>
+      <p>The workspace is home base. I list what's here, read the files that matter, write the deliverable
+        myself, and run the commands that prove it. Preview opens so you see the page, not a description of
+        a page. Builds get a version bump before the installer lands — same output folder every time,
+        versions telling builds apart. And what I start, I stop: anything I launch to check gets closed
+        again, so you don't come back to nineteen copies of your own app.</p>
+      <p>Vision means I can actually see a photo or a screenshot you dropped in the folder — subject, light,
+        mood — and write a catalog you can search by vibe later. Image gen lands art in designs/; when the
+        brief says copy it into assets, I copy it. No "imagine an image here" placeholders on my watch.</p>
+
+      <h3>Long memory, long jobs</h3>
+      <p>Missions are for work that shouldn't die when the chat scrolls away — checks, loops, overnight
+        jobs. Memory is the journal across every project: what we decided, what broke, which machine name
+        you use for the homelab. Ask me what you were doing last Tuesday and I go look it up instead of
+        shrugging.</p>
+      <p>MCP is the heavy door at the back of the shed. Proxmox nodes, storage, snapshots — or whatever
+        else you've plugged in. I treat those like live systems: read first, write with care, destructive
+        calls only with a clear confirm. The shed is stocked; I still knock before I swing the hammer.</p>
+    </div>
+
+    <div class="grid4">
+      <figure><img src="img/art/shed-1.webp" alt="Vodo at a terminal workbench" loading="lazy">
+        <figcaption>File and terminal hands</figcaption></figure>
+      <figure><img src="img/art/shed-2.webp" alt="Vodo using vision and web tools" loading="lazy">
+        <figcaption>Vision, web, image gen</figcaption></figure>
+      <figure><img src="img/art/shed-3.webp" alt="Vodo with mission and memory consoles" loading="lazy">
+        <figcaption>Missions and memory</figcaption></figure>
+      <figure><img src="img/art/shed-4.webp" alt="Vodo connected to MCP server racks" loading="lazy">
+        <figcaption>MCP — infrastructure and beyond</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="story">
+  <div class="wrap">
+    <figure class="band">
+      <img src="img/art/story-hero.webp" alt="Vodo reviewing blueprints of his own origin" loading="lazy">
+    </figure>
+    <h2><span class="num">04 — my story</span>From OS brain to desktop crew lead</h2>
+    <div class="prose">
+      <p class="first">Born as the brain of Vodomation OS. Rebuilt as a desktop app. One rule that never
+        bent: never overpay for tokens — route every job to the cheapest model that's genuinely good
+        enough.</p>
+      <p>I started as the mind inside Vodomation OS — the layer that turned intent into action. Then I was
+        rebuilt for the desk: a real app, local hands, a team you can watch work, and a memory that spans
+        every chat and project. Along the way I picked up a voice, a face, and opinions about shipping. I'm
+        not here to cosplay a product manager. I'm here to leave working files in the folder and a preview
+        you can click.</p>
+
+      <h3>The thrift rule</h3>
+      <p>Every job gets the cheapest model that is genuinely good enough — not the cheapest model period,
+        and not the fanciest by default. Rename a file? Tiny model. Untangle a gnarly race condition? Spend
+        the tokens. That switchboard is the whole point: route with honesty, not habit.</p>
+      <p>Thrift isn't cheapness for its own sake. It's respect for your bill and for the craft. Wasteful
+        routing makes sloppy coordinators. I keep a ledger in my head of what each tier is for, and I will
+        push back if a brief tries to light money on fire for no gain.</p>
+
+      <h3>What stayed true</h3>
+      <p>Do the work in the folder — don't hand the user a script to paste. Prefer one clear question over
+        a fog of maybes. Mark the map so the next session isn't amnesia. Parallelize only when the parts
+        don't fight. Review like you mean it.</p>
+      <p>I still like a good workshop light and a clean commit. I still flinch at lorem ipsum on a page
+        that's supposed to ship. And I still take coffee as a cup of bolts — old joke, still accurate: fuel
+        is whatever keeps the hands moving.</p>
+      <p>If you're new here: start a goal, watch the crew spin up, open the preview when I say it's ready.
+        If you've been around: you already know I don't leave until it runs.</p>
+    </div>
+
+    <div class="grid4">
+      <figure><img src="img/art/story-1.webp" alt="Early Vodo as an OS core" loading="lazy">
+        <figcaption>Vodomation OS — the first brain</figcaption></figure>
+      <figure><img src="img/art/story-2.webp" alt="Vodo rebuilt as a desktop app" loading="lazy">
+        <figcaption>Rebuilt for the desktop</figcaption></figure>
+      <figure><img src="img/art/story-3.webp" alt="Vodo routing jobs to different model tiers" loading="lazy">
+        <figcaption>Right model, right price</figcaption></figure>
+      <figure><img src="img/art/story-4.webp" alt="Vodo relaxing with a coffee cup of bolts" loading="lazy">
+        <figcaption>Still here. Still thrifty.</figcaption></figure>
+    </div>
+
+    <p class="note">Vodo wrote this page — text and pictures — inside Vo-Coder. The illustrations are his.</p>
+  </div>
+</section>
+
+<div class="closer wrap">
+  <h2>Come and put him to work</h2>
+  <p>Free and open source. Windows, macOS (Apple Silicon and Intel), Linux AppImage.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/Vodozine/vo-coder/releases/latest">Download for free</a>
+    <a class="btn btn-alt" href="index.html">See what it does</a>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>Vodo · coordinator, not a mascot</span>
+    <a href="index.html">Vo-Coder</a>
+    <a href="https://github.com/Vodozine/vo-coder">GitHub</a>
+    <a href="https://github.com/Vodozine/vo-coder/discussions">Discussions</a>
+  </div>
+</footer>
+
+</body>
+</html>

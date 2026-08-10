@@ -90,6 +90,16 @@
   .shot{border:1px solid var(--line2);border-radius:var(--radius);overflow:hidden;background:var(--panel);
     box-shadow:0 20px 50px rgba(0,0,0,.45)}
   .shot img{width:100%}
+  /* Illustrated band: the workshop art, cropped cinematic and faded into the
+     page so it sets the mood without competing with the screenshots. */
+  .art{position:relative;border-radius:var(--radius);overflow:hidden;margin:30px 0 4px;
+    border:1px solid var(--line)}
+  .art img{width:100%;aspect-ratio:21/8;object-fit:cover;object-position:center 42%}
+  .art::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(to top,rgba(11,13,17,.92),rgba(11,13,17,.12) 55%,rgba(11,13,17,.35))}
+  .art figcaption{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:16px 20px;
+    color:var(--ink-dim);font-family:var(--mono);font-size:13px}
+  @media(max-width:760px){ .art img{aspect-ratio:16/10} }
   figure{margin:0}
   figcaption{color:var(--ink-faint);font-size:13.5px;padding:10px 4px 0;font-family:var(--mono)}
 
@@ -152,6 +162,7 @@
       <a href="#memory">Memory</a>
       <a href="#build">Building</a>
       <a href="#homelab">Homelab</a>
+      <a href="meet.html">Meet Vodo</a>
       <a href="#download">Download</a>
     </nav>
     <a class="ghost" href="https://github.com/Vodozine/vo-coder">GitHub</a>
@@ -199,6 +210,10 @@
       drivers) and coordinates requests. The model is the engineer who walks in and decides what to pick up.
       Models are interchangeable; the shed is yours.
     </p>
+    <figure class="art">
+      <img src="img/art/shed-hero.webp" alt="Vodo in a workshop lined with tools and instruments" loading="lazy">
+      <figcaption>The shed is yours. The engineer who walks in is whichever model fits the job.</figcaption>
+    </figure>
     <div class="grid g3">
       <div class="card">
         <span class="ic">🧭</span>
@@ -233,6 +248,11 @@
       every worker in the split view — 4 or 8 panes per page — and you can redirect any of them mid-flight
       without leaving the screen.
     </p>
+
+    <figure class="art">
+      <img src="img/art/team-hero.webp" alt="Vodo handing glowing tools to a crew of smaller robots" loading="lazy">
+      <figcaption>One brief per member, contracts between them — and nobody stamps done until it runs.</figcaption>
+    </figure>
 
     <figure class="shot">
       <img src="img/group-8.png" alt="Eight-pane split view: six specialist agents researching in parallel while the coordinator assembles">
@@ -653,6 +673,10 @@ npm run preview       # the real Electron window, isolated dev profile</code></p
         <p class="muted">
           That framework is so different from a conventional desktop that a straight port was impossible — so
           this standalone Vo-Coder was rebuilt from scratch to bring the same brain to Windows, macOS and Linux.
+        </p>
+        <p class="muted">
+          Vodo tells that part himself, in his own words, over on
+          <a href="meet.html">Meet Vodo</a> — who he is, how he runs the crew, and what's in the shed.
         </p>
       </div>
       <div>
