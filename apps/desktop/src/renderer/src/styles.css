@@ -21,6 +21,12 @@
   --glow-accent: 0 0 0 1px var(--accent), 0 0 16px rgba(232, 163, 61, 0.18);
   --ease: 0.16s cubic-bezier(0.4, 0, 0.2, 1);
   --mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+  /* The page surface itself. Named because sticky bars have to repaint it to
+     hide what scrolls behind them — with background-attachment: fixed the
+     copy lands on the same pixels as the original, so the seam is invisible. */
+  --ambient:
+    radial-gradient(1100px 620px at 12% -12%, rgba(70, 213, 224, 0.05), transparent 60%),
+    radial-gradient(1000px 700px at 104% -6%, rgba(232, 163, 61, 0.05), transparent 58%), var(--bg);
 }
 
 * {
@@ -38,10 +44,7 @@ body {
   font-family: 'Segoe UI', system-ui, sans-serif;
   /* Faint ambient glows — cyan top-left, amber top-right — for a hint of sci-fi
      depth without tinting the whole surface. */
-  background:
-    radial-gradient(1100px 620px at 12% -12%, rgba(70, 213, 224, 0.05), transparent 60%),
-    radial-gradient(1000px 700px at 104% -6%, rgba(232, 163, 61, 0.05), transparent 58%),
-    var(--bg);
+  background: var(--ambient);
   background-attachment: fixed;
   color: var(--text);
   font-size: 14px;
@@ -528,21 +531,28 @@ select:focus {
 }
 
 /* ---- settings ---- */
+/* No top padding: it belongs to the sticky h1 below, so the bar carries its own
+   breathing room and nothing can scroll through a gap above it. */
 .settings {
-  padding: 26px 34px;
+  padding: 0 34px 26px;
   overflow-y: auto;
   max-width: 720px;
 }
 .settings.settings-full {
   max-width: none;
   width: 100%;
-  padding: 24px 32px 40px;
+  padding: 0 32px 40px;
 }
 /* Masonry-style columns: sections pack tightly down each column instead of
    aligning to a grid row's tallest cell, so short cards don't leave dead space
    under them. */
+/* Three columns only while three can hold a row. A settings row is a 110px
+   label, a control and one or two buttons; under ~440px the buttons walk off
+   the card, and UI zoom is what takes you there — zoom narrows the viewport in
+   CSS px while the rows keep their size, so at 125% on a 1920 screen the old
+   380px floor still packed three columns into 404px each. */
 .settings-grid {
-  columns: 3 380px;
+  columns: 3 440px;
   column-gap: 26px;
 }
 .settings-grid > section {
@@ -557,9 +567,28 @@ select:focus {
   background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
   box-shadow: var(--shadow);
 }
+/* The window's caption buttons float over the top-right of every view, so a
+   scrolling page slides its cards under the close button. The title sticks to
+   the top and repaints the page surface, so whatever passes behind it is
+   hidden rather than half-covered.
+   The bar owns the top padding rather than the container: sticky holds the
+   MARGIN box inside the scrollport, so a negative top margin would leave a gap
+   of exactly that size for content to show through. Side margins are still
+   negative — they only cancel the horizontal padding, so the bar reaches the
+   padding edge and no further, covering the full width without overflow. */
 .settings h1 {
-  margin-bottom: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: 0 -34px 20px;
+  padding: 26px 34px 12px;
+  background: var(--ambient);
+  background-attachment: fixed;
   letter-spacing: -0.01em;
+}
+.settings.settings-full h1 {
+  margin: 0 -32px 20px;
+  padding: 24px 32px 12px;
 }
 /* Plain (non-grid) sections, e.g. the Scaffold wizard, keep simple dividers.
    Direct-child selector so the Settings grid cards below aren't affected. */
@@ -578,8 +607,13 @@ select:focus {
   margin-bottom: 12px;
 }
 
+/* Nothing in a row may leave the card. Inputs shrink (they scroll their own
+   text), and when even that runs out the trailing buttons wrap onto a second
+   line instead of overflowing into the next column — which is how the local
+   endpoints' "×" ended up 110px outside its card at 125% zoom. */
 .field-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
@@ -599,9 +633,25 @@ select:focus {
    input keeps its own intrinsic width and stays usable. */
 .field-row select {
   min-width: 0;
+  /* Wrapping decides on the flex BASIS, and a select's auto basis is its
+     longest option — so one wordy entry would break the row onto two lines
+     while there was still room. Ask for a readable width instead; .grow's
+     flex-grow still fills the rest of the line where it is set. */
+  flex-basis: 160px;
 }
+/* A model picker squeezed to "gr" is not a picker. It keeps a floor and the
+   row wraps around it instead. */
+.field-row .model-picker {
+  flex: 1 1 150px;
+  min-width: 130px;
+}
+/* An input can always give up width — it scrolls its own text — but it asks
+   for a readable 160px first, so a narrow card wraps the buttons below rather
+   than grinding the field down to a stub. (Ticks and dots keep flex:none from
+   the controls block further down, so this never reaches them.) */
 .field-row input {
-  flex: 1;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 /* Named extra local endpoints: the name input sits where the label would,
    same width, so endpoint rows align under their parent server row. */
