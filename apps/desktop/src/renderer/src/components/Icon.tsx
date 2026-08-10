@@ -19,6 +19,7 @@ export type IconName =
   | 'x'
   | 'folder'
   | 'gauge'
+  | 'branch'
   | 'search';
 
 const PATHS: Record<IconName, JSX.Element> = {
@@ -96,6 +97,18 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="M21 21l-4.35-4.35" />
+    </>
+  ),
+  // A trunk with two branches leaving it and rejoining — the shape of the
+  // workflow this toggle turns on.
+  branch: (
+    <>
+      <circle cx="6" cy="5" r="2" />
+      <circle cx="6" cy="19" r="2" />
+      <circle cx="18" cy="12" r="2" />
+      <path d="M6 7v10" />
+      <path d="M8 12h8" />
+      <path d="M6 12a6 6 0 0 0 6-6" />
     </>
   ),
   gauge: (

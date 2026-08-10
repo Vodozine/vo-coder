@@ -44,6 +44,17 @@ export const MARKER_EXEMPT =
 export const PRO_TOOLING_PATHS = /^scripts\/sync-free\.mjs$|^docs\/EDITIONS\.md$/;
 
 /**
+ * Pro-only FEATURES: shipped here, deliberately not in the Free edition.
+ * Unlike Design this is not a licensing line — the engine bridges are one-click
+ * installers for two third-party MIT MCP servers, and anyone on Free can add
+ * those by hand through the ordinary MCP list. Keeping them out is a decision
+ * about what the Free edition carries, so the guard has to hold it: without
+ * this the next sync would helpfully put them back.
+ */
+export const PRO_ONLY_PATHS = /^apps\/desktop\/src\/main\/engine-bridges\.ts$/;
+export const PRO_ONLY_MARKERS = /bridgeInstall|bridgeInstalled|bridgeConfig|ENGINE_BRIDGES|EngineBridgeCard|IPC\.bridge|bridges:(status|install|bind)/;
+
+/**
  * First reason this CHANGE cannot go to the Free edition, or null. Identity
  * belongs here — replaying an identity diff would rebrand the Free app — but
  * NOT in whole-tree checks: identity files exist in both editions on purpose.
@@ -52,6 +63,7 @@ export function disqualifyPath(file) {
   if (DESIGN_PATHS.test(file)) return `Design file: ${file}`;
   if (IDENTITY_PATHS.test(file)) return `edition identity: ${file}`;
   if (PRO_TOOLING_PATHS.test(file)) return `Pro-side tooling: ${file}`;
+  if (PRO_ONLY_PATHS.test(file)) return `Pro-only feature: ${file}`;
   return null;
 }
 
@@ -64,5 +76,9 @@ export function disqualifyTreePath(file) {
 export function disqualifyContent(file, addedLines) {
   if (MARKER_EXEMPT.test(file)) return null;
   const hit = addedLines.find((l) => DESIGN_MARKERS.test(l));
-  return hit ? `Design code in ${file}: ${hit.trim().slice(0, 70)}` : null;
+  if (hit) return `Design code in ${file}: ${hit.trim().slice(0, 70)}`;
+  // Pro-only features hide in shared files the same way Design does — the
+  // bridge IPC handlers live in ipc.ts, the card in Settings.tsx.
+  const proOnly = addedLines.find((l) => PRO_ONLY_MARKERS.test(l));
+  return proOnly ? `Pro-only feature in ${file}: ${proOnly.trim().slice(0, 70)}` : null;
 }

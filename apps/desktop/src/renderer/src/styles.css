@@ -2158,7 +2158,8 @@ input[type='radio']:focus-visible {
 }
 
 /* ---- chat-attached folder ---- */
-.folder-on {
+.folder-on,
+.worktrees-on {
   color: var(--accent);
   border-color: var(--accent);
 }

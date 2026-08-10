@@ -147,6 +147,14 @@ export interface AppConfig {
   telegramPaired: Array<{ id: number; name?: string }>;
   /** Whole-app UI scale (webFrame zoom on the main window); 1 = 100%. */
   uiZoom: number;
+  /**
+   * Worktrees mode: every agent on a group works in its own git worktree and
+   * branch instead of all of them editing one checkout, and each part is
+   * merged back when it is finished and verified. A standing instruction, not
+   * plumbing — Vodo runs it with ordinary git commands, the same way a person
+   * would. Off by default: it only makes sense in a git repo.
+   */
+  worktreeMode: boolean;
 }
 
 export interface VoiceSettings {
@@ -236,6 +244,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   telegramEnabled: false,
   telegramPaired: [],
   uiZoom: 1,
+  worktreeMode: false,
 };
 
 /** UI zoom bounds: below 0.8 the caption-button math and hit targets fall

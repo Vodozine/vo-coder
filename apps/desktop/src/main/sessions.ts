@@ -231,6 +231,24 @@ export class SessionManager {
     // The skills card catalog: names + one-liners only; the body loads
     // through skill_read on demand. Stable ordering, so prompt caches hold.
     const skillsNote = this.deps.skillsCatalog?.() ?? '';
+    // Worktrees mode: the user's answer to seven features landing on one
+    // branch. A standing instruction rather than plumbing — git already does
+    // this well, and the agents have a shell.
+    const worktreeNote = this.deps.config.get().worktreeMode
+      ? '\n\nWORKTREES MODE IS ON — parallel work does NOT share one checkout.\n' +
+        '- Before a group starts, make sure the folder is a git repo with its work committed ' +
+        '(git status), and note the branch you are starting from — that is where parts come back to.\n' +
+        '- Give each member its OWN worktree and branch, created inside this folder so their ' +
+        'tools can reach it: `git worktree add .vodo/trees/<agent> -b vodo/<agent>-<short-task>`. ' +
+        'Add .vodo/ to .gitignore if it is not there. Name the worktree in that member\'s ' +
+        'instruction and tell them to write ONLY inside it.\n' +
+        '- A member is done when its part is built and VERIFIED in its own tree, then committed ' +
+        'there. Merge the parts back one at a time (`git merge --no-ff vodo/<agent>-…`), building ' +
+        'after each. If a merge conflicts, STOP on that one, say which files, and fix it before ' +
+        'the next — never force it and never merge a part that has not been verified.\n' +
+        '- When a part is merged, clean up after it: `git worktree remove .vodo/trees/<agent>` and ' +
+        'delete the branch. Report at the end which parts merged and which are still open.'
+      : '';
     // Seen live, verbatim: "he just totally forgott what i asked him and he
     // just kept on working in the other app i told him we could use as base".
     // A chat bound to a fresh folder inherits the project's memory of OLDER
@@ -353,10 +371,10 @@ export class SessionManager {
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
     if (!dir) {
-      return builtinNote || skillsNote || voiceNote || teamNote || bossNote || assembly || planNote
+      return builtinNote || skillsNote || worktreeNote || voiceNote || teamNote || bossNote || assembly || planNote
         ? {
             ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
           }
         : spec;
     }
@@ -385,7 +403,7 @@ export class SessionManager {
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
           `${disciplineNote}` +
-          `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -402,7 +420,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
       };
     }
     return {
@@ -427,7 +445,7 @@ export class SessionManager {
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
         `${disciplineNote}` +
-        `${builtinNote}${skillsNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+        `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
     };
   }
 

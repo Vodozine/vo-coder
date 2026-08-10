@@ -686,7 +686,6 @@ export function Chat() {
   const catalog = useStore((s) => s.catalog);
   // Grok login prefers OAuth over API key — show subscription (free) pricing.
   const xaiOauthConnected = useStore((s) => s.xaiOauthConnected);
-  const suggestFor = useStore((s) => s.suggestFor);
   const saveAgents = useStore((s) => s.saveAgents);
   const editAgent = useStore((s) => s.editAgent);
   const activeMeta = useStore((s) => s.sessionMetas.find((m) => m.id === s.activeSessionId));
@@ -1333,13 +1332,18 @@ export function Chat() {
               >
                 <Icon name="folder" />
               </button>
+              {/* A mode, like Auto/Plan/Manual — it changes how the team is
+                  told to work, and stays on until it is switched off. */}
               <button
-                className="ghost attach"
-                title="Suggest the cheapest adequate model for this message"
-                disabled={!input.trim()}
-                onClick={() => void suggestFor(input)}
+                className={`ghost attach ${config.worktreeMode ? 'worktrees-on' : ''}`}
+                title={
+                  config.worktreeMode
+                    ? 'Worktrees ON — each agent gets its own git worktree and branch, merged back when its part is done. Click to turn off.'
+                    : 'Worktrees OFF — agents share one checkout. Click to give each its own git worktree and branch instead.'
+                }
+                onClick={() => void saveConfig({ worktreeMode: !config.worktreeMode })}
               >
-                <Icon name="sparkles" />
+                <Icon name="branch" />
               </button>
               <button
                 className={`ghost attach ${recording ? 'recording' : ''}`}
