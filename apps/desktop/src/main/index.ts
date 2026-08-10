@@ -200,6 +200,16 @@ async function captureAllViews(win: BrowserWindow, outDir: string): Promise<void
   await clickText('.tree-row', 'index.html');
   await snap('preview');
 
+  // Split view: the chat beside the pane. Deliberately shot with CODE on the
+  // right, not Browser — capturePage() photographs this webContents only, and
+  // the browser pane is a NATIVE view above it, so a Browser split would come
+  // out as the empty checkered placeholder. Code is real DOM and shoots true.
+  await clickText('.mode-switch button', 'Split');
+  await wait(1600);
+  await snap('preview-split');
+  await clickText('.mode-switch button', 'Split'); // leave it as we found it
+  await wait(600);
+
   // A single build conversation: open it deliberately, then shoot the chat and
   // its context popup from there.
   await clickNav('Chat');
