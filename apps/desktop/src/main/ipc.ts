@@ -1961,7 +1961,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             properties: ['openFile'],
           },
     );
-    refocusMain();
     if (picked.canceled || !picked.filePaths[0]) return { ok: false, error: 'cancelled' };
     const res = importSkill(app.getPath('userData'), picked.filePaths[0]);
     return res.ok ? { ok: true, name: res.name } : { ok: false, error: res.error };
