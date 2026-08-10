@@ -476,16 +476,28 @@ export async function startGroup(
   const allAgents = deps.agents().filter((a) => a.enabled !== false);
   const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
   const infraScore = (task: string): number => infraSignals(homelab?.routingHints, task);
-  const agents = allAgents.filter((a) => a.id !== HOMELAB_AGENT_ID);
+  const roster = allAgents.filter((a) => a.id !== HOMELAB_AGENT_ID);
+  if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
+  // An empty roster is not a dead end: Vodo clones HIMSELF for the run. The
+  // 'default' id resolves to his own spec (the user's system prompt, the
+  // default provider/model), so each helper is another instance of him with
+  // its own chat and its own part — parallel work without making the user
+  // invent specialists first. Nothing is written to the agent list; these
+  // exist for this group only.
+  const temps: AgentSpec[] = roster.length
+    ? []
+    : parts
+        .slice(0, MAX_GROUP_MEMBERS - (homelab ? 1 : 0))
+        .map((_, i) => ({ id: 'default', name: `Vodo ${i + 1}` }));
+  const agents = roster.length ? roster : temps;
   if (!agents.length && !homelab) {
     return {
       ok: false,
       error:
-        'A group needs agents to share the work between — add a couple in Agents first, each ' +
-        'with a specialty.',
+        'A group needs at least two parts to share out — name the pieces that can run at the ' +
+        'same time.',
     };
   }
-  if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
 
   // Mr Homelab takes the most infrastructure-shaped part directly — his seat
   // is decided by his hints, not by a general ranking that can be swayed by
@@ -506,7 +518,19 @@ export async function startGroup(
   // second session, which is not parallelism — and on a local box it is two
   // requests fighting over one GPU.
   const seats = Math.min(MAX_GROUP_MEMBERS - (homelabPart ? 1 : 0), agents.length);
-  const plan = agents.length ? assignTasks(rest.slice(0, seats), agents) : [];
+  // Stand-ins are paired to parts positionally: they share the 'default' id
+  // (that is what makes each one Vodo), and assignTasks dedupes by id — it
+  // would hand every part to the same stand-in. There is nothing to rank
+  // anyway, since none of them has routing hints.
+  const plan = temps.length
+    ? rest.slice(0, seats).map((task, i) => ({
+        task,
+        agent: temps[i]!,
+        matched: ['Vodo stand-in'],
+      }))
+    : agents.length
+      ? assignTasks(rest.slice(0, seats), agents)
+      : [];
   // Parts beyond the seats used to be dropped SILENTLY — six blocks on three
   // agents lost three blocks and nobody was told. They queue instead: the
   // result names them, and the boss group_sends each as members go idle.

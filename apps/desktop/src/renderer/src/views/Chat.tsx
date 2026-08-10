@@ -827,6 +827,23 @@ export function Chat() {
     if (activeGroupId) setGroupOpen(true);
   }, [activeSessionId, activeGroupId]);
 
+  // The grid follows the WORK, not the group's existence: it opens itself the
+  // moment members start (a skill that delegates puts their windows in front
+  // of the user without anyone clicking) and folds back to the plain thread
+  // when the last one finishes, which is where the coordinator's answer lands.
+  // Edge-triggered on purpose — inside a phase the user's own ▸/▾ stands.
+  const membersWorking = useStore((s) =>
+    activeGroup ? activeGroup.members.filter((m) => s.sessions[m.sessionId]?.streaming).length : 0,
+  );
+  const wasWorkingRef = useRef(0);
+  useEffect(() => {
+    const was = wasWorkingRef.current;
+    wasWorkingRef.current = membersWorking;
+    if (!activeGroupId) return;
+    if (was === 0 && membersWorking > 0) setGroupOpen(true);
+    else if (was > 0 && membersWorking === 0) setGroupOpen(false);
+  }, [membersWorking, activeGroupId]);
+
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
   // load overlaps with the user typing, instead of beginning after Send.
@@ -1071,14 +1088,12 @@ export function Chat() {
         )}
         <ZoomButtons />
         <div className="spacer" />
+        {/* No longer gated on the roster: with nobody hired, Vodo seats
+            stand-ins of himself, so the button has to be reachable. */}
         <button
           className="ghost"
-          title="Split this goal across your agents — they work side by side, each in its own chat"
-          disabled={
-            !activeMeta ||
-            config.agents.filter((a) => a.id !== HOMELAB_AGENT_ID && a.enabled !== false).length ===
-              0
-          }
+          title="Split this goal across your agents — they work side by side, each in its own chat. With no agents yet, Vodo stands in for them."
+          disabled={!activeMeta}
           onClick={() => setGroupPrompt(true)}
         >
           Group project

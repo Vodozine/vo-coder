@@ -211,7 +211,10 @@ export function skillCallNote(meta: SkillMeta): string {
 const TRANSLATION_PREAMBLE =
   '[Skill translation: where this skill says bash, shell, or terminal commands, use ws_run. ' +
   'File reads/writes are ws_read / ws_write. "CLAUDE.md" or "AGENTS.md" means VO-CODER.md ' +
-  'here. Web lookups are web_search / web_fetch. Bundled files are listed below with paths ' +
+  'here. Web lookups are web_search / web_fetch. Where it says to spin up a subagent, a ' +
+  'background agent, or to use a Task/Agent tool, that is a GROUP here: group_start with one ' +
+  'part per piece of work (group_add seats another mid-run, group_send hands an existing ' +
+  'member more, group_status shows the board). Bundled files are listed below with paths ' +
   'relative to the skill folder — reference them by absolute path when running scripts.]\n\n';
 
 export function readSkill(
