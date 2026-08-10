@@ -1,4 +1,5 @@
 import { assignTasks } from '@vo-coder/core';
+import type { TaskRequest } from '@vo-coder/core';
 import type { AgentSpec, ToolSpec } from '@vo-coder/providers';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import type { GroupMember, GroupRun } from '../shared/ipc-contract';
@@ -29,6 +30,12 @@ export const INFRA_SIGNALS_MIN = 2;
 
 export interface GroupDeps {
   agents: () => AgentSpec[];
+  /**
+   * How capable an agent's model is (1–10, the catalog's own scale). Only a
+   * tiebreak, but on a roster of general-purpose agents nearly every part ties
+   * — and without it the hardest part went to whoever was least recently used.
+   */
+  qualityOf?: (agent: AgentSpec) => number | undefined;
   createSession: (
     projectId: string,
     agentId: string,
@@ -96,10 +103,30 @@ export function groupToolSpecs(): ToolSpec[] {
           goal: { type: 'string', description: 'The shared goal, one sentence' },
           parts: {
             type: 'array',
-            items: { type: 'string' },
+            items: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    task: { type: 'string', description: 'The instruction for this part' },
+                    agent: {
+                      type: 'string',
+                      description:
+                        'Which agent should take it, by name. YOU know which part is hardest and ' +
+                        'how capable each agent is — say so here. Leave it out to let the ' +
+                        'keyword match decide.',
+                    },
+                  },
+                  required: ['task'],
+                },
+              ],
+            },
             description:
               '2-8 independent parts. Each is an instruction to the person doing it and must ' +
-              'carry enough context to act on alone.',
+              'carry enough context to act on alone. Give the DEMANDING parts to your most ' +
+              'capable agents — the roster above lists each one\'s model and how strong it is. ' +
+              'A part may be plain text, or {"task": "...", "agent": "name"} to choose.',
           },
         },
         required: ['goal', 'parts'],
@@ -343,9 +370,23 @@ export async function executeGroupTool(
   }
   const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
   const goal = typeof a.goal === 'string' ? a.goal.trim() : '';
-  const parts = Array.isArray(a.parts)
-    ? a.parts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
-    : [];
+  // A part is either a bare string or {task, agent}. Models mix the two forms
+  // in one array, so both are accepted per item rather than per call.
+  const parts: TaskRequest[] = (Array.isArray(a.parts) ? a.parts : []).flatMap((p) => {
+    if (typeof p === 'string') return p.trim() ? [{ task: p.trim() }] : [];
+    if (p && typeof p === 'object') {
+      const o = p as { task?: unknown; agent?: unknown };
+      if (typeof o.task === 'string' && o.task.trim()) {
+        return [
+          {
+            task: o.task.trim(),
+            ...(typeof o.agent === 'string' && o.agent.trim() ? { agent: o.agent.trim() } : {}),
+          },
+        ];
+      }
+    }
+    return [];
+  });
   if (!projectId) {
     return { content: 'A group needs a project — this chat has none.', isError: true };
   }
@@ -458,7 +499,7 @@ export async function startGroup(
    * model in the fleet, with no project folder, no memory map and no tools —
    * which is exactly how a four-agent team ended up with one member.
    */
-  parts: string[],
+  rawParts: Array<string | TaskRequest>,
   /** Shared working folder — every member gets it as their chat's dir. */
   dir?: string,
 ): Promise<
@@ -477,6 +518,10 @@ export async function startGroup(
   // his hints carry everyday dev words ("server", "network"), and one
   // substring hit in ordinary copy kept conscripting him anyway.
   // An agent taken off duty is not on the team for this run either.
+  // A part is either bare text or text plus the agent the coordinator picked.
+  // Everything below works on the normalized form so the "who does this" answer
+  // has exactly one shape.
+  const parts: TaskRequest[] = rawParts.map((p) => (typeof p === 'string' ? { task: p } : p));
   const allAgents = deps.agents().filter((a) => a.enabled !== false);
   const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
   const infraScore = (task: string): number => infraSignals(homelab?.routingHints, task);
@@ -506,11 +551,11 @@ export async function startGroup(
   // Mr Homelab takes the most infrastructure-shaped part directly — his seat
   // is decided by his hints, not by a general ranking that can be swayed by
   // prose — and the rest are spread across the other agents.
-  let homelabPart: string | undefined;
+  let homelabPart: TaskRequest | undefined;
   if (homelab) {
     let best = INFRA_SIGNALS_MIN - 1;
     for (const p of parts) {
-      const s = infraScore(p);
+      const s = infraScore(p.task);
       if (s > best) {
         best = s;
         homelabPart = p;
@@ -527,20 +572,20 @@ export async function startGroup(
   // would hand every part to the same stand-in. There is nothing to rank
   // anyway, since none of them has routing hints.
   const plan = temps.length
-    ? rest.slice(0, seats).map((task, i) => ({
-        task,
+    ? rest.slice(0, seats).map((p, i) => ({
+        task: p.task,
         agent: temps[i]!,
         matched: ['Vodo stand-in'],
       }))
     : agents.length
-      ? assignTasks(rest.slice(0, seats), agents)
+      ? assignTasks(rest.slice(0, seats), agents, { qualityOf: deps.qualityOf })
       : [];
   // Parts beyond the seats used to be dropped SILENTLY — six blocks on three
   // agents lost three blocks and nobody was told. They queue instead: the
   // result names them, and the boss group_sends each as members go idle.
-  const queued = rest.slice(seats);
+  const queued = rest.slice(seats).map((p) => p.task);
   if (homelabPart && homelab) {
-    plan.push({ task: homelabPart, agent: homelab, matched: ['infrastructure'] });
+    plan.push({ task: homelabPart.task, agent: homelab, matched: ['infrastructure'] });
   }
   // A one-member "group" is a normal chat with extra ceremony — and it hides
   // the fact that nothing was parallelised behind a panel that says otherwise.

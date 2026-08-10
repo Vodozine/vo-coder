@@ -191,3 +191,118 @@ describe('vision agents wait for an actual image', () => {
     expect(match?.agent.id).toBe('vision');
   });
 });
+
+describe('capability decides when the words do not', () => {
+  // The user's real roster: one 27B and two small models, none of whose hints
+  // match a scaffolding part. Every agent scored 0 and the tie fell to "least
+  // recently used" — which handed the hardest part of an Android build to a 4B
+  // while the 27B took a different one.
+  const local: AgentSpec[] = [
+    { id: 'big', name: 'mr local', model: 'Qwen3.6-27B-GGUF:IQ4_XS', routingHints: 'local Coder' },
+    { id: 'small', name: 'local helper', model: 'gemma-4-E4B-it-GGUF', routingHints: 'helper' },
+    { id: 'mid', name: 'local helper amd', model: 'qwen/qwen3.5-9b', routingHints: 'helper' },
+  ];
+  // Stand-in for the catalog: 27B strong, 9B mid, 4B small.
+  const qualityOf = (a: AgentSpec) =>
+    ({ big: 6, mid: 4, small: 3 })[a.id as 'big' | 'mid' | 'small'];
+  const hard = 'harden processing, add tests, scaffold MainActivity and MainViewModel for wiring';
+
+  it('gives a part nobody matches to the most capable agent, not the least recent', () => {
+    const ranked = rankAgents(hard, local, { qualityOf });
+    expect(ranked.every((r) => r.score === 0)).toBe(true); // nothing matched, as before
+    expect(ranked[0]!.agent.id).toBe('big');
+  });
+
+  it('still lets real keyword evidence beat a bigger model', () => {
+    // Capability is a TIEBREAK: a specialist must keep its own subject.
+    const ranked = rankAgents('the helper module', local, { qualityOf });
+    expect(ranked[0]!.agent.id).not.toBe('big');
+    expect(ranked[0]!.score).toBeGreaterThan(0);
+  });
+
+  it('spreads unmatched parts strongest-first instead of by creation order', () => {
+    const plan = assignTasks([hard, 'write the README', 'rename a few files'], local, { qualityOf });
+    expect(plan.map((p) => p.agent.id)).toEqual(['big', 'mid', 'small']);
+  });
+
+  it('treats an unrated model as mid, not as worst', () => {
+    // An agent on a model the catalog has never heard of must not be benched
+    // behind one that is known to be weak.
+    const mixed: AgentSpec[] = [
+      { id: 'unknown', name: 'Mystery', model: 'some/unlisted-model' },
+      { id: 'weak', name: 'Tiny', model: 'x-3b' },
+    ];
+    const q = (a: AgentSpec) => (a.id === 'weak' ? 3 : undefined);
+    expect(rankAgents('do the thing', mixed, { qualityOf: q })[0]!.agent.id).toBe('unknown');
+  });
+});
+
+describe('the coordinator can name who takes a part', () => {
+  it('honours an explicit agent, by name or by id', () => {
+    const plan = assignTasks(
+      [
+        { task: 'the intricate part', agent: 'Scribe' },
+        { task: 'the css part', agent: 'a1' },
+      ],
+      agents,
+    );
+    expect(plan[0]!.agent.id).toBe('a3');
+    expect(plan[0]!.matched).toEqual(['chosen for this part']);
+    // Named beats the keyword score: 'css' would have gone to Pixel.
+    expect(plan[1]!.agent.id).toBe('a1');
+  });
+
+  it('falls back to the ranking for an unknown name', () => {
+    const plan = assignTasks([{ task: 'react component work', agent: 'nobody' }], agents);
+    expect(plan[0]!.agent.id).toBe('a2');
+  });
+
+  it('does not double-book a named agent', () => {
+    // Two parts on one agent is not parallel work — the second is ranked.
+    const plan = assignTasks(
+      [
+        { task: 'first', agent: 'Danny' },
+        { task: 'second', agent: 'Danny' },
+      ],
+      agents,
+    );
+    expect(plan[0]!.agent.id).toBe('a1');
+    expect(plan[1]!.agent.id).not.toBe('a1');
+  });
+
+  it('accepts strings and objects mixed in one call', () => {
+    const plan = assignTasks(['plain part', { task: 'named part', agent: 'Scribe' }], agents);
+    expect(plan).toHaveLength(2);
+    expect(plan[1]!.agent.id).toBe('a3');
+  });
+});
+
+describe('a named part is reserved before the greedy pass spends the agent', () => {
+  it('honours the choice even when the named part is listed last', () => {
+    // The failure this fixes: the hardest part comes last in a plan, and by the
+    // time it is reached the strong agent has already been handed part one.
+    const local: AgentSpec[] = [
+      { id: 'big', name: 'mr local', model: 'Qwen3.6-27B' },
+      { id: 'mid', name: 'local helper amd', model: 'qwen3.5-9b' },
+      { id: 'small', name: 'local helper', model: 'gemma-4-E4B' },
+    ];
+    const qualityOf = (a: AgentSpec) =>
+      ({ big: 6, mid: 4, small: 3 })[a.id as 'big' | 'mid' | 'small'];
+    const plan = assignTasks(
+      ['build the UI layer', 'wire the helpers', { task: 'scaffold the app', agent: 'mr local' }],
+      local,
+      { qualityOf },
+    );
+    const scaffold = plan.find((p) => p.task === 'scaffold the app')!;
+    expect(scaffold.agent.id).toBe('big');
+    expect(scaffold.matched).toEqual(['chosen for this part']);
+    // Every part still placed, and nobody doubled up.
+    expect(plan).toHaveLength(3);
+    expect(new Set(plan.map((p) => p.agent.id)).size).toBe(3);
+  });
+
+  it('keeps the results in the order the parts were given', () => {
+    const plan = assignTasks(['first', { task: 'second', agent: 'Scribe' }, 'third'], agents);
+    expect(plan.map((p) => p.task)).toEqual(['first', 'second', 'third']);
+  });
+});

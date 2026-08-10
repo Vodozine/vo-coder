@@ -23,6 +23,7 @@ import {
   ModelStrikes,
   profileHardware,
   signalFromPrompt,
+  qualityFor,
   suggest,
   type ModelRecord,
 } from '@vo-coder/capability-registry';
@@ -343,6 +344,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }
         return executeGroupTool(name, args, {
           agents: () => config.get().agents,
+          qualityOf: qualityOfAgent,
           createSession: (pid, agentId, title, groupId, dir) =>
             projects.createSession(pid, agentId, title, groupId, dir).id,
           send: (sid, body) => {
@@ -500,6 +502,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // Sync mirror of the catalog for hot paths that can't await getCatalog().
   let catalogSync: ModelRecord[] = [];
+  /**
+   * How capable an agent's model is, 1–10 — the SAME scale Auto routing uses,
+   * so "strong" means one thing across the app. The catalog answers first;
+   * a model it has never seen (a GGUF straight off HuggingFace) falls back to
+   * the family/parameter patterns. The "@endpoint" pin is stripped first,
+   * because "model@gpu2" is a routing address, not a different model.
+   */
+  const qualityOfAgent = (agent: AgentSpec): number | undefined => {
+    const pinned = agent.model;
+    if (!pinned) return undefined; // rides the app default — unknown here
+    const at = pinned.lastIndexOf('@');
+    const bare = at > 0 ? pinned.slice(0, at) : pinned;
+    return catalogSync.find((r) => r.id === bare || r.id === pinned)?.quality ?? qualityFor(bare);
+  };
 
   // Two consecutive failed runs bench a model (30 min) — routing and agent
   // handoffs skip benched models so a broken pick hands the job over instead
@@ -516,6 +532,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     send: sendToWindow,
     builtins,
     modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
+    qualityOf: qualityOfAgent,
     skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
     ...(bank
       ? {

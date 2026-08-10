@@ -238,6 +238,30 @@ describe('quality pattern annotation', async () => {
     expect(annotated[0]!.quality).toBe(3);
     expect(annotated[1]!.quality).toBe(8);
   });
+
+  it('reads the parameter count instead of calling every "NNb" small', async () => {
+    const { paramBillions } = await import('../src/quality.ts');
+    expect(paramBillions('qwen/qwen3.5-9b')).toBe(9);
+    expect(paramBillions('hf.co/DavidAU/Qwen3.6-27B-Fable-Fusion-711-NEO-MAX-GGUF:IQ4_XS')).toBe(27);
+    expect(paramBillions('hf.co/unsloth/gemma-4-E4B-it-GGUF:UD-Q4_K_XL')).toBe(4); // letter prefix
+    expect(paramBillions('google/gemma-4-26b-a4b')).toBe(26); // MoE: total, not active
+    expect(paramBillions('meta-llama/llama-4-405b-instruct')).toBe(405);
+    // Quantization tags have no "b" after the digits and must never register.
+    expect(paramBillions('some-model-GGUF:Q4_K_M')).toBeUndefined();
+    expect(paramBillions('anthropic/claude-sonnet-5')).toBeUndefined();
+  });
+
+  it('bands open models by size, so a 27B outranks a 4B', () => {
+    // The whole point: these three used to be indistinguishable (all 4).
+    expect(qualityFor('hf.co/DavidAU/Qwen3.6-27B-Uncensored-GGUF:IQ4_XS')).toBe(6);
+    expect(qualityFor('qwen/qwen3.5-9b')).toBe(4);
+    expect(qualityFor('hf.co/unsloth/gemma-4-E4B-it-GGUF:UD-Q4_K_XL')).toBe(3);
+    // And a 70B is no longer filed alongside a 4B — this one hits Auto too.
+    expect(qualityFor('qwen/qwen2.5-72b-instruct')).toBe(8);
+    expect(qualityFor('mistralai/mixtral-8x22b')).toBe(6);
+    // Named families still win over the size rule.
+    expect(qualityFor('anthropic/claude-haiku-4.5')).toBe(7);
+  });
 });
 
 describe('advisory router', () => {

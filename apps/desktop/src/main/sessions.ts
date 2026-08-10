@@ -54,6 +54,8 @@ interface SessionManagerDeps {
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
+  /** Catalog lookup: how capable an agent's model is, 1–10. */
+  qualityOf?: (agent: AgentSpec) => number | undefined;
   /** The skills catalog note (empty when no skills are installed/enabled). */
   skillsCatalog?: () => string;
 }
@@ -186,6 +188,33 @@ export class SessionManager {
   /** Agents available to share work with — below two there is no group. */
   private teamSize(): number {
     return this.deps.config.get().agents.length;
+  }
+
+  /**
+   * The roster, with each agent's model and how strong it is. Without this the
+   * coordinator was splitting work blind: it knew the agents' NAMES and hints
+   * but not that one of them runs a 27B and another a 4B, so the hardest part
+   * of a build landed wherever the keyword match happened to fall.
+   */
+  private rosterNote(): string {
+    const agents = this.deps.config.get().agents.filter((a) => a.enabled !== false);
+    if (agents.length < 2) return '';
+    const band = (q: number | undefined): string =>
+      q === undefined ? 'unrated' : q >= 9 ? 'top' : q >= 7 ? 'strong' : q >= 5 ? 'mid' : 'small';
+    const lines = agents.map((a) => {
+      const model = a.model ?? '(app default)';
+      const q = this.deps.qualityOf?.(a);
+      const hints = a.routingHints?.trim();
+      return `- ${a.name} — ${model} [${band(q)}]${hints ? ` · good at: ${hints}` : ''}`;
+    });
+    return (
+      '\n\nYOUR TEAM:\n' +
+      lines.join('\n') +
+      '\nStrength is the model behind each agent, not its job title. Give the part that needs the ' +
+      'most reasoning — architecture, scaffolding, anything intricate — to a strong agent, and ' +
+      'keep the small ones for mechanical work. A "small" model given the hardest part will ' +
+      'produce something that looks finished and is not.'
+    );
   }
 
   /** Window-as-buffer briefing, appended to the prompt when assembly is on. */
@@ -341,7 +370,8 @@ export class SessionManager {
           'file path (.vodo/team/blocks/01_…, .vodo/team/blocks/02_…), and when the blocks ' +
           'land merge them with one ws_assemble call in blueprint order, into the real ' +
           'deliverable path. Blocks that depend on other blocks still parallelise — the ' +
-          'blueprint contract is what decouples them.'
+          'blueprint contract is what decouples them.' +
+          this.rosterNote()
         : '';
     const assembly = this.assemblyNote(sessionId);
     // The boss's own chat while his group runs. Routing rightly pins the

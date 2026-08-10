@@ -31,6 +31,17 @@ export interface RankOpts {
    * created first, forever.
    */
   recent?: string[];
+  /**
+   * How capable this agent's model is, 1–10 — the same scale Auto routing uses
+   * (capability-registry's quality). Supplied by the caller so this stays a
+   * pure function with no catalog dependency.
+   *
+   * Keyword evidence still decides: this only settles TIES, which on a roster
+   * of general-purpose agents is nearly every part. Without it the tie fell to
+   * "who worked least recently", and a coin flip handed the hardest part of a
+   * build to a 4B model while a 27B sat idle.
+   */
+  qualityOf?: (agent: AgentSpec) => number | undefined;
 }
 
 /** Words that only signal a vision job when a photo is actually on the table. */
@@ -106,7 +117,24 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
     const i = opts.recent?.indexOf(id) ?? -1;
     return i === -1 ? -1 : opts.recent!.length - i; // higher = more recent
   };
-  return ranked.sort((a, b) => b.score - a.score || recency(a.agent.id) - recency(b.agent.id));
+  // Capability outranks recency as a tiebreak: when nothing in the text picks a
+  // specialist, the stronger model is a better answer than the least-recent one.
+  // Unrated models sort as mid (5) rather than last, so an agent on a model the
+  // catalog has never heard of is not permanently benched behind a known weak one.
+  const quality = (agent: AgentSpec) => (opts.qualityOf ? (opts.qualityOf(agent) ?? 5) : 0);
+  return ranked.sort(
+    (a, b) =>
+      b.score - a.score ||
+      quality(b.agent) - quality(a.agent) ||
+      recency(a.agent.id) - recency(b.agent.id),
+  );
+}
+
+/** A part, optionally with the agent the coordinator wants on it. */
+export interface TaskRequest {
+  task: string;
+  /** Agent id or name. Unknown names fall through to the ranking. */
+  agent?: string;
 }
 
 /**
@@ -117,29 +145,56 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
  * single-winner ranking would otherwise hand every task to whoever scores
  * broadest. A task nobody matches still gets the best free agent rather than
  * being dropped — an unassigned task is worse than an imperfect assignee.
+ *
+ * A part may NAME its agent. The coordinator has read the whole job and knows
+ * which part is hardest, which no keyword score can tell — so an explicit
+ * choice is honoured first, and the ranking is what decides the rest.
  */
 export function assignTasks(
-  tasks: string[],
+  tasks: Array<string | TaskRequest>,
   agents: AgentSpec[],
   opts: RankOpts = {},
 ): Array<{ task: string; agent: AgentSpec; matched: string[] }> {
   if (!agents.length) return [];
-  const out: Array<{ task: string; agent: AgentSpec; matched: string[] }> = [];
+  const entries = tasks.map((t) => (typeof t === 'string' ? { task: t } : t));
+  const out: Array<{ task: string; agent: AgentSpec; matched: string[] } | undefined> = new Array(
+    entries.length,
+  );
   const used = new Set<string>();
-  for (const task of tasks) {
-    const ranked = rankAgents(task, agents, opts);
+  const wanted = (name: string): AgentSpec | undefined => {
+    const key = name.trim().toLowerCase();
+    return agents.find((a) => a.id.toLowerCase() === key || a.name.toLowerCase() === key);
+  };
+
+  // Named parts are reserved FIRST, whatever their position. Order-of-arrival
+  // would otherwise beat the coordinator's judgement: the hardest part is
+  // usually listed last, and by then a greedy pass has already spent the agent
+  // it was promised to.
+  entries.forEach((e, i) => {
+    const chosen = e.agent ? wanted(e.agent) : undefined;
+    // Two parts on one agent is not parallel work — the later one is ranked.
+    if (chosen && !used.has(chosen.id)) {
+      used.add(chosen.id);
+      out[i] = { task: e.task, agent: chosen, matched: ['chosen for this part'] };
+    }
+  });
+
+  entries.forEach((e, i) => {
+    if (out[i]) return;
     // Everyone has one? Start a second round rather than refusing work.
     if (used.size >= agents.length) used.clear();
+    const ranked = rankAgents(e.task, agents, opts);
     const pick = ranked.find((r) => !used.has(r.agent.id)) ?? ranked[0];
-    if (!pick) continue;
+    if (!pick) return;
     used.add(pick.agent.id);
-    out.push({
-      task,
+    out[i] = {
+      task: e.task,
       agent: pick.agent,
       matched: pick.matched.length ? pick.matched : ['best available'],
-    });
-  }
-  return out;
+    };
+  });
+
+  return out.filter((r): r is { task: string; agent: AgentSpec; matched: string[] } => !!r);
 }
 
 export function matchAgentForMessage(
