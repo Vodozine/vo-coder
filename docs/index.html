@@ -292,6 +292,23 @@
         </figure>
       </div>
     </div>
+
+    <div class="stack-gap">
+      <span class="pill">Worktrees</span>
+      <h3>Or give every agent its own branch</h3>
+      <p class="sub">
+        Several agents editing one checkout is fine until it isn't — seven features on <code>main</code>, a
+        migration tangled through two of them, and an afternoon spent untangling commits. Flip
+        <b>Worktrees</b> on beside the composer and the team works the way you would: each member gets its
+        own <b>git worktree and branch</b>, writes only in there, and its part is merged back — with a build
+        after each — once it is finished and verified. A conflict stops that merge and gets named instead of
+        forced, nothing unverified is merged, and a merged part takes its worktree and branch with it.
+      </p>
+      <p class="sub">
+        It's a mode, like Auto / Plan / Manual: on until you turn it off, and off by default, since it only
+        makes sense inside a git repo.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -566,6 +583,14 @@
   <div class="wrap">
     <h2><span class="num">10 — the rest</span>Everything else that's in the box</h2>
     <div class="grid g3">
+      <div class="card">
+        <span class="ic">📚</span>
+        <h4>Skills your agents pick up</h4>
+        <p>A folder with a <code>SKILL.md</code> (the Claude Agent Skills layout), any markdown how-to, or a
+        <b>GitHub link</b> — a skill folder, a single file, or a whole repo of them, installed one by one.
+        Only a one-line catalogue rides the prompt; the instructions load when a task matches. Type
+        <code>/</code> in the composer to summon one by name.</p>
+      </div>
       <div class="card">
         <span class="ic">👁</span>
         <h4>Real eyes for any model</h4>
