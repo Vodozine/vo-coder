@@ -39,7 +39,7 @@ import { ConfigStore } from './config';
 import { Journal } from './journal';
 import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
-import { HOMELAB_PROJECT_ID, ProjectStore } from './projects';
+import { GENERAL_PROJECT_ID, HOMELAB_PROJECT_ID, ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
 import { AUTO_ALLOWED_TOOLS } from './tool-policy';
@@ -243,6 +243,34 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         },
       },
       {
+        name: 'project_create',
+        description:
+          'Create a new project: make its folder on disk, register it so it appears in the ' +
+          "app's Projects list, and move THIS chat into it so your file tools work there. Use " +
+          'it when the user asks to start a project and says where to put it — including when ' +
+          'the request arrives from Telegram. A project needs its own folder: this is what ' +
+          'gives a group project somewhere to deliver into. If the folder already exists it is ' +
+          'adopted rather than replaced, and nothing inside it is touched.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Project name, as the user said it' },
+            parentDir: {
+              type: 'string',
+              description:
+                'Absolute path of the folder to create the project folder INSIDE ' +
+                '(e.g. "C:/Users/me/Projects" makes "C:/Users/me/Projects/<name>")',
+            },
+            dir: {
+              type: 'string',
+              description:
+                'Use this EXACT folder instead of making one under parentDir. Give one or the other.',
+            },
+          },
+          required: ['name'],
+        },
+      },
+      {
         name: 'skill_read',
         description:
           'Read one of the installed SKILLS — packaged instructions for a specific kind of ' +
@@ -263,14 +291,59 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       args: unknown,
       ctx?: { projectId?: string; dir?: string; sessionId?: string },
     ) => {
-      // The chat's folder: an attached/session dir when the caller passes one,
-      // else the project's own folder.
+      // The chat's folder. Read from the session's LIVE meta first: ctx is
+      // captured once per turn, so a project created earlier in this same turn
+      // would otherwise be invisible to the calls that follow it — and
+      // project_create then start-a-group-here could never work in one go.
       const ctxDir = () =>
+        (ctx?.sessionId ? projects.meta(ctx.sessionId)?.dir : undefined) ??
         ctx?.dir ??
         (ctx?.projectId
           ? projects.list().projects.find((p) => p.id === ctx.projectId)?.dir
           : undefined);
       if (name.startsWith('web_')) return executeWebTool(name, args);
+      if (name === 'project_create') {
+        const a = (args ?? {}) as { name?: unknown; parentDir?: unknown; dir?: unknown };
+        const title = typeof a.name === 'string' ? a.name.trim() : '';
+        const parent = typeof a.parentDir === 'string' ? a.parentDir.trim() : '';
+        const exact = typeof a.dir === 'string' ? a.dir.trim() : '';
+        if (!title) return Promise.resolve({ content: 'Give the project a name.', isError: true });
+        if (!parent && !exact) {
+          return Promise.resolve({
+            content:
+              'Say WHERE it goes: parentDir (a folder to create it inside) or dir (an exact ' +
+              'folder to use). Ask the user for a location rather than inventing one.',
+            isError: true,
+          });
+        }
+        try {
+          // Windows forbids these in a path segment; a name with a slash would
+          // otherwise silently create a nested folder somewhere unexpected.
+          const safe = title.replace(/[<>:"/\\|?*]+/g, '-').replace(/\s+/g, ' ').trim();
+          const dir = exact ? resolve(exact) : resolve(join(parent, safe || 'project'));
+          mkdirSync(dir, { recursive: true });
+          const project = projects.createProject(title, dir);
+          // Move the calling chat in and bind its folder, so the very next tool
+          // call in this same turn already has hands inside the new project.
+          if (ctx?.sessionId) {
+            projects.moveSession(ctx.sessionId, project.id);
+            projects.setSessionDir(ctx.sessionId, dir);
+            bank?.moveSession(ctx.sessionId, project.id);
+          }
+          journal.append({ kind: 'project', text: `created project "${title}"`, project: title });
+          broadcastProjects();
+          return Promise.resolve({
+            content:
+              `Created project "${project.name}" at ${dir}. It is in the Projects list now, and ` +
+              'this chat is inside it — your file tools and group_start work here.',
+          });
+        } catch (err) {
+          return Promise.resolve({
+            content: `Could not create it: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          });
+        }
+      }
       if (name === 'skill_read') {
         const want = String((args as { name?: unknown })?.name ?? '').trim();
         const userData = app.getPath('userData');
@@ -2273,10 +2346,61 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
   missionsRef = missions;
 
+  /**
+   * Telegram's Vodo is a dispatcher, not a builder: the phone has no folders,
+   * no file tools and no team. This hands a job to the Vodo at the machine by
+   * opening a real chat and sending the brief — which is why the work then
+   * appears in the app like any other, and why the group it may start is
+   * watchable there.
+   */
+  const dispatchToolSpec = {
+    name: 'vodo_dispatch',
+    description:
+      'Hand a job to Vodo at the machine, who has the folders, the file tools and the agent ' +
+      'team. Use it for anything to be BUILT. It opens a new chat there and sends your brief; ' +
+      'the user can watch it in the app. Write the brief as an instruction to someone who ' +
+      'cannot see this Telegram conversation: say what to build, WHERE the project folder goes, ' +
+      'and whether it is a plain project (work it alone) or a GROUP PROJECT (split it across ' +
+      'the agents).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief: {
+          type: 'string',
+          description: 'The complete instruction, standing on its own with all the context',
+        },
+        title: { type: 'string', description: 'Short title for the chat (a few words)' },
+      },
+      required: ['brief'],
+    },
+  };
+  const executeDispatch = async (args: unknown): Promise<{ content: string; isError?: boolean }> => {
+    const a = (args ?? {}) as { brief?: unknown; title?: unknown };
+    const brief = typeof a.brief === 'string' ? a.brief.trim() : '';
+    if (!brief) return { content: 'Say what to hand over.', isError: true };
+    const title = (typeof a.title === 'string' && a.title.trim()) || brief.slice(0, 48);
+    // Starts in General with no folder: the brief carries the location, and
+    // project_create rehomes the chat the moment Vodo makes the project.
+    const meta = projects.createSession(GENERAL_PROJECT_ID, 'default', title);
+    broadcastProjects();
+    journal.append({ kind: 'chat', text: `dispatched from Telegram: ${title}`, surface: 'telegram' });
+    void sessions.send(meta.id, [
+      {
+        type: 'text',
+        text:
+          `[Dispatched from Telegram — the user is away from the machine and cannot see this ` +
+          `chat. Do the work here; they will read the result on their phone.]\n\n${brief}`,
+      },
+    ]);
+    return {
+      content: `Handed to Vodo at the machine — chat "${title}" is running in the app.`,
+    };
+  };
+
   const telegram = new TelegramBridge(config, secrets, {
     vodoSpec,
     resolve: resolveSpec,
-    tools: () => remoteTools(),
+    tools: () => [...remoteTools(), dispatchToolSpec],
     execute: (name, args) => telegramExecute(name, args),
     missionsSummary: () => missions.describeAll(),
     onUsage: (bound, ev) => recordUsage(bound, ev),
@@ -2294,6 +2418,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         isError: true,
       });
     }
+    // Handing work to the machine IS execution, so it sits behind the same
+    // gate as everything else — it just is not a tool the app's own Vodo has.
+    if (name === 'vodo_dispatch') return executeDispatch(args);
     return remoteExecute(name, args);
   };
   telegramRef = telegram;
