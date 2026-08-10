@@ -423,6 +423,17 @@ function ghError(status: number, what: string): string {
   return `GitHub said ${status} for ${what}.`;
 }
 
+/**
+ * GitHub's breadcrumb has a copy button, and what it copies is the path INSIDE
+ * the repo — no owner, no repo, nothing that can be fetched on its own. It
+ * looks exactly like the owner/repo/path shorthand, so the guess goes wrong
+ * quietly. Say what to paste instead.
+ */
+const REPO_RELATIVE_HINT =
+  ' If you used the copy button on a folder inside a repo, that only copies the path — ' +
+  "paste the whole link from your browser's address bar instead " +
+  '(github.com/owner/repo/tree/branch/path).';
+
 export async function importSkillFromGitHub(
   userData: string,
   input: string,
@@ -438,9 +449,15 @@ export async function importSkillFromGitHub(
   if (!ref) {
     return {
       ok: false,
-      error: 'That does not look like a GitHub address. Paste the link to a skill folder, a SKILL.md, or a repo.',
+      error:
+        'That does not look like a GitHub address. Paste the link to a skill folder, a SKILL.md, or a repo.' +
+        (input.includes('/') ? REPO_RELATIVE_HINT : ''),
     };
   }
+  // No host in what was pasted, and segments beyond owner/repo: the shorthand
+  // and a copied in-repo path are indistinguishable, so a miss here gets the
+  // hint about which one this probably was.
+  const guessed = !/^(?:https?:\/\/|(?:www\.)?github\.com\/)/i.test(input.trim()) && !!ref.path;
 
   const listing = async (path: string): Promise<GhEntry[] | GhEntry | { error: string }> => {
     let res;
@@ -449,7 +466,15 @@ export async function importSkillFromGitHub(
     } catch (err) {
       return { error: `Could not reach GitHub: ${err instanceof Error ? err.message : String(err)}` };
     }
-    if (!res.ok) return { error: ghError(res.status, path ? `/${path}` : `${ref.owner}/${ref.repo}`) };
+    // Always name the repo it actually asked for — "nothing at /some-folder"
+    // hides the case where the OWNER and REPO were the wrong guess.
+    if (!res.ok) {
+      return {
+        error:
+          ghError(res.status, `${ref.owner}/${ref.repo}${path ? `/${path}` : ''}`) +
+          (res.status === 404 && guessed ? REPO_RELATIVE_HINT : ''),
+      };
+    }
     try {
       return JSON.parse(await res.text()) as GhEntry[] | GhEntry;
     } catch {

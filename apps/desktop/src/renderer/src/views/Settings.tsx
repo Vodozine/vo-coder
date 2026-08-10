@@ -707,7 +707,7 @@ function SkillsSection() {
         <input
           className="grow"
           value={url}
-          placeholder="Paste a GitHub link — repo, folder, or SKILL.md"
+          placeholder="Paste a GitHub link from your browser — repo, folder, or SKILL.md"
           title="github.com/owner/repo/tree/main/path/to/skill, a link to a SKILL.md, or just owner/repo"
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => {
@@ -725,7 +725,9 @@ function SkillsSection() {
       </div>
       <p className="hint">
         A skill is instructions your agents will follow — add ones you would be happy to read
-        yourself. Point at a repo full of skills and each one inside comes in separately.
+        yourself. Point at a repo full of skills and each one inside comes in separately. Use the
+        address-bar link: GitHub&apos;s copy button on a folder gives only the path inside the repo,
+        which isn&apos;t enough to find it.
       </p>
     </section>
   );
