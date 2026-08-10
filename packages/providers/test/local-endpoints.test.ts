@@ -426,3 +426,42 @@ describe('LmStudioProvider — several boxes behind one provider', () => {
     expect(sawModel).toBe('qwen3.5:latest@gpu3');
   });
 });
+
+describe('a local server can say what its model does', () => {
+  it('reads capabilities from the pinned endpoint', async () => {
+    let sawUrl = '';
+    let sawModel = '';
+    const p = new OllamaProvider({
+      extraEndpoints: [{ name: 'gpu2', url: 'http://box:11434' }],
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        sawUrl = String(input);
+        sawModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+        return new Response(JSON.stringify({ capabilities: ['tools', 'completion', 'vision'] }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as unknown as typeof fetch,
+    });
+    expect(await p.capabilities('gemma-4-e4b@gpu2')).toEqual(['tools', 'completion', 'vision']);
+    expect(sawUrl).toBe('http://box:11434/api/show');
+    expect(sawModel).toBe('gemma-4-e4b'); // the pin is an address, not part of the name
+  });
+
+  it('a sleeping box measures as unknown, never as an error', async () => {
+    const p = new OllamaProvider({
+      fetch: (async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch,
+    });
+    expect(await p.capabilities('anything')).toEqual([]);
+  });
+
+  it('survives a server that answers without the field', async () => {
+    const p = new OllamaProvider({
+      fetch: (async () =>
+        new Response(JSON.stringify({ model_info: {} }), {
+          headers: { 'content-type': 'application/json' },
+        })) as unknown as typeof fetch,
+    });
+    expect(await p.capabilities('old-server-model')).toEqual([]);
+  });
+});

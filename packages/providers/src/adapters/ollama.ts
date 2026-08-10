@@ -224,6 +224,30 @@ export class OllamaProvider implements ChatProvider {
   }
 
   /**
+   * What this model can actually do, straight from the server ("tools",
+   * "vision", "completion", …). The catalog only knows local models by their
+   * id, so without this a roster of local agents cannot say which of them can
+   * see an image or call a tool. Best-effort: a sleeping box answers [].
+   */
+  async capabilities(modelId: string): Promise<string[]> {
+    const target = this.resolve(modelId);
+    try {
+      const res = await this.fetchFn(`${target.url}/api/show`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: target.model }),
+      });
+      if (!res.ok) return [];
+      const json = (await res.json()) as { capabilities?: unknown };
+      return Array.isArray(json.capabilities)
+        ? json.capabilities.filter((c): c is string => typeof c === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Everything the server will tell us about a model, so the window can be
    * computed rather than guessed. Read-only and best-effort: it never loads a
    * model, and any missing piece simply comes back undefined.

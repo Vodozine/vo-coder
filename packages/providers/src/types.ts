@@ -179,6 +179,12 @@ export interface ChatProvider {
    * where the window is the caller's to choose — i.e. local servers.
    */
   measure?(model: string): Promise<EndpointMeasurement>;
+  /**
+   * What the backend says this model can do ("tools", "vision", …). Local
+   * servers know; a catalog built from ids alone does not, which is why a
+   * roster of local agents could not say who is able to see an image.
+   */
+  capabilities?(model: string): Promise<string[]>;
   listModels(): Promise<ModelInfo[]>;
   stream(req: ChatRequest, opts: { signal: AbortSignal }): AsyncIterable<ProviderEvent>;
 }

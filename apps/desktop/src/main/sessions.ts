@@ -54,8 +54,13 @@ interface SessionManagerDeps {
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
-  /** Catalog lookup: how capable an agent's model is, 1–10. */
-  qualityOf?: (agent: AgentSpec) => number | undefined;
+  /** Catalog lookup: what an agent's model is and can do. */
+  agentProfile?: (agent: AgentSpec) => {
+    quality?: number;
+    vision?: boolean;
+    tools?: boolean;
+    image?: boolean;
+  };
   /** The skills catalog note (empty when no skills are installed/enabled). */
   skillsCatalog?: () => string;
 }
@@ -191,10 +196,12 @@ export class SessionManager {
   }
 
   /**
-   * The roster, with each agent's model and how strong it is. Without this the
-   * coordinator was splitting work blind: it knew the agents' NAMES and hints
-   * but not that one of them runs a 27B and another a 4B, so the hardest part
-   * of a build landed wherever the keyword match happened to fall.
+   * The roster: each agent's model, how strong it is, what its model can do,
+   * and which MCP servers it holds. Without this the coordinator was splitting
+   * work blind — it knew NAMES and hints but not that one agent runs a 27B and
+   * another a 4B, nor that only one of them can see an image or reach GitHub.
+   * So the hardest part landed wherever the keyword match fell, and a part
+   * needing a tool went to someone who does not have it.
    */
   private rosterNote(): string {
     const agents = this.deps.config.get().agents.filter((a) => a.enabled !== false);
@@ -202,10 +209,22 @@ export class SessionManager {
     const band = (q: number | undefined): string =>
       q === undefined ? 'unrated' : q >= 9 ? 'top' : q >= 7 ? 'strong' : q >= 5 ? 'mid' : 'small';
     const lines = agents.map((a) => {
-      const model = a.model ?? '(app default)';
-      const q = this.deps.qualityOf?.(a);
+      const p = this.deps.agentProfile?.(a) ?? {};
+      const can: string[] = [];
+      if (p.vision) can.push('sees images');
+      if (p.image) can.push('makes images');
+      // Only ever stated when the catalog is SURE: silence means unknown, and
+      // "no tools" is the one claim that would wrongly bench a working agent.
+      if (p.tools === false) can.push('NO tool use — cannot build, only write text');
+      if (a.thinking?.enabled) can.push('extended thinking');
+      const mcp = (a.mcpServers ?? []).filter(Boolean);
       const hints = a.routingHints?.trim();
-      return `- ${a.name} — ${model} [${band(q)}]${hints ? ` · good at: ${hints}` : ''}`;
+      return (
+        `- ${a.name} — ${a.model ?? '(app default)'} [${band(p.quality)}]` +
+        (can.length ? ` · ${can.join(', ')}` : '') +
+        (mcp.length ? ` · MCP: ${mcp.join(', ')}` : ' · no MCP servers') +
+        (hints ? ` · good at: ${hints}` : '')
+      );
     });
     return (
       '\n\nYOUR TEAM:\n' +
@@ -213,7 +232,11 @@ export class SessionManager {
       '\nStrength is the model behind each agent, not its job title. Give the part that needs the ' +
       'most reasoning — architecture, scaffolding, anything intricate — to a strong agent, and ' +
       'keep the small ones for mechanical work. A "small" model given the hardest part will ' +
-      'produce something that looks finished and is not.'
+      'produce something that looks finished and is not.\n' +
+      'MCP servers are the only outside reach an agent has: a part needing GitHub, a database or ' +
+      'infrastructure must go to someone who holds that server, or it will improvise instead of ' +
+      'doing it. Image work needs an agent whose model actually sees or makes images. Every agent ' +
+      'has the file and web tools regardless.'
     );
   }
 

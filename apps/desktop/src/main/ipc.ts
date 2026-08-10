@@ -582,13 +582,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    * the family/parameter patterns. The "@endpoint" pin is stripped first,
    * because "model@gpu2" is a routing address, not a different model.
    */
-  const qualityOfAgent = (agent: AgentSpec): number | undefined => {
+  const agentProfile = (
+    agent: AgentSpec,
+  ): { quality?: number; vision?: boolean; tools?: boolean; image?: boolean } => {
     const pinned = agent.model;
-    if (!pinned) return undefined; // rides the app default — unknown here
+    if (!pinned) return {}; // rides the app default — unknown here
     const at = pinned.lastIndexOf('@');
     const bare = at > 0 ? pinned.slice(0, at) : pinned;
-    return catalogSync.find((r) => r.id === bare || r.id === pinned)?.quality ?? qualityFor(bare);
+    const rec = catalogSync.find((r) => r.id === bare || r.id === pinned);
+    return {
+      quality: rec?.quality ?? qualityFor(bare),
+      ...(rec?.supportsVision !== undefined ? { vision: rec.supportsVision } : {}),
+      ...(rec?.supportsTools !== undefined ? { tools: rec.supportsTools } : {}),
+      ...(rec?.outputsImage !== undefined ? { image: rec.outputsImage } : {}),
+    };
   };
+  const qualityOfAgent = (agent: AgentSpec): number | undefined => agentProfile(agent).quality;
 
   // Two consecutive failed runs bench a model (30 min) — routing and agent
   // handoffs skip benched models so a broken pick hands the job over instead
@@ -605,7 +614,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     send: sendToWindow,
     builtins,
     modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
-    qualityOf: qualityOfAgent,
+    agentProfile,
     skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
     ...(bank
       ? {
@@ -2088,13 +2097,44 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             ),
           ]);
           installed[providerId] = models.map((m) => m.id);
+          // Cloud records arrive from OpenRouter already carrying what they can
+          // do; local ones are only an id, so the server is asked directly —
+          // but ONLY for models an agent is actually pinned to. Asking about
+          // all of them is one HTTP call per installed model (18 on one box
+          // here) to answer a question nobody asked.
+          const pinned = new Set(
+            config
+              .get()
+              .agents.filter((a) => a.enabled !== false && a.model)
+              .map((a) => a.model!),
+          );
+          const caps = new Map<string, string[]>();
+          if (provider.capabilities) {
+            const wanted = models.filter((m) => pinned.has(m.id)).slice(0, 12);
+            await Promise.allSettled(
+              wanted.map(async (m) => {
+                const list = await Promise.race([
+                  provider.capabilities!(m.id),
+                  new Promise<string[]>((r) => setTimeout(() => r([]), 2000)),
+                ]);
+                if (list.length) caps.set(m.id, list);
+              }),
+            );
+          }
           extra.push(
-            ...models.map((m) => ({
-              id: m.id,
-              provider: providerId,
-              displayName: `${m.id} (installed)`,
-              tags: ['local'],
-            })),
+            ...models.map((m) => {
+              const c = caps.get(m.id);
+              return {
+                id: m.id,
+                provider: providerId,
+                displayName: `${m.id} (installed)`,
+                tags: ['local'],
+                // Absent stays absent: "unknown" and "cannot" must not be the
+                // same thing, or an unprobed agent reads as unable to build.
+                ...(c ? { supportsTools: c.includes('tools') } : {}),
+                ...(c ? { supportsVision: c.includes('vision') } : {}),
+              };
+            }),
           );
         } catch {
           /* local server not running — catalog still works */
