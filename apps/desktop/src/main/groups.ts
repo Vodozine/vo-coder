@@ -1,3 +1,5 @@
+import { readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { assignTasks } from '@vo-coder/core';
 import type { TaskRequest } from '@vo-coder/core';
 import type { AgentSpec, ToolSpec } from '@vo-coder/providers';
@@ -203,7 +205,45 @@ export function groupToolSpecs(): ToolSpec[] {
         required: ['agent', 'task'],
       },
     },
+    {
+      name: 'team_clean',
+      description:
+        'Throw away the scratch the team wrote to coordinate — everything under .vodo/team/ ' +
+        '(blueprints, block files, member reports, checklists). Call it as the LAST step of a ' +
+        'finished group, after the durable points are in the memory map (map_update) and after ' +
+        'you have summarised the work in your reply. Those files are notes between agents, not ' +
+        'deliverables: left behind they pile up until nobody can find the actual product. Never ' +
+        'touches anything outside .vodo/team/, so the deliverable itself is never at risk. With ' +
+        'list:true it only shows what is there.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          list: { type: 'boolean', description: 'Only list the scratch, delete nothing.' },
+        },
+      },
+    },
   ];
+}
+
+/** Everything under .vodo/team, relative to the folder — the team's scratch. */
+function teamScratch(dir: string): string[] {
+  const root = join(dir, '.vodo', 'team');
+  const out: string[] = [];
+  const walk = (p: string, rel: string, depth: number): void => {
+    if (depth > 4) return;
+    let entries;
+    try {
+      entries = readdirSync(p, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(join(p, e.name), `${rel}${e.name}/`, depth + 1);
+      else if (e.isFile()) out.push(`${rel}${e.name}`);
+    }
+  };
+  walk(root, '', 0);
+  return out.sort();
 }
 
 export async function executeGroupTool(
@@ -221,6 +261,30 @@ export async function executeGroupTool(
    */
   dir?: string,
 ): Promise<{ content: string; isError?: boolean }> {
+  if (name === 'team_clean') {
+    if (!dir) return { content: 'This chat has no folder, so there is no team scratch.', isError: true };
+    const files = teamScratch(dir);
+    if (!files.length) return { content: 'Nothing under .vodo/team/ — already clean.' };
+    const shown = files.slice(0, 20).map((f) => `  ${f}`).join('\n');
+    const more = files.length > 20 ? `\n  …and ${files.length - 20} more` : '';
+    if ((args as { list?: unknown })?.list === true) {
+      return { content: `Team scratch (${files.length} file(s)):\n${shown}${more}` };
+    }
+    try {
+      // The whole point of the confinement: only ever this one subtree.
+      rmSync(join(dir, '.vodo', 'team'), { recursive: true, force: true });
+    } catch (err) {
+      return {
+        content: `Could not clear .vodo/team/: ${err instanceof Error ? err.message : String(err)}`,
+        isError: true,
+      };
+    }
+    return {
+      content:
+        `Cleared .vodo/team/ — ${files.length} scratch file(s) removed:\n${shown}${more}\n` +
+        'The deliverable and everything else in the folder is untouched.',
+    };
+  }
   if (name === 'group_status') {
     const group = deps.groups?.().find((g) => !g.endedAt && g.coordinatorId === coordinatorId);
     if (!group) {
@@ -485,13 +549,23 @@ export function memberBrief(
     `YOUR PART: ${member.task}\n\n` +
     (others ? `Working alongside you, right now:\n${others}\n\n` : '') +
     (sharedFolder
-      ? 'You all share ONE project folder — ws_list / ws_read / ws_write work there. ' +
+      ? 'You all share ONE project folder — ws_list / ws_read / ws_write work there. Do NOT ' +
+        'carve out a folder of your own to work in: one shared checkout is the point, and a ' +
+        'per-agent folder means the parts never meet. (Worktrees mode is the one exception, ' +
+        'and then your own worktree path is named in your instruction.) ' +
         'Deliverables are FILES in that folder, not chat text: write yours with ws_write. ' +
         'Long files: write them in several pieces (first call normal, the rest with ' +
         'append:true) — one giant write can stall your whole turn.\n\n' +
-        'TEAM PAPERWORK GOES IN .vodo/team/ — any notes, reports, checklists or scratch ' +
-        'files meant for the team (or for Vodo) are written under .vodo/team/, NEVER into ' +
-        'the project root. The root holds the product the user asked for, nothing else.\n\n' +
+        'REPORT IN YOUR REPLY, NOT IN A FILE. When your part is done, say what you built, what ' +
+        'you ran and what it printed, and anything the coordinator needs to know — in your ' +
+        'chat answer. Vodo reads that and writes ONE summary for the user. Do NOT write a ' +
+        'REPORT.md or an assessment file for him to open unless the DELIVERABLE itself is a ' +
+        'document the user asked for.\n\n' +
+        'TEAM PAPERWORK GOES IN .vodo/team/ — any notes, checklists or scratch files the team ' +
+        'genuinely needs on disk (a blueprint, block files) go under .vodo/team/, NEVER into ' +
+        'the project root. The root holds the product the user asked for, nothing else. Treat ' +
+        'that folder as TEMPORARY: it is thrown away when the group finishes, so anything worth ' +
+        'keeping belongs in your map_update notes, not in a file there.\n\n' +
         'IF YOUR PART NAMES A BLOCK FILE (e.g. .vodo/team/blocks/03_scoring.js): read the ' +
         'BLUEPRINT at .vodo/team/BLUEPRINT.md first and honour its contracts exactly — the ' +
         'signatures and interfaces there are what let everyone build at once. Write ONLY your ' +

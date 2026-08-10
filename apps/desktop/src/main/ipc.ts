@@ -1486,9 +1486,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           'for a server/GUI) — then read the output. Files existing is not tested; a ' +
           'deliverable that never ran is not done. A failed run means the group is NOT ' +
           'finished: dispatch the fix and prove it again.\n' +
-          '5. Only after a clean run: open the deliverable with preview_open, mark the GROUP ' +
-          'PROJECT task node done with map_update, and report — what was built, where it ' +
-          'lives, what you RAN and what it printed, what the user should look at.'
+          '5. Only after a clean run: open the deliverable with preview_open, then WRITE THE ' +
+          'REPORT INTO THIS CHAT. You are the only one the user reads: pointing at a file ' +
+          '("the summary is in REPORT.md", "see the assessment folder") makes them go hunting ' +
+          'for something you could have said. Read what the members produced and give ONE ' +
+          'account in your reply — what was built and where it lives, what each part ' +
+          'contributed, what you RAN and what it printed, what is still open, what to look at ' +
+          'first. Long is fine; a link to a file instead of the answer is not.\n' +
+          '6. Then clear the desk. Anything from those notes that matters LATER goes into the ' +
+          'memory map with map_update (decisions, gotchas, what broke and why) — the map is ' +
+          'what survives; the notes are not. Mark the GROUP PROJECT task node done, then call ' +
+          'team_clean to throw away the scratch under .vodo/team/. Blueprints, block files and ' +
+          'member reports are coordination leftovers: once the work is summarised and the ' +
+          'lessons are in the map, they are clutter in the user\'s project.'
         : 'THE GROUP IS STILL QUIET AND THE JOB IS STILL NOT DONE. Every member is idle — ' +
           'nobody is working, so nobody will report back to you, and saying you will wait ' +
           'parks the job forever. Check the facts first (group_status for who is running, ' +
@@ -1496,7 +1506,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           'member right now, or do the last step yourself. The job is not done until the ' +
           'result actually RAN clean under ws_run — build, tests, start. Finish by opening ' +
           'the result with preview_open, marking the group task node done with map_update, ' +
-          'and reporting what exists, where, and what it printed when you ran it.';
+          'and reporting IN THIS CHAT what exists, where, and what it printed when you ran it — ' +
+          'the account itself, not a filename to go and read. Put anything worth keeping in ' +
+          'the memory map, then team_clean the scratch under .vodo/team/.';
     setTimeout(() => {
       void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);
