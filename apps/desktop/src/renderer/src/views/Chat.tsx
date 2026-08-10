@@ -733,6 +733,7 @@ export function Chat() {
   };
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Follow new output only while the user is already near the bottom. */
   const pinToBottomRef = useRef(true);
 
@@ -839,10 +840,48 @@ export function Chat() {
     void window.vo.modelWarm(warmProvider, warmModel).catch(() => undefined);
   }, [warmProvider, warmModel]);
 
+  // ---- "/" summons a skill ----------------------------------------------
+  // The catalog already lets the agent reach for a skill on its own; this is
+  // the path for when the user KNOWS which one they want. It only ever offers
+  // skills — "/" has exactly one meaning in this composer, deliberately.
+  const [skills, setSkills] = useState<Array<{ slug: string; name: string; description: string }>>(
+    [],
+  );
+  const [skillIdx, setSkillIdx] = useState(0);
+  const [skillMenuOff, setSkillMenuOff] = useState(false);
+  // Re-read the folder each time a "/" appears, so a skill imported earlier in
+  // this same session shows up without a restart.
+  const hadSlashRef = useRef(false);
+  useEffect(() => {
+    const has = input.startsWith('/');
+    if (has && !hadSlashRef.current) void window.vo.skillsList().then(setSkills);
+    if (!has) setSkillMenuOff(false);
+    hadSlashRef.current = has;
+  }, [input]);
+
   if (!config) return <div className="empty-state">Loading…</div>;
 
   const activeAgent = config.agents.find((a) => a.id === activeAgentId);
   const usingDefaults = !activeAgent?.provider && !activeAgent?.model;
+
+  // Open only while the whole box is still the token being typed: the first
+  // space means the name is settled and the rest is the actual request.
+  const skillQuery = /^\/([A-Za-z0-9._-]*)$/.exec(input);
+  const skillMatches =
+    skillQuery && !skillMenuOff
+      ? skills.filter((s) => {
+          if ((config.disabledSkills ?? []).includes(s.slug)) return false;
+          const q = skillQuery[1]!.toLowerCase();
+          return !q || s.slug.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
+        })
+      : [];
+  const skillMenuOpen = skillMatches.length > 0;
+  const skillPick = Math.min(skillIdx, skillMatches.length - 1);
+  const chooseSkill = (slug: string) => {
+    setInput(`/${slug} `);
+    setSkillIdx(0);
+    inputRef.current?.focus();
+  };
 
   const submit = () => {
     if (!input.trim() && attachments.length === 0) return;
@@ -1187,6 +1226,25 @@ export function Chat() {
             ))}
           </div>
         )}
+        {skillMenuOpen && (
+          <div className="skill-menu">
+            <div className="skill-menu-head meta">
+              Skills — ↑↓ to move, Enter to pick, Esc to dismiss
+            </div>
+            {skillMatches.map((s, i) => (
+              <button
+                key={s.slug}
+                className={`skill-item${i === skillPick ? ' active' : ''}`}
+                title={s.description}
+                onMouseEnter={() => setSkillIdx(i)}
+                onClick={() => chooseSkill(s.slug)}
+              >
+                <strong>/{s.slug}</strong>
+                <span className="meta">{s.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="composer">
           <ProjectUsage projectId={activeMeta?.projectId} />
           <input
@@ -1261,6 +1319,7 @@ export function Chat() {
             </div>
           </div>
           <textarea
+            ref={inputRef}
             value={input}
             placeholder="Ask anything… (Enter to send, Shift+Enter for a new line)"
             rows={3}
@@ -1273,6 +1332,26 @@ export function Chat() {
               }
             }}
             onKeyDown={(e) => {
+              // While the skill list is up it owns the arrows and Enter —
+              // otherwise picking one would fire the message instead.
+              if (skillMenuOpen) {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  const step = e.key === 'ArrowDown' ? 1 : skillMatches.length - 1;
+                  setSkillIdx((skillPick + step) % skillMatches.length);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  chooseSkill(skillMatches[skillPick]!.slug);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setSkillMenuOff(true);
+                  return;
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 submit();

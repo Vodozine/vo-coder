@@ -58,7 +58,16 @@ import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import { gateNudge, projectGate, projectMdPath } from './project-md';
-import { importSkill, listSkills, readSkill, removeSkill, skillsCatalog } from './skills';
+import {
+  importSkill,
+  importSkillFromGitHub,
+  listSkills,
+  parseSkillCall,
+  readSkill,
+  removeSkill,
+  skillCallNote,
+  skillsCatalog,
+} from './skills';
 import {
   ENGINE_BRIDGES,
   bridgeConfig,
@@ -1668,6 +1677,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
       }
+      // "/skill-name do X" — the user summoning a skill by name. The catalog
+      // in the system prompt leaves the choice to the agent; typing the name
+      // takes that choice back, so the instruction rides the message where
+      // history cannot bury it. An unknown or switched-off name is left alone.
+      const skillCall = (() => {
+        const first = parts.find(
+          (p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text',
+        );
+        if (!first) return null;
+        return parseSkillCall(app.getPath('userData'), config.get().disabledSkills, first.text);
+      })();
+      if (skillCall) parts = [...parts, { type: 'text', text: skillCallNote(skillCall) }];
       // "Generate an image of X": the answer is a picture, and the picture comes
       // from the configured image model no matter who holds the turn — the chat
       // model only has to call image_generate. Routing can only pick a WORSE
@@ -1944,6 +1965,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (picked.canceled || !picked.filePaths[0]) return { ok: false, error: 'cancelled' };
     const res = importSkill(app.getPath('userData'), picked.filePaths[0]);
     return res.ok ? { ok: true, name: res.name } : { ok: false, error: res.error };
+  });
+  ipcMain.handle(IPC.skillsImportUrl, async (_e, url: string) => {
+    const res = await importSkillFromGitHub(app.getPath('userData'), String(url ?? ''));
+    if (!res.ok) return { ok: false, error: res.error };
+    return {
+      ok: true,
+      name: res.imported.map((s) => s.name).join(', '),
+      count: res.imported.length,
+    };
   });
   ipcMain.handle(IPC.skillsRemove, (_e, slug: string) =>
     removeSkill(app.getPath('userData'), String(slug ?? '')),

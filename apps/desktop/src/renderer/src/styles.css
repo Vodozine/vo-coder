@@ -747,6 +747,39 @@ select:focus {
   font-size: 12px;
   flex: 1;
 }
+/* "/" in the composer: the skills you can summon by name. Sits above the box
+   like the other banners rather than floating over it — nothing to mis-place
+   when the window resizes. */
+.skill-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.skill-menu-head {
+  padding-bottom: 4px;
+}
+.skill-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  padding: 5px 8px;
+}
+.skill-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.skill-item .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .composer-tools {
   display: flex;
   flex-direction: column;

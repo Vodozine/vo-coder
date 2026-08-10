@@ -84,6 +84,7 @@ const api: VoApi = {
   bridgeBind: (id) => ipcRenderer.invoke(IPC.bridgeBind, id),
   skillsList: () => ipcRenderer.invoke(IPC.skillsList),
   skillsImport: (kind) => ipcRenderer.invoke(IPC.skillsImport, kind),
+  skillsImportUrl: (url) => ipcRenderer.invoke(IPC.skillsImportUrl, url),
   skillsRemove: (slug) => ipcRenderer.invoke(IPC.skillsRemove, slug),
   onAdvisorSuggest: subscribe(IPC.advisorSuggest),
   advisorDismiss: (topic) => ipcRenderer.invoke(IPC.advisorDismiss, topic),

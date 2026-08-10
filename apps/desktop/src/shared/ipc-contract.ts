@@ -546,6 +546,10 @@ export interface VoApi {
    */
   skillsList(): Promise<Array<{ slug: string; name: string; description: string; files: string[] }>>;
   skillsImport(kind: 'folder' | 'file'): Promise<{ ok: boolean; name?: string; error?: string }>;
+  /** Fetch a skill straight off GitHub — repo, /tree/ folder, or a SKILL.md. */
+  skillsImportUrl(
+    url: string,
+  ): Promise<{ ok: boolean; name?: string; count?: number; error?: string }>;
   skillsRemove(slug: string): Promise<boolean>;
   onAdvisorSuggest(cb: (suggestion: McpSuggestion) => void): () => void;
   advisorDismiss(topic: string): Promise<void>;
@@ -706,6 +710,7 @@ export const IPC = {
   bridgeBind: 'bridges:bind',
   skillsList: 'skills:list',
   skillsImport: 'skills:import',
+  skillsImportUrl: 'skills:import-url',
   skillsRemove: 'skills:remove',
   advisorSuggest: 'advisor:suggest',
   advisorDismiss: 'advisor:dismiss',

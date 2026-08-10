@@ -630,6 +630,8 @@ function SkillsSection() {
     Array<{ slug: string; name: string; description: string; files: string[] }>
   >([]);
   const [note, setNote] = useState('');
+  const [url, setUrl] = useState('');
+  const [fetching, setFetching] = useState(false);
   useEffect(() => {
     void window.vo.skillsList().then(setSkills);
   }, []);
@@ -647,6 +649,21 @@ function SkillsSection() {
     const r = await window.vo.skillsImport(kind);
     if (r.ok) setNote(`imported "${r.name}"`);
     else if (r.error !== 'cancelled') setNote(r.error ?? 'import failed');
+    refresh();
+  };
+  const addFromUrl = async () => {
+    const target = url.trim();
+    if (!target || fetching) return;
+    setNote('');
+    setFetching(true);
+    const r = await window.vo.skillsImportUrl(target);
+    setFetching(false);
+    if (r.ok) {
+      setNote(r.count && r.count > 1 ? `imported ${r.count}: ${r.name}` : `imported "${r.name}"`);
+      setUrl('');
+    } else {
+      setNote(r.error ?? 'import failed');
+    }
     refresh();
   };
   const remove = async (slug: string) => {
@@ -687,10 +704,29 @@ function SkillsSection() {
       ))}
       {skills.length === 0 && <p className="hint">No skills installed yet.</p>}
       <div className="field-row">
+        <input
+          className="grow"
+          value={url}
+          placeholder="Paste a GitHub link — repo, folder, or SKILL.md"
+          title="github.com/owner/repo/tree/main/path/to/skill, a link to a SKILL.md, or just owner/repo"
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void addFromUrl();
+          }}
+        />
+        <button disabled={!url.trim() || fetching} onClick={() => void addFromUrl()}>
+          {fetching ? 'Fetching…' : 'Fetch'}
+        </button>
+      </div>
+      <div className="field-row">
         <button onClick={() => void add('folder')}>Add skill folder…</button>
         <button onClick={() => void add('file')}>Add .md file…</button>
         {note && <span className="meta">{note}</span>}
       </div>
+      <p className="hint">
+        A skill is instructions your agents will follow — add ones you would be happy to read
+        yourself. Point at a repo full of skills and each one inside comes in separately.
+      </p>
     </section>
   );
 }
