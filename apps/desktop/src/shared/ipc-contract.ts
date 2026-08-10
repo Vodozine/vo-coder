@@ -533,13 +533,6 @@ export interface VoApi {
   mcpSearch(query: string): Promise<McpRegistryEntry[]>;
   mcpAdd(config: McpServerConfig): Promise<McpServerStatus>;
   /**
-   * Game-engine bridges (Unreal, Unity): third-party MIT MCP servers fetched
-   * and built under userData/tools, run on the app's own Node runtime.
-   */
-  bridgeStatus(id: string): Promise<{ installed: boolean; configured: boolean; project?: string }>;
-  bridgeInstall(id: string): Promise<{ ok: boolean; step: string; log: string }>;
-  bridgeBind(id: string): Promise<{ ok: boolean; error?: string; project?: string }>;
-  /**
    * Skills: packaged know-how (Claude-format SKILL.md folders or bare .md)
    * the agents read on demand through skill_read. Import copies the source
    * under userData/skills; the catalog rides every system prompt.
@@ -705,9 +698,6 @@ export const IPC = {
   checkin: 'checkin:show',
   mcpSearch: 'mcp:search',
   mcpAdd: 'mcp:add',
-  bridgeStatus: 'bridges:status',
-  bridgeInstall: 'bridges:install',
-  bridgeBind: 'bridges:bind',
   skillsList: 'skills:list',
   skillsImport: 'skills:import',
   skillsImportUrl: 'skills:import-url',
