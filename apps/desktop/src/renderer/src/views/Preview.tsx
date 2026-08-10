@@ -4,10 +4,22 @@ import { Chat } from './Chat';
 import { CodeWatch } from './CodeWatch';
 
 /**
- * Preview is three things: a live browser pane for the running app
- * (dev-server HMR), a live code view that follows the work as files are
- * written, and a split view — the chat and the browser pane side by side.
+ * Preview shows one of two things — a live browser pane for the running app
+ * (dev-server HMR) or a live code view that follows the work as files are
+ * written — and Split decides whether the chat sits beside it. Code/Browser
+ * always picks WHAT is on the right; Split only picks whether the chat is
+ * there too, so every combination is reachable.
  */
+
+/** localStorage is best-effort: a private-mode window still works, it just
+ *  forgets the layout between visits. */
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
 
 function BrowserPreview({ suspend = false }: { suspend?: boolean }) {
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
@@ -242,9 +254,18 @@ function BrowserPreview({ suspend = false }: { suspend?: boolean }) {
 }
 
 export function Preview() {
-  const [mode, setMode] = useState<'browser' | 'code' | 'split'>('code');
-  // Split view: chat ∥ divider ∥ browser pane. The ratio survives view
-  // switches and restarts (same idiom as the group grid's per-page pick).
+  // What the pane shows. Remembered across view switches: this component
+  // unmounts on every trip to Chat/Settings, and re-picking Browser each time
+  // is the same papercut the group grid's per-page pick had.
+  const [mode, setMode] = useState<'browser' | 'code'>(() =>
+    localStorage.getItem('vo-preview-mode') === 'browser' ? 'browser' : 'code',
+  );
+  const pickMode = (m: 'browser' | 'code') => {
+    setMode(m);
+    remember('vo-preview-mode', m);
+  };
+  // Whether the chat sits beside it, and where the divider rests.
+  const [split, setSplit] = useState(() => localStorage.getItem('vo-preview-split-on') === '1');
   const [ratio, setRatio] = useState(() => {
     const stored = Number(localStorage.getItem('vo-preview-split'));
     return Number.isFinite(stored) && stored >= 0.25 && stored <= 0.75 ? stored : 0.5;
@@ -265,41 +286,51 @@ export function Preview() {
   };
   const endDrag = () => {
     setDragging(false);
-    try {
-      localStorage.setItem('vo-preview-split', String(ratioRef.current));
-    } catch {
-      /* private-mode etc. — the session still works, it just forgets */
-    }
+    remember('vo-preview-split', String(ratioRef.current));
   };
+
+  // Whatever is on the right, in both layouts. Only the browser pane needs
+  // the drag suspend — CodeWatch is plain DOM, so it resizes live.
+  const pane =
+    mode === 'browser' ? <BrowserPreview suspend={split && dragging} /> : <CodeWatch />;
 
   return (
     <div className="preview-view">
       <div className="mode-switch">
-        <button className={mode === 'code' ? 'active' : ''} onClick={() => setMode('code')}>
+        <button className={mode === 'code' ? 'active' : ''} onClick={() => pickMode('code')}>
           Code
         </button>
-        <button className={mode === 'browser' ? 'active' : ''} onClick={() => setMode('browser')}>
+        <button className={mode === 'browser' ? 'active' : ''} onClick={() => pickMode('browser')}>
           Browser
         </button>
+        <span className="mode-switch-sep" />
         <button
-          className={mode === 'split' ? 'active' : ''}
-          title="Chat and the app preview side by side — drag the center line to resize"
-          onClick={() => setMode('split')}
+          className={`split-toggle${split ? ' active' : ''}`}
+          title={
+            split
+              ? 'Hide the chat — the pane goes full width'
+              : `Put the chat beside the ${mode === 'browser' ? 'browser' : 'code'} pane — drag the center line to resize`
+          }
+          onClick={() => {
+            setSplit(!split);
+            remember('vo-preview-split-on', split ? '0' : '1');
+          }}
         >
-          Split
+          ◫ Split{split ? ' on' : ''}
         </button>
       </div>
-      {mode === 'split' ? (
+      {split ? (
         <div className="preview-split" ref={splitRef}>
           <div className="split-chat" style={{ width: `${ratio * 100}%` }}>
             <Chat />
           </div>
-          {/* The preview pane is a NATIVE view above the renderer — once the
-              pointer crosses it, our events stop. So the drag detaches the
-              overlay (suspend) and works against the checkered placeholder;
-              release reattaches at the final rect. */}
+          {/* With Browser on the right the pane is a NATIVE view above the
+              renderer — once the pointer crosses it, our events stop. So the
+              drag detaches the overlay (suspend) and works against the
+              checkered placeholder; release reattaches at the final rect. */}
           <div
-            className="split-divider"
+            className={`split-divider${dragging ? ' dragging' : ''}`}
+            title="Drag to resize"
             onPointerDown={(e) => {
               e.currentTarget.setPointerCapture(e.pointerId);
               setDragging(true);
@@ -310,14 +341,10 @@ export function Preview() {
             onPointerUp={endDrag}
             onLostPointerCapture={endDrag}
           />
-          <div className="split-preview">
-            <BrowserPreview suspend={dragging} />
-          </div>
+          <div className="split-preview">{pane}</div>
         </div>
-      ) : mode === 'browser' ? (
-        <BrowserPreview />
       ) : (
-        <CodeWatch />
+        pane
       )}
     </div>
   );

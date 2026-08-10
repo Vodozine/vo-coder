@@ -1155,7 +1155,7 @@ input[type='radio']:focus-visible {
 .preview-region.active {
   background: repeating-conic-gradient(var(--bg-raised) 0% 25%, var(--bg) 0% 50%) 0 0 / 24px 24px;
 }
-/* Split view: chat ∥ draggable divider ∥ browser pane. */
+/* Split view: chat ∥ draggable divider ∥ whichever pane is picked. */
 .preview-split {
   display: flex;
   flex: 1;
@@ -1167,6 +1167,27 @@ input[type='radio']:focus-visible {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  /* Half-width can't hold the full chat header — without this its buttons
+     spill out and get painted over by the pane on the right. */
+  overflow: hidden;
+}
+/* Narrow column: let the header wrap to a second row instead of clipping
+   controls away, and let the wide model select give up room first. */
+.preview-split .chat-header {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.preview-split .chat-header select,
+.preview-split .chat-header .model-input {
+  min-width: 0;
+  max-width: 170px;
+}
+.preview-split .preview-controls {
+  flex-wrap: wrap;
+}
+.preview-split .preview-controls input {
+  min-width: 0;
 }
 .split-divider {
   flex: 0 0 6px;
@@ -1176,7 +1197,8 @@ input[type='radio']:focus-visible {
   user-select: none;
   touch-action: none;
 }
-.split-divider:hover {
+.split-divider:hover,
+.split-divider.dragging {
   background: var(--accent);
 }
 /* Reproduces the column context .preview-view gives the pane, so
@@ -1279,6 +1301,18 @@ input[type='radio']:focus-visible {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+/* Code/Browser pick WHAT is shown; Split is a separate on/off for the chat
+   beside it — the gap keeps them from reading as one set of three. */
+.mode-switch-sep {
+  width: 14px;
+}
+.mode-switch button.split-toggle {
+  border-radius: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.mode-switch button.split-toggle.active {
+  border-bottom-color: var(--accent);
 }
 .codewatch {
   display: flex;
