@@ -386,6 +386,14 @@ export interface GroupRun {
   createdAt: number;
   endedAt?: number;
   members: GroupMember[];
+  /**
+   * The agent started this one on its own (a delegating skill, a split it
+   * decided mid-answer) rather than the user pressing Group project. Such a
+   * run is a detour: the grid opens for it and folds back when the work is
+   * done. A group the user ASKED for is a place they meant to be, so its
+   * view is left exactly where they put it.
+   */
+  auto?: boolean;
 }
 
 export interface GroupMember {

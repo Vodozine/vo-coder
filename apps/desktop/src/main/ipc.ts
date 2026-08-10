@@ -349,7 +349,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             void sessions.send(sid, [{ type: 'text', text: body }]);
           },
           addGroup: (group) => {
-            projects.addGroup(group);
+            // Did the USER ask for this group? The Group project button sends
+            // its planning turn with noRoute, which arms pendingGroupPlans for
+            // that session and is still armed while group_start runs. Anything
+            // else is Vodo splitting work on his own initiative.
+            const asked = !!ctx?.sessionId && pendingGroupPlans.has(ctx.sessionId);
+            projects.addGroup(asked ? group : { ...group, auto: true });
             broadcastProjects();
           },
           groups: () => projects.groups(),

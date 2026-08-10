@@ -827,11 +827,13 @@ export function Chat() {
     if (activeGroupId) setGroupOpen(true);
   }, [activeSessionId, activeGroupId]);
 
-  // The grid follows the WORK, not the group's existence: it opens itself the
-  // moment members start (a skill that delegates puts their windows in front
-  // of the user without anyone clicking) and folds back to the plain thread
-  // when the last one finishes, which is where the coordinator's answer lands.
-  // Edge-triggered on purpose — inside a phase the user's own ▸/▾ stands.
+  // For a group the AGENT started on its own (a delegating skill, a mid-answer
+  // split) the grid follows the work: it opens itself when members start —
+  // their windows come to the user, nobody clicks — and folds back to the
+  // plain thread when the work is done, which is where the summary lands.
+  // A group the USER asked for is left alone: they chose to be there, and
+  // steering their view around them is the bug this guard exists for.
+  const autoGroup = !!activeGroup?.auto;
   const membersWorking = useStore((s) =>
     activeGroup ? activeGroup.members.filter((m) => s.sessions[m.sessionId]?.streaming).length : 0,
   );
@@ -839,10 +841,27 @@ export function Chat() {
   useEffect(() => {
     const was = wasWorkingRef.current;
     wasWorkingRef.current = membersWorking;
-    if (!activeGroupId) return;
-    if (was === 0 && membersWorking > 0) setGroupOpen(true);
-    else if (was > 0 && membersWorking === 0) setGroupOpen(false);
-  }, [membersWorking, activeGroupId]);
+    if (!activeGroupId || !autoGroup) return;
+    if (was === 0 && membersWorking > 0) {
+      setGroupOpen(true);
+      return;
+    }
+    if (was > 0 && membersWorking === 0) {
+      // Members fall quiet for a moment BETWEEN waves — collapsing on that
+      // blink flickered the view open and shut. Wait for the quiet to hold,
+      // and re-read live state before folding: a wave that restarted in the
+      // meantime clears the timer through this effect's own cleanup.
+      const timer = setTimeout(() => {
+        const state = useStore.getState();
+        const group = state.groups.find((g) => g.id === activeGroupId);
+        if (!group || group.endedAt) return;
+        const stillWorking = group.members.some((m) => state.sessions[m.sessionId]?.streaming);
+        if (!stillWorking) setGroupOpen(false);
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+    return;
+  }, [membersWorking, activeGroupId, autoGroup]);
 
   // A local model has to be read off disk before it can answer — up to a
   // minute for a big one. Start that the moment the agent is chosen so the
