@@ -143,7 +143,7 @@ export function groupToolSpecs(): ToolSpec[] {
         'member, send a missing or broken part back to its owner, give follow-up instructions or ' +
         'a fix list. Non-blocking: it returns at once, and you are woken again when the whole ' +
         'group goes quiet. Only do a step yourself when no member can (wrong tools, failed at it ' +
-        'twice).',
+        'twice) — or when the user has told you to take it, which overrides all of this.',
       inputSchema: {
         type: 'object',
         properties: {

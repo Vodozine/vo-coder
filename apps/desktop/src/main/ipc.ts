@@ -1512,6 +1512,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // model happened to be cheapest.
   ipcMain.handle(IPC.groupList, () => projects.groups());
   ipcMain.handle(IPC.groupEnd, (_e, groupId: string) => {
+    // Ending a run STOPS it. endGroup only stamped a timestamp, so members
+    // mid-turn carried on writing files and burning a GPU each while the user
+    // watched a group they had already closed — "end" has to mean end. The
+    // transcripts stay: stopping a turn is not deleting the chat.
+    const group = projects.groups().find((g) => g.id === groupId);
+    for (const member of group?.members ?? []) sessions.stop(member.sessionId);
     projects.endGroup(groupId);
     broadcastProjects();
     return projects.groups();
@@ -1822,9 +1828,28 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           // tab, and a specialist whose hints cover "network/server/backup"
           // would otherwise absorb half of normal chat. Groups can still
           // assign him infrastructure parts (see the group path).
-          const agents = config
-            .get()
-            .agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false);
+          // Vodo stands IN the pool, not outside it: he is an agent like the
+          // rest, the one in charge, and usually the strongest model there.
+          // Left out, "always land on an agent" meant always land on someone
+          // ELSE — the person being spoken to could never be the answer, so
+          // "you, stop using the agents" was itself handed to an agent.
+          // He carries no prompt or hints here on purpose. His real prompt is
+          // long and would score vague word-overlap against every message,
+          // stealing work from specialists; with none, a specialist's keyword
+          // hit beats him outright, and he takes what nobody specializes in —
+          // which is what "in charge" means.
+          const boss: AgentSpec = {
+            id: 'default',
+            name: vodoSpec().name,
+            provider: config.get().defaultProvider,
+            model: config.get().defaultModel,
+          };
+          const agents = [
+            boss,
+            ...config
+              .get()
+              .agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false),
+          ];
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
 
@@ -1833,7 +1858,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             always: mode === 'agents-only',
             hasImage: needsVision,
             recent,
+            // Ties go to the more capable model, and the boss is usually it.
+            qualityOf: qualityOfAgent,
           });
+          // The boss winning means nobody else was a better fit — that is the
+          // turn staying where it already is, not a handover to announce.
+          if (match?.agent.id === 'default') match = null;
+          // A specialist takes the turn on REAL evidence — its routing hints
+          // or its name. Loose overlap with its system prompt is not enough to
+          // take the conversation away from the person being spoken to: seen
+          // live, "you try again stop using the agents" was handed to a
+          // specialist whose prompt merely contains the word "agents". The
+          // boss keeps it and delegates as he sees fit, which is his job.
+          if (
+            mode === 'agents-only' &&
+            match &&
+            match.matched.every((m) => /specialty terms$/.test(m))
+          ) {
+            match = null;
+          }
           // "My agents first" + a WORK request in a project: if no keyword
           // hit, still hand it to the user's best agent — you built staff so
           // project work goes to your staff, not back to the catalog. But only
