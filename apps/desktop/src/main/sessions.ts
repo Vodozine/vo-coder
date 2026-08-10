@@ -257,7 +257,13 @@ export class SessionManager {
       '- TEAM PAPERWORK lives under .vodo/team/ — blueprints, block files, and any notes, ' +
       'reports or checklists written for other agents or for review go there, NEVER into the ' +
       'project root or docs/. Seen live: a project grew 330 coordination files. Your report ' +
-      'to the USER is your chat reply, not another file; the durable trail is the memory map.';
+      'to the USER is your chat reply, not another file; the durable trail is the memory map.\n' +
+      '- WHAT YOU START, YOU STOP. Launching the app or a dev server to check something is ' +
+      'fine — leaving it running is not. Call ws_stop as soon as you have seen what you ' +
+      'needed, and never launch a second copy of something already up (ws_stop with no ' +
+      'arguments lists what is running). Seen live: an unattended run left NINETEEN copies of ' +
+      'the same app open. The only exception is a server the USER asked you to leave running ' +
+      'for them — say so in your reply when you do.';
     // DATE only, never time-of-day: this string sits at the top of the system
     // prompt, and anything that changes per turn breaks local models' prompt
     // caching — the box then re-reads the ENTIRE context before every reply

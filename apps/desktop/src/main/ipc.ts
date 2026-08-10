@@ -48,7 +48,7 @@ import { executeFileIdTool, fileIdToolSpecs } from './file-id';
 import { executeImageTool, imageToolSpecs } from './image-gen';
 import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
 import { executeWebTool, webToolSpecs } from './web-tools';
-import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
+import { executeWorkspaceTool, stopLaunched, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
 import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
@@ -2284,6 +2284,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   app.on('before-quit', () => {
     missions.stopAll();
     telegram.stop();
+    // Anything the agents launched to look at goes with the app. A detached
+    // launch outlives its turn on purpose, but not the session — otherwise
+    // closing Vo-Coder leaves its leftovers running with nobody to stop them.
+    stopLaunched();
   });
 
   ipcMain.handle(IPC.missionsList, () => missions.list());

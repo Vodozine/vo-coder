@@ -419,6 +419,10 @@ export function memberBrief(
         'exploring, and its "## Rules" section binds everyone’s work here, yours included. ' +
         'Never edit the Rules section; only the user changes rules.\n\n'
       : '') +
+    'WHAT YOU START, YOU STOP: launching the app or a dev server to check your part is fine, ' +
+    'but call ws_stop the moment you have seen what you needed, and never start a second copy ' +
+    'of something already running (ws_stop with no arguments lists it). A whole team each ' +
+    'leaving one instance open is how nineteen copies of the same app ended up running.\n\n' +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
     'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
     'that is what the others see of you, and it is what survives if this conversation is ' +

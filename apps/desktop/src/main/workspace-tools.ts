@@ -125,6 +125,21 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
         required: ['command'],
       },
     },
+    {
+      name: 'ws_stop',
+      description:
+        'Stop something you launched with ws_run background:true, and list what is still up. ' +
+        'Anything you start to LOOK at (the app, a dev server) is yours to close again: call this ' +
+        'as soon as you have seen what you needed. Leaving them running fills the machine with ' +
+        'copies of the same app. With no arguments it just lists.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          pid: { type: 'number', description: 'The PID from the launch. Omit to list.' },
+          all: { type: 'boolean', description: 'Stop everything launched from this app.' },
+        },
+      },
+    },
   ];
 }
 
@@ -261,12 +276,65 @@ function runCommand(
 }
 
 /**
+ * Everything the agents have launched and not stopped.
+ *
+ * Detached launches used to be handed out with no bookkeeping at all: the pid
+ * was printed once into a tool result and then nobody — not the agent, not the
+ * app — knew the process existed. Seen live: an unattended group run left
+ * NINETEEN copies of the same app open, because each verification launched
+ * another one and none of them cleaned up. A prompt rule alone could not fix
+ * that; the launches have to be counted.
+ */
+const launched = new Map<number, { command: string; dir: string; at: number }>();
+
+/** Is this pid still alive? Signal 0 tests without touching the process. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Drop the ones that exited on their own, so counts are never stale. */
+function pruneLaunched(): void {
+  for (const pid of [...launched.keys()]) if (!alive(pid)) launched.delete(pid);
+}
+
+/** Same command, same folder, still running — a second copy helps nobody. */
+function findRunning(dir: string, command: string): number | undefined {
+  pruneLaunched();
+  const key = command.replace(/\s+/g, ' ').trim().toLowerCase();
+  for (const [pid, rec] of launched) {
+    if (rec.dir === dir && rec.command.replace(/\s+/g, ' ').trim().toLowerCase() === key) return pid;
+  }
+  return undefined;
+}
+
+export function listLaunched(): Array<{ pid: number; command: string; dir: string; at: number }> {
+  pruneLaunched();
+  return [...launched.entries()].map(([pid, rec]) => ({ pid, ...rec }));
+}
+
+/** Stop one launch (or all of them) and forget it. Returns what was stopped. */
+export function stopLaunched(pid?: number): Array<{ pid: number; command: string }> {
+  pruneLaunched();
+  const targets = pid === undefined ? [...launched.entries()] : ([...launched.entries()].filter(([p]) => p === pid));
+  for (const [p] of targets) {
+    killTree(p);
+    launched.delete(p);
+  }
+  return targets.map(([p, rec]) => ({ pid: p, command: rec.command }));
+}
+
+/**
  * Fire-and-forget launch for GUI apps / servers that never exit on their own.
  *
  * Deliberately outlives the call, so it honours neither the run timeout nor the
  * AbortSignal: stopping the agent does not stop a dev server it started for you.
- * The pid is returned so the process can be stopped on purpose, which is the
- * only handle anyone gets on it.
+ * The pid is returned so the process can be stopped on purpose — and recorded
+ * here, so it can be stopped even by someone who never saw the tool result.
  */
 function launchDetached(dir: string, command: string): { pid: number | undefined } {
   const child = spawn(command, {
@@ -278,6 +346,7 @@ function launchDetached(dir: string, command: string): { pid: number | undefined
     stdio: 'ignore',
   });
   const pid = child.pid;
+  if (pid !== undefined) launched.set(pid, { command, dir, at: Date.now() });
   child.unref();
   return { pid };
 }
@@ -372,13 +441,32 @@ export async function executeWorkspaceTool(
         const command = String(a.command ?? '').trim();
         if (!command) return { content: 'No command given.', isError: true };
         if (a.background === true) {
+          // Already up? Hand back the one that is running. Nineteen copies of
+          // the same app were started this way, each verification launching
+          // another — the guard is here rather than in the prompt because the
+          // prompt was already asked and it still happened.
+          const running = findRunning(dir, command);
+          if (running !== undefined) {
+            return {
+              content:
+                `Already running from an earlier launch (PID ${running}): ${command}\n` +
+                'Not started a second time — use the one that is up, and ws_stop it when you are ' +
+                'done checking.',
+            };
+          }
           const { pid } = launchDetached(dir, command);
+          const others = listLaunched().filter((l) => l.pid !== pid).length;
           return {
             content:
-              pid === undefined
+              (pid === undefined
                 ? `Launched (detached): ${command}`
                 : `Launched (detached, PID ${pid}): ${command}\nIt is running independently; this ` +
-                  `turn did not wait for it. Ask the user how it looks.`,
+                  `turn did not wait for it. Ask the user how it looks.`) +
+              `\nStop it with ws_stop when you are done — do not leave it running.` +
+              (others > 0
+                ? `\n[${others} other process(es) you started are still up. ws_stop with all:true ` +
+                  'clears them.]'
+                : ''),
           };
         }
         const timeoutMs = Math.min(Math.max(Number(a.timeoutSec) || 300, 5), 600) * 1000;
@@ -386,6 +474,31 @@ export async function executeWorkspaceTool(
         return {
           content: `exit code: ${code ?? 'error'}\n\n${output.trim() || '(no output)'}`,
           isError: code !== 0,
+        };
+      }
+      case 'ws_stop': {
+        const running = listLaunched();
+        if (a.all !== true && a.pid === undefined) {
+          return {
+            content: running.length
+              ? `Still running:\n${running.map((l) => `  PID ${l.pid} — ${l.command}`).join('\n')}`
+              : 'Nothing you launched is still running.',
+          };
+        }
+        const stopped = stopLaunched(a.all === true ? undefined : Number(a.pid));
+        if (!stopped.length) {
+          return {
+            content:
+              a.all === true
+                ? 'Nothing to stop.'
+                : `No launch with PID ${a.pid} — it already exited, or it was not started here.`,
+          };
+        }
+        const left = listLaunched().length;
+        return {
+          content:
+            `Stopped:\n${stopped.map((s) => `  PID ${s.pid} — ${s.command}`).join('\n')}` +
+            (left ? `\n${left} still running.` : '\nNothing left running.'),
         };
       }
       default:
