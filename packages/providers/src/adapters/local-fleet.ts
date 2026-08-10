@@ -2,57 +2,59 @@ import { LOCAL_STALL_TIMEOUT_MS } from './ollama.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
 import type { ChatProvider, ChatRequest, ModelInfo, ProviderEvent } from '../types.js';
 
-/** One LM Studio server. Named servers suffix their model ids with "@name". */
-export interface LmStudioEndpoint {
+/** One local server. Named servers suffix their model ids with "@name". */
+export interface LocalFleetEndpoint {
   name: string;
   url: string;
 }
 
-export interface LmStudioProviderOptions {
+export interface LocalFleetOptions {
   /** The unnamed primary server — its models carry no suffix. */
   baseURL?: string;
   /** Extra named servers; their models list as "model@name". */
-  extraEndpoints?: LmStudioEndpoint[];
+  extraEndpoints?: LocalFleetEndpoint[];
   apiKey?: string;
   headers?: Record<string, string>;
   fetch?: typeof fetch;
 }
 
 /**
- * LM Studio speaks the OpenAI wire under /v1, but its own UI shows a bare
+ * These servers speak the OpenAI wire under /v1, but their own UIs show a bare
  * host:port — which people paste, and then every call 404s. Normalizing here
  * means the primary and every extra get the same treatment from one place.
  */
-export function lmStudioBase(url: string): string {
+export function v1Base(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, '');
   return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
 /**
- * Several LM Studio boxes behind one provider — a desktop with the big GPU, a
- * laptop serving something small, whatever else is on the LAN. Same shape as
- * Ollama: one unnamed primary plus named extras, and the name is a suffix on
- * every model id from that server. LM Studio ids contain "/" (qwen/qwen3.5-9b)
- * but never "@", which is what makes the suffix safe to split on.
+ * Several boxes of one KIND behind a single provider — a desktop with the big
+ * GPU, a laptop serving something small, whatever else is on the LAN. Same
+ * shape as Ollama: one unnamed primary plus named extras, and the name is a
+ * suffix on every model id from that server. These ids carry "/" and ":"
+ * (qwen/qwen3.5-9b, gemma3:4b) but never "@", which is what makes the suffix
+ * safe to split on.
  */
-export class LmStudioProvider implements ChatProvider {
-  readonly id = 'lmstudio' as const;
+export class LocalFleetProvider implements ChatProvider {
+  readonly id: string;
   /** Local: silent while loading the model and prefilling — see the Ollama note. */
   readonly stallTimeoutMs = LOCAL_STALL_TIMEOUT_MS;
   /** name → client. The primary is keyed '' and takes no suffix. */
   private clients = new Map<string, OpenAICompatibleProvider>();
 
-  constructor(opts: LmStudioProviderOptions = {}) {
+  constructor(id: string, defaultBaseURL: string, opts: LocalFleetOptions = {}) {
+    this.id = id;
     const client = (url: string) =>
-      new OpenAICompatibleProvider('lmstudio', {
-        // LM Studio ignores auth; a placeholder bearer keeps the shared
+      new OpenAICompatibleProvider(id, {
+        // These servers ignore auth; a placeholder bearer keeps the shared
         // client's header shape uniform.
-        apiKey: opts.apiKey ?? 'lm-studio',
-        baseURL: lmStudioBase(url),
+        apiKey: opts.apiKey ?? 'local',
+        baseURL: v1Base(url),
         headers: opts.headers,
         fetch: opts.fetch,
       });
-    this.clients.set('', client(opts.baseURL ?? 'http://127.0.0.1:1234/v1'));
+    this.clients.set('', client(opts.baseURL ?? defaultBaseURL));
     for (const ep of opts.extraEndpoints ?? []) {
       if (!ep.name || !ep.url.trim()) continue;
       this.clients.set(ep.name, client(ep.url));
@@ -97,5 +99,25 @@ export class LmStudioProvider implements ChatProvider {
   async *stream(req: ChatRequest, opts: { signal: AbortSignal }): AsyncIterable<ProviderEvent> {
     const target = this.resolve(req.model);
     yield* target.client.stream({ ...req, model: target.model }, opts);
+  }
+}
+
+/** LM Studio's local server. */
+export class LmStudioProvider extends LocalFleetProvider {
+  constructor(opts: LocalFleetOptions = {}) {
+    super('lmstudio', 'http://127.0.0.1:1234/v1', { apiKey: 'lm-studio', ...opts });
+  }
+}
+
+/**
+ * FastFlowLM — models running on the laptop's NPU rather than a GPU, so it is
+ * a box of its own kind alongside the others. It answers on BOTH wires
+ * (OpenAI under /v1 and an Ollama-shaped /api/tags); the OpenAI one is used
+ * because that is the path shared with every other local fleet here. Its
+ * default port is unusual enough to be worth stating rather than guessing.
+ */
+export class FlmProvider extends LocalFleetProvider {
+  constructor(opts: LocalFleetOptions = {}) {
+    super('flm', 'http://127.0.0.1:52625/v1', { apiKey: 'flm', ...opts });
   }
 }

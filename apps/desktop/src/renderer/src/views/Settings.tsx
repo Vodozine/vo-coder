@@ -1722,6 +1722,7 @@ export function Settings() {
   const saveConfig = useStore((s) => s.saveConfig);
   const [ollamaUrl, setOllamaUrl] = useState<string | null>(null);
   const [lmstudioUrl, setLmstudioUrl] = useState<string | null>(null);
+  const [flmUrl, setFlmUrl] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
 
   if (!config) return <div className="empty-state">Loading…</div>;
@@ -1729,6 +1730,7 @@ export function Settings() {
   const ollamaExtras = config.ollamaExtraEndpoints ?? [];
   const llamacppEps = config.llamacppEndpoints ?? [];
   const lmstudioEps = config.lmstudioExtraEndpoints ?? [];
+  const flmEps = config.flmExtraEndpoints ?? [];
   // Numbering starts at 2 because the unnamed primary server is number one.
   const nextName = (list: LocalEndpoint[], prefix = 'gpu'): string => {
     let i = 2;
@@ -1905,6 +1907,62 @@ export function Settings() {
               void saveConfig({
                 lmstudioExtraEndpoints: lmstudioEps.filter((_, j) => j !== i),
               })
+            }
+          />
+        ))}
+        <div
+          className={`field-row${(config.disabledProviders ?? []).includes('flm') ? ' provider-off' : ''}`}
+        >
+          <label title="FastFlowLM — models running on an NPU">FLM (NPU)</label>
+          <button
+            type="button"
+            className={`provider-toggle ${(config.disabledProviders ?? []).includes('flm') ? 'off' : 'on'}`}
+            title="Turn FLM off without forgetting its URL"
+            onClick={() => {
+              const cur = config.disabledProviders ?? [];
+              const off = cur.includes('flm');
+              void saveConfig({
+                disabledProviders: off ? cur.filter((p) => p !== 'flm') : [...cur, 'flm'],
+              });
+            }}
+          >
+            {(config.disabledProviders ?? []).includes('flm') ? 'Off' : 'On'}
+          </button>
+          <input
+            value={flmUrl ?? config.flmBaseUrl}
+            placeholder="http://127.0.0.1:52625"
+            onChange={(e) => setFlmUrl(e.target.value)}
+          />
+          <button
+            disabled={flmUrl === null || flmUrl === config.flmBaseUrl}
+            onClick={() => void saveConfig({ flmBaseUrl: flmUrl ?? config.flmBaseUrl })}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            title="Add another FLM box — one per machine; its models list as model@name"
+            onClick={() =>
+              void saveConfig({
+                flmExtraEndpoints: [...flmEps, { name: nextName(flmEps, 'npu'), url: '', enabled: true }],
+              })
+            }
+          >
+            +
+          </button>
+        </div>
+        {flmEps.map((ep, i) => (
+          <EndpointRow
+            key={i}
+            ep={ep}
+            urlPlaceholder="http://192.168.1.20:52625"
+            tuning={false}
+            onChange={(next) =>
+              void saveConfig({ flmExtraEndpoints: flmEps.map((e, j) => (j === i ? next : e)) })
+            }
+            onRemove={() =>
+              void saveConfig({ flmExtraEndpoints: flmEps.filter((_, j) => j !== i) })
             }
           />
         ))}

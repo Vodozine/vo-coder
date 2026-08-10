@@ -69,6 +69,10 @@ export interface AppConfig {
   ollamaExtraEndpoints: LocalEndpoint[];
   /** Extra LM Studio servers beyond lmstudioBaseUrl; models list as "model@name". */
   lmstudioExtraEndpoints: LocalEndpoint[];
+  /** FastFlowLM — models on an NPU. OpenAI wire, and an unusual default port. */
+  flmBaseUrl: string;
+  /** Extra FLM boxes beyond flmBaseUrl; models list as "model@name". */
+  flmExtraEndpoints: LocalEndpoint[];
   /** llama.cpp llama-server endpoints (OpenAI wire, url ends in /v1; usually one model per server). */
   llamacppEndpoints: LocalEndpoint[];
   systemPrompt: string;
@@ -203,6 +207,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   lmstudioBaseUrl: 'http://127.0.0.1:1234/v1',
   ollamaExtraEndpoints: [],
   lmstudioExtraEndpoints: [],
+  flmBaseUrl: 'http://127.0.0.1:52625/v1',
+  flmExtraEndpoints: [],
   llamacppEndpoints: [],
   systemPrompt:
     "You are Vodo, Vo-Coder's coordinator agent. Be direct, concrete, and honest about uncertainty. It's fine to say you don't understand and ask — that's faster than confident-but-wrong.",

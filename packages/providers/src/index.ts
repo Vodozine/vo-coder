@@ -14,8 +14,13 @@ export {
 export type { KeepAlive, OllamaEndpoint, OllamaProviderOptions } from './adapters/ollama.js';
 export { LlamaCppProvider } from './adapters/llamacpp.js';
 export type { LlamaCppEndpoint, LlamaCppProviderOptions } from './adapters/llamacpp.js';
-export { lmStudioBase, LmStudioProvider } from './adapters/lmstudio.js';
-export type { LmStudioEndpoint, LmStudioProviderOptions } from './adapters/lmstudio.js';
+export {
+  FlmProvider,
+  LmStudioProvider,
+  LocalFleetProvider,
+  v1Base,
+} from './adapters/local-fleet.js';
+export type { LocalFleetEndpoint, LocalFleetOptions } from './adapters/local-fleet.js';
 export {
   NvidiaProvider,
   OpenAICompatibleProvider,

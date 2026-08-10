@@ -1,5 +1,6 @@
 import {
   AnthropicProvider,
+  FlmProvider,
   LlamaCppProvider,
   LmStudioProvider,
   NvidiaProvider,
@@ -124,6 +125,16 @@ export class ProviderHub {
         new LmStudioProvider({
           baseURL: cfg.lmstudioBaseUrl || 'http://127.0.0.1:1234/v1',
           extraEndpoints: activeEndpoints(cfg.lmstudioExtraEndpoints),
+        }),
+      );
+    }
+    // FastFlowLM: the NPU box. Same wire and same fleet shape as LM Studio,
+    // so the only thing it needs of its own is its port.
+    if (on('flm')) {
+      reg.register(
+        new FlmProvider({
+          baseURL: cfg.flmBaseUrl || 'http://127.0.0.1:52625/v1',
+          extraEndpoints: activeEndpoints(cfg.flmExtraEndpoints),
         }),
       );
     }

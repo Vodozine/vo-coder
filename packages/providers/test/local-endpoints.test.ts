@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LlamaCppProvider } from '../src/adapters/llamacpp.ts';
-import { lmStudioBase, LmStudioProvider } from '../src/adapters/lmstudio.ts';
+import { FlmProvider, LmStudioProvider, v1Base } from '../src/adapters/local-fleet.ts';
 import {
   contextWindow,
   fitContextWindow,
@@ -341,11 +341,11 @@ describe('LmStudioProvider — several boxes behind one provider', () => {
 
   it('normalizes a pasted host:port to /v1 for the primary and every extra', () => {
     // LM Studio's own UI shows a bare host:port, so that is what people paste.
-    expect(lmStudioBase('http://192.168.1.102:1234')).toBe('http://192.168.1.102:1234/v1');
-    expect(lmStudioBase('http://192.168.1.102:1234/')).toBe('http://192.168.1.102:1234/v1');
-    expect(lmStudioBase('  http://192.168.1.102:1234/v1  ')).toBe('http://192.168.1.102:1234/v1');
+    expect(v1Base('http://192.168.1.102:1234')).toBe('http://192.168.1.102:1234/v1');
+    expect(v1Base('http://192.168.1.102:1234/')).toBe('http://192.168.1.102:1234/v1');
+    expect(v1Base('  http://192.168.1.102:1234/v1  ')).toBe('http://192.168.1.102:1234/v1');
     // Already-versioned URLs are left alone rather than gaining a second /v1.
-    expect(lmStudioBase('http://box:1234/v2')).toBe('http://box:1234/v2');
+    expect(v1Base('http://box:1234/v2')).toBe('http://box:1234/v2');
   });
 
   it('leaves the primary unsuffixed and tags every extra with @name', async () => {
@@ -463,5 +463,41 @@ describe('a local server can say what its model does', () => {
         })) as unknown as typeof fetch,
     });
     expect(await p.capabilities('old-server-model')).toEqual([]);
+  });
+});
+
+describe('FLM — the NPU box', () => {
+  it('normalizes its own unusual port the same way, and tags its provider', async () => {
+    // FastFlowLM's default is 52625, and its UI shows a bare host:port.
+    let sawUrl = '';
+    const p = new FlmProvider({
+      baseURL: 'http://127.0.0.1:52625',
+      fetch: (async (input: RequestInfo | URL) => {
+        sawUrl = String(input);
+        return new Response(JSON.stringify({ data: [{ id: 'gemma3:4b' }] }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as unknown as typeof fetch,
+    });
+    const models = await p.listModels();
+    expect(sawUrl).toBe('http://127.0.0.1:52625/v1/models');
+    // Ollama-style ids with a colon must survive — only "@" is a pin.
+    expect(models[0]!.id).toBe('gemma3:4b');
+    expect(models[0]!.provider).toBe('flm');
+    expect(p.id).toBe('flm');
+  });
+
+  it('takes several NPU boxes, like every other local fleet', async () => {
+    const p = new FlmProvider({
+      baseURL: 'http://127.0.0.1:52625',
+      extraEndpoints: [{ name: 'npu2', url: 'http://192.168.1.30:52625' }],
+      fetch: fetchRouting({
+        'http://127.0.0.1:52625/v1/models': { body: JSON.stringify({ data: [{ id: 'gemma3:4b' }] }) },
+        'http://192.168.1.30:52625/v1/models': {
+          body: JSON.stringify({ data: [{ id: 'gpt-oss:20b' }] }),
+        },
+      }),
+    });
+    expect((await p.listModels()).map((m) => m.id)).toEqual(['gemma3:4b', 'gpt-oss:20b@npu2']);
   });
 });

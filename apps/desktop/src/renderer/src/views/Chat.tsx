@@ -147,7 +147,7 @@ function ContextChip({
   );
 }
 
-const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
+const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
 /** Backends where becoming ready is expensive enough to be worth pre-loading. */
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp']);
 
@@ -518,7 +518,7 @@ function StatusCard({
             label="folder"
             detail={
               activeMeta?.dir ??
-              'generic chat — loose files land in the generic folder (Settings); attach a folder for project work'
+              'generic chat — loose files land in the generic folder (Settings); use “Work in a folder” for project work'
             }
           />
         )}
@@ -602,7 +602,7 @@ function ProjectUsage({ projectId }: { projectId: string | undefined }) {
         title={
           hasFolder
             ? 'Start a real code review of this chat’s folder — findings, then proposed fixes you approve or decline'
-            : 'Code review needs a folder — use a project with one, or attach a folder to this chat'
+            : 'Code review needs a folder — use a project with one, or start the chat with “Work in a folder”'
         }
         onClick={() => void startReview()}
       >
@@ -1325,8 +1325,8 @@ export function Chat() {
                 className={`ghost attach ${activeMeta?.dir ? 'folder-on' : ''}`}
                 title={
                   activeMeta?.dir
-                    ? `Chat folder: ${activeMeta.dir} — click to change`
-                    : 'Point this chat at a folder — browse files, review code, catalog photos'
+                    ? `Look inside a folder — now looking at ${activeMeta.dir}. Click to point somewhere else.`
+                    : 'Look inside a folder — point at a location to browse files, review code, catalog photos'
                 }
                 onClick={() => void attachFolder()}
               >

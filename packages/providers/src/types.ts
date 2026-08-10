@@ -19,6 +19,7 @@ export type ProviderId =
   | 'nvidia'
   | 'lmstudio'
   | 'llamacpp'
+  | 'flm'
   | (string & {});
 
 /**

@@ -4,7 +4,7 @@ import { ModelPicker } from '../components/ModelPicker';
 import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import { useStore } from '../state/store';
 
-const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
+const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
 
 function AgentForm({
   initial,
@@ -18,7 +18,7 @@ function AgentForm({
   mcpServerNames: string[];
   defaultProvider: string;
   /** Named extra local endpoints per provider — the "@name" model-id suffixes. */
-  localServers: { ollama: string[]; llamacpp: string[]; lmstudio: string[] };
+  localServers: { ollama: string[]; llamacpp: string[]; lmstudio: string[]; flm: string[] };
   onSave: (spec: AgentSpec) => void;
   onCancel: () => void;
 }) {
@@ -29,7 +29,9 @@ function AgentForm({
         ? localServers.llamacpp
         : prov === 'lmstudio'
           ? localServers.lmstudio
-          : [];
+          : prov === 'flm'
+            ? localServers.flm
+            : [];
 
   const [name, setName] = useState(initial?.name ?? '');
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? '');
@@ -71,7 +73,10 @@ function AgentForm({
   // Ollama and LM Studio both have an unnamed primary, so "" is a real choice
   // and the list narrows to it. llama.cpp has no primary, so "" means "any".
   const modelFilter =
-    (effectiveProvider === 'ollama' || effectiveProvider === 'lmstudio') && serverNames.length > 0
+    (effectiveProvider === 'ollama' ||
+      effectiveProvider === 'lmstudio' ||
+      effectiveProvider === 'flm') &&
+    serverNames.length > 0
       ? (id: string) => serverOf(id) === activeServer
       : effectiveProvider === 'llamacpp' && activeServer
         ? (id: string) => serverOf(id) === activeServer
@@ -334,6 +339,7 @@ export function Agents() {
             ollama: (config.ollamaExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
             llamacpp: (config.llamacppEndpoints ?? []).map((e) => e.name).filter(Boolean),
             lmstudio: (config.lmstudioExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
+            flm: (config.flmExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
           }}
           onSave={save}
           onCancel={() => setEditing(null)}

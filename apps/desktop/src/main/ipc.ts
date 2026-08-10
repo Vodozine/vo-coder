@@ -393,9 +393,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 (d
                   ? 'this chat only has the generic scratch folder, which holds loose files, not projects'
                   : 'this chat has no folder') +
-                '. Tell the user to attach a project folder to this chat (the folder button next ' +
-                'to the composer) or to name a location, then call group_start again once the ' +
-                'folder is on. Do not start the group without it.',
+                '. Either make one with project_create (ask the user WHERE it goes), or tell them ' +
+                'to start the chat with "Work in a folder" — NOT the folder button beside the ' +
+                'composer, which only points you at a location to look inside. Then call ' +
+                'group_start again. Do not start the group without a folder.',
               isError: true,
             });
           }
@@ -2129,7 +2130,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // ids keep their curated quality/footprint data on merge.
       const extra: ModelRecord[] = [];
       const installed: Record<string, string[]> = {};
-      for (const providerId of ['ollama', 'lmstudio', 'llamacpp'] as const) {
+      for (const providerId of ['ollama', 'lmstudio', 'llamacpp', 'flm'] as const) {
         try {
           const provider = hub.registry().get(providerId);
           if (!provider) continue;
