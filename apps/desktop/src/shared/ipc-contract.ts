@@ -67,6 +67,8 @@ export interface AppConfig {
   ollamaVramGb?: number;
   /** Extra Ollama servers beyond ollamaBaseUrl; models list as "model@name". */
   ollamaExtraEndpoints: LocalEndpoint[];
+  /** Extra LM Studio servers beyond lmstudioBaseUrl; models list as "model@name". */
+  lmstudioExtraEndpoints: LocalEndpoint[];
   /** llama.cpp llama-server endpoints (OpenAI wire, url ends in /v1; usually one model per server). */
   llamacppEndpoints: LocalEndpoint[];
   systemPrompt: string;
@@ -200,6 +202,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   lmstudioBaseUrl: 'http://127.0.0.1:1234/v1',
   ollamaExtraEndpoints: [],
+  lmstudioExtraEndpoints: [],
   llamacppEndpoints: [],
   systemPrompt:
     "You are Vodo, Vo-Coder's coordinator agent. Be direct, concrete, and honest about uncertainty. It's fine to say you don't understand and ask — that's faster than confident-but-wrong.",

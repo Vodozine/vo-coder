@@ -14,8 +14,9 @@ export {
 export type { KeepAlive, OllamaEndpoint, OllamaProviderOptions } from './adapters/ollama.js';
 export { LlamaCppProvider } from './adapters/llamacpp.js';
 export type { LlamaCppEndpoint, LlamaCppProviderOptions } from './adapters/llamacpp.js';
+export { lmStudioBase, LmStudioProvider } from './adapters/lmstudio.js';
+export type { LmStudioEndpoint, LmStudioProviderOptions } from './adapters/lmstudio.js';
 export {
-  LmStudioProvider,
   NvidiaProvider,
   OpenAICompatibleProvider,
   OpenAIProvider,

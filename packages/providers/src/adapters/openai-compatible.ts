@@ -347,20 +347,8 @@ export class NvidiaProvider extends OpenAICompatibleProvider {
   }
 }
 
-/** LM Studio's local server speaks the OpenAI wire format; no real key needed. */
-export class LmStudioProvider extends OpenAICompatibleProvider {
-  /** Local: silent while loading the model and prefilling — see the Ollama note. */
-  readonly stallTimeoutMs = 600_000;
-
-  constructor(opts: Partial<OpenAICompatibleOptions> = {}) {
-    super('lmstudio', {
-      apiKey: opts.apiKey ?? 'lm-studio',
-      baseURL: opts.baseURL ?? 'http://127.0.0.1:1234/v1',
-      headers: opts.headers,
-      fetch: opts.fetch,
-    });
-  }
-}
+/* LM Studio lives in ./lmstudio.ts — it fronts several servers at once, so it
+   composes these clients rather than being one. */
 
 export class OpenRouterProvider extends OpenAICompatibleProvider {
   constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {

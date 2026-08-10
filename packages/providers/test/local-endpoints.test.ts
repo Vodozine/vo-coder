@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LlamaCppProvider } from '../src/adapters/llamacpp.ts';
+import { lmStudioBase, LmStudioProvider } from '../src/adapters/lmstudio.ts';
 import {
   contextWindow,
   fitContextWindow,
@@ -332,5 +333,96 @@ describe('LlamaCppProvider', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'error', error: { kind: 'bad_request' } });
     expect((events[0] as { error: { message: string } }).error.message).toContain('"gone"');
+  });
+});
+
+describe('LmStudioProvider — several boxes behind one provider', () => {
+  const modelsBody = (id: string) => JSON.stringify({ data: [{ id }] });
+
+  it('normalizes a pasted host:port to /v1 for the primary and every extra', () => {
+    // LM Studio's own UI shows a bare host:port, so that is what people paste.
+    expect(lmStudioBase('http://192.168.1.102:1234')).toBe('http://192.168.1.102:1234/v1');
+    expect(lmStudioBase('http://192.168.1.102:1234/')).toBe('http://192.168.1.102:1234/v1');
+    expect(lmStudioBase('  http://192.168.1.102:1234/v1  ')).toBe('http://192.168.1.102:1234/v1');
+    // Already-versioned URLs are left alone rather than gaining a second /v1.
+    expect(lmStudioBase('http://box:1234/v2')).toBe('http://box:1234/v2');
+  });
+
+  it('leaves the primary unsuffixed and tags every extra with @name', async () => {
+    const p = new LmStudioProvider({
+      baseURL: 'http://192.168.1.102:1234',
+      extraEndpoints: [{ name: 'laptop', url: 'http://127.0.0.1:1234' }],
+      fetch: fetchRouting({
+        'http://192.168.1.102:1234/v1/models': { body: modelsBody('qwen/qwen3.5-9b') },
+        'http://127.0.0.1:1234/v1/models': { body: modelsBody('google/gemma-4-e2b') },
+      }),
+    });
+    const ids = (await p.listModels()).map((m) => m.id);
+    // Model ids carry "/" and must survive it — only the "@" is a pin.
+    expect(ids).toEqual(['qwen/qwen3.5-9b', 'google/gemma-4-e2b@laptop']);
+  });
+
+  it('keeps answering while one box is asleep', async () => {
+    const p = new LmStudioProvider({
+      baseURL: 'http://192.168.1.102:1234',
+      extraEndpoints: [{ name: 'laptop', url: 'http://127.0.0.1:1234' }],
+      fetch: fetchRouting({
+        'http://192.168.1.102:1234/v1/models': { body: modelsBody('qwen/qwen3.5-9b') },
+        'http://127.0.0.1:1234/v1/models': new TypeError('fetch failed'),
+      }),
+    });
+    expect((await p.listModels()).map((m) => m.id)).toEqual(['qwen/qwen3.5-9b']);
+  });
+
+  it('streams to the pinned box with the suffix stripped', async () => {
+    let sawUrl = '';
+    let sawModel = '';
+    const sse = fixture('xai-reasoning.sse.txt');
+    const p = new LmStudioProvider({
+      baseURL: 'http://192.168.1.102:1234',
+      extraEndpoints: [{ name: 'laptop', url: 'http://127.0.0.1:1234' }],
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        sawUrl = String(input);
+        sawModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+        return new Response(sse, { headers: { 'content-type': 'text/event-stream' } });
+      }) as unknown as typeof fetch,
+    });
+    await collect(p, { model: 'google/gemma-4-e2b@laptop', messages: [userText('hi')] });
+    expect(sawUrl).toBe('http://127.0.0.1:1234/v1/chat/completions');
+    expect(sawModel).toBe('google/gemma-4-e2b');
+  });
+
+  it('sends an unpinned id to the primary, id intact', async () => {
+    let sawUrl = '';
+    let sawModel = '';
+    const sse = fixture('xai-reasoning.sse.txt');
+    const p = new LmStudioProvider({
+      baseURL: 'http://192.168.1.102:1234',
+      extraEndpoints: [{ name: 'laptop', url: 'http://127.0.0.1:1234' }],
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        sawUrl = String(input);
+        sawModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+        return new Response(sse, { headers: { 'content-type': 'text/event-stream' } });
+      }) as unknown as typeof fetch,
+    });
+    await collect(p, { model: 'qwen/qwen3.5-9b', messages: [userText('hi')] });
+    expect(sawUrl).toBe('http://192.168.1.102:1234/v1/chat/completions');
+    expect(sawModel).toBe('qwen/qwen3.5-9b');
+  });
+
+  it('falls back to the primary on a stale pin, keeping the id whole', async () => {
+    // A leftover "@gpu3" from an Ollama id must not be silently stripped and
+    // answered by the wrong box — LM Studio's own 404 says what is missing.
+    let sawModel = '';
+    const sse = fixture('xai-reasoning.sse.txt');
+    const p = new LmStudioProvider({
+      baseURL: 'http://192.168.1.102:1234',
+      fetch: (async (_i: RequestInfo | URL, init?: RequestInit) => {
+        sawModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+        return new Response(sse, { headers: { 'content-type': 'text/event-stream' } });
+      }) as unknown as typeof fetch,
+    });
+    await collect(p, { model: 'qwen3.5:latest@gpu3', messages: [userText('hi')] });
+    expect(sawModel).toBe('qwen3.5:latest@gpu3');
   });
 });

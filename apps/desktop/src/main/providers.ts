@@ -116,13 +116,15 @@ export class ProviderHub {
         }),
       );
     }
-    // LM Studio speaks OpenAI wire under /v1 — people paste the bare
-    // host:port from the app's UI, and every call then 404s (no model list,
-    // no chat). Normalize once here instead of failing quietly.
+    // One primary plus any extra boxes, same as Ollama — the adapter owns the
+    // /v1 normalization for all of them, because people paste the bare
+    // host:port that LM Studio's own UI shows them.
     if (on('lmstudio')) {
-      const lmBase = (cfg.lmstudioBaseUrl || 'http://127.0.0.1:1234/v1').replace(/\/+$/, '');
       reg.register(
-        new LmStudioProvider({ baseURL: /\/v\d+$/.test(lmBase) ? lmBase : `${lmBase}/v1` }),
+        new LmStudioProvider({
+          baseURL: cfg.lmstudioBaseUrl || 'http://127.0.0.1:1234/v1',
+          extraEndpoints: activeEndpoints(cfg.lmstudioExtraEndpoints),
+        }),
       );
     }
     const llamacpp = activeEndpoints(cfg.llamacppEndpoints);

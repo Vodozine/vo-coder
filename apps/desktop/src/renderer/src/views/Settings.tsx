@@ -1590,7 +1590,7 @@ function VramInput({
 }
 
 /**
- * One named extra local server (Ollama box or llama.cpp llama-server).
+ * One named extra local server (Ollama box, llama.cpp llama-server, LM Studio).
  * The name becomes the "@name" suffix in that server's model ids — that suffix
  * is how an agent pins its model to one specific GPU/box.
  */
@@ -1602,6 +1602,9 @@ function EndpointRow({
   /** llama-server owns its own residency; offering the control would be a lie. */
   residency = true,
   showVram = true,
+  /** LM Studio chooses its own window and residency in its own UI — the whole
+      tuning line would be a set of controls that do nothing. */
+  tuning = true,
 }: {
   ep: LocalEndpoint;
   urlPlaceholder: string;
@@ -1609,6 +1612,7 @@ function EndpointRow({
   onRemove: () => void;
   residency?: boolean;
   showVram?: boolean;
+  tuning?: boolean;
 }) {
   const [name, setName] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -1653,15 +1657,17 @@ function EndpointRow({
           ×
         </button>
       </div>
-      <EndpointTuning
-        ctx={ctx}
-        onCtx={(t) => onChange({ ...ep, contextTokens: t })}
-        vramGb={showVram ? ep.vramGb : undefined}
-        onVram={showVram ? (gb) => onChange({ ...ep, vramGb: gb }) : undefined}
-        keepAlive={ep.keepAlive}
-        onKeep={(k) => onChange({ ...ep, keepAlive: k })}
-        residency={residency}
-      />
+      {tuning && (
+        <EndpointTuning
+          ctx={ctx}
+          onCtx={(t) => onChange({ ...ep, contextTokens: t })}
+          vramGb={showVram ? ep.vramGb : undefined}
+          onVram={showVram ? (gb) => onChange({ ...ep, vramGb: gb }) : undefined}
+          keepAlive={ep.keepAlive}
+          onKeep={(k) => onChange({ ...ep, keepAlive: k })}
+          residency={residency}
+        />
+      )}
     </div>
   );
 }
@@ -1722,10 +1728,12 @@ export function Settings() {
 
   const ollamaExtras = config.ollamaExtraEndpoints ?? [];
   const llamacppEps = config.llamacppEndpoints ?? [];
-  const nextName = (list: LocalEndpoint[]): string => {
+  const lmstudioEps = config.lmstudioExtraEndpoints ?? [];
+  // Numbering starts at 2 because the unnamed primary server is number one.
+  const nextName = (list: LocalEndpoint[], prefix = 'gpu'): string => {
     let i = 2;
-    while (list.some((e) => e.name === `gpu${i}`)) i++;
-    return `gpu${i}`;
+    while (list.some((e) => e.name === `${prefix}${i}`)) i++;
+    return `${prefix}${i}`;
   };
 
   return (
@@ -1855,6 +1863,7 @@ export function Settings() {
           </button>
           <input
             value={lmstudioUrl ?? config.lmstudioBaseUrl}
+            placeholder="http://192.168.1.20:1234"
             onChange={(e) => setLmstudioUrl(e.target.value)}
           />
           <button
@@ -1865,7 +1874,40 @@ export function Settings() {
           >
             Save
           </button>
+          <button
+            type="button"
+            className="ghost"
+            title="Add another LM Studio server — one per box; its models list as model@name"
+            onClick={() =>
+              void saveConfig({
+                lmstudioExtraEndpoints: [
+                  ...lmstudioEps,
+                  { name: nextName(lmstudioEps, 'lm'), url: '', enabled: true },
+                ],
+              })
+            }
+          >
+            +
+          </button>
         </div>
+        {lmstudioEps.map((ep, i) => (
+          <EndpointRow
+            key={i}
+            ep={ep}
+            urlPlaceholder="http://192.168.1.20:1234"
+            tuning={false}
+            onChange={(next) =>
+              void saveConfig({
+                lmstudioExtraEndpoints: lmstudioEps.map((e, j) => (j === i ? next : e)),
+              })
+            }
+            onRemove={() =>
+              void saveConfig({
+                lmstudioExtraEndpoints: lmstudioEps.filter((_, j) => j !== i),
+              })
+            }
+          />
+        ))}
         <div
           className={`field-row${(config.disabledProviders ?? []).includes('llamacpp') ? ' provider-off' : ''}`}
         >

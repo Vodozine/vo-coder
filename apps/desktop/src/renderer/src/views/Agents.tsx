@@ -18,12 +18,18 @@ function AgentForm({
   mcpServerNames: string[];
   defaultProvider: string;
   /** Named extra local endpoints per provider — the "@name" model-id suffixes. */
-  localServers: { ollama: string[]; llamacpp: string[] };
+  localServers: { ollama: string[]; llamacpp: string[]; lmstudio: string[] };
   onSave: (spec: AgentSpec) => void;
   onCancel: () => void;
 }) {
   const namesFor = (prov: string): string[] =>
-    prov === 'ollama' ? localServers.ollama : prov === 'llamacpp' ? localServers.llamacpp : [];
+    prov === 'ollama'
+      ? localServers.ollama
+      : prov === 'llamacpp'
+        ? localServers.llamacpp
+        : prov === 'lmstudio'
+          ? localServers.lmstudio
+          : [];
 
   const [name, setName] = useState(initial?.name ?? '');
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? '');
@@ -62,8 +68,10 @@ function AgentForm({
     setServer(s);
     if (model) setModel(s ? `${baseOf(model)}@${s}` : baseOf(model));
   };
+  // Ollama and LM Studio both have an unnamed primary, so "" is a real choice
+  // and the list narrows to it. llama.cpp has no primary, so "" means "any".
   const modelFilter =
-    effectiveProvider === 'ollama' && serverNames.length > 0
+    (effectiveProvider === 'ollama' || effectiveProvider === 'lmstudio') && serverNames.length > 0
       ? (id: string) => serverOf(id) === activeServer
       : effectiveProvider === 'llamacpp' && activeServer
         ? (id: string) => serverOf(id) === activeServer
@@ -103,7 +111,7 @@ function AgentForm({
             title='Which box this agent runs on — a model pinned to "model@name" always uses that server'
           >
             <option value="">
-              {effectiveProvider === 'ollama' ? 'main server' : '(any server)'}
+              {effectiveProvider === 'llamacpp' ? '(any server)' : 'main server'}
             </option>
             {serverNames.map((n) => (
               <option key={n} value={n}>
@@ -325,6 +333,7 @@ export function Agents() {
           localServers={{
             ollama: (config.ollamaExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
             llamacpp: (config.llamacppEndpoints ?? []).map((e) => e.name).filter(Boolean),
+            lmstudio: (config.lmstudioExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
           }}
           onSave={save}
           onCancel={() => setEditing(null)}
