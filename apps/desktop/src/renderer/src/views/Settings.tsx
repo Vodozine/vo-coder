@@ -841,6 +841,99 @@ function ImageModelSection() {
   );
 }
 
+/**
+ * The video_generate tool's model. Deliberately NOT a ModelPicker: a provider's
+ * /v1/models list is chat models, and video generators are a handful of known
+ * ids on a different endpoint entirely — so they are named here rather than
+ * hunted for in a list they never appear in.
+ */
+const VIDEO_MODELS: Record<string, Array<{ id: string; note: string }>> = {
+  xai: [{ id: 'grok-imagine-video-1.5', note: 'Grok Imagine — 1-15s, up to 1080p, comes with a Grok subscription' }],
+  openai: [
+    { id: 'sora-2', note: 'Sora 2 — fast, for iterating' },
+    { id: 'sora-2-pro', note: 'Sora 2 Pro — slower, higher fidelity' },
+  ],
+};
+
+function VideoModelSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+
+  if (!config) return null;
+  const effProvider = provider ?? config.videoModel?.provider ?? 'xai';
+  const known = VIDEO_MODELS[effProvider] ?? [];
+  const effModel = model ?? config.videoModel?.model ?? known[0]?.id ?? '';
+  const dirty =
+    effProvider !== (config.videoModel?.provider ?? '') || effModel !== (config.videoModel?.model ?? '');
+
+  return (
+    <section>
+      <h2>Video model</h2>
+      <p className="hint">
+        Renders video_generate into the project folder and plays it in chat. Clips take minutes,
+        not seconds — the agent waits, and Stop reaches it.
+      </p>
+      <details className="hint-more">
+        <summary>which one to pick</summary>
+        <p className="hint">
+          <strong>Grok Imagine</strong> is the cheap one and it is included with a Grok
+          subscription, so if you signed in with X it costs nothing extra. <strong>Sora 2</strong>{' '}
+          bills per second and needs an OpenAI key — and OpenAI has announced the Videos API shuts
+          down on <strong>24 September 2026</strong>, so treat it as the short-term option.
+        </p>
+      </details>
+      <div className="field-row">
+        <label>provider</label>
+        <select
+          value={effProvider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setModel(VIDEO_MODELS[e.target.value]?.[0]?.id ?? '');
+          }}
+        >
+          {Object.keys(VIDEO_MODELS).map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <select className="grow" value={effModel} onChange={(e) => setModel(e.target.value)}>
+          {known.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.id}
+            </option>
+          ))}
+          {/* A model id we do not know about yet still has to be selectable. */}
+          {!known.some((m) => m.id === effModel) && effModel && (
+            <option value={effModel}>{effModel}</option>
+          )}
+        </select>
+        <button
+          disabled={!dirty}
+          onClick={() =>
+            void saveConfig({
+              videoModel: effModel ? { provider: effProvider, model: effModel } : null,
+            })
+          }
+        >
+          Save
+        </button>
+        {config.videoModel && (
+          <button className="ghost" onClick={() => void saveConfig({ videoModel: null })}>
+            Off
+          </button>
+        )}
+      </div>
+      <p className="hint">
+        {known.find((m) => m.id === effModel)?.note ??
+          (config.videoModel ? '' : 'Off — video_generate will tell the agent to come here first.')}
+      </p>
+    </section>
+  );
+}
+
 function WhisperSetupButton() {
   const saveConfig = useStore((s) => s.saveConfig);
   const [busy, setBusy] = useState(false);
@@ -2131,6 +2224,7 @@ export function Settings() {
       <SkillsSection />
       <VisionSection />
       <ImageModelSection />
+      <VideoModelSection />
       <VoiceSection />
       <TelegramSection />
 

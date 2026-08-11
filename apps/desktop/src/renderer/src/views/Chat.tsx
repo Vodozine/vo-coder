@@ -179,6 +179,47 @@ function GeneratedImage({ path }: { path: string }) {
   );
 }
 
+/**
+ * Inline player for a generated clip. The bytes arrive raw and become a Blob
+ * here rather than a data URL: a 20 MB mp4 would grow by a third in base64 for
+ * nothing. Loading is on demand — a chat full of clips must not pull every one
+ * into memory just to render the transcript.
+ */
+function GeneratedVideo({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const name = path.split(/[/\\]/).pop() ?? path;
+
+  useEffect(
+    () => () => {
+      if (url) URL.revokeObjectURL(url);
+    },
+    [url],
+  );
+
+  const load = async () => {
+    setLoading(true);
+    const r = await window.vo.videoRead(path);
+    setLoading(false);
+    if (r.ok && r.data) setUrl(URL.createObjectURL(new Blob([r.data], { type: r.mimeType })));
+    else setError(r.error ?? 'Could not load the video.');
+  };
+
+  if (error) return <div className="meta">🎬 {error}</div>;
+  if (!url) {
+    return (
+      <div className="meta gen-video-load">
+        <button className="ghost" disabled={loading} onClick={() => void load()}>
+          {loading ? 'Loading…' : '▶ Play'}
+        </button>
+        {name}
+      </div>
+    );
+  }
+  return <video className="gen-video" src={url} controls autoPlay title={path} />;
+}
+
 function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
   const icon =
@@ -190,6 +231,7 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
       </button>
       {open && seg.result && <pre className="tool-result">{seg.result}</pre>}
       {seg.imagePath && <GeneratedImage path={seg.imagePath} />}
+      {seg.videoPath && <GeneratedVideo path={seg.videoPath} />}
     </div>
   );
 }

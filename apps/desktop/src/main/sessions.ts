@@ -26,8 +26,8 @@ interface SessionManagerDeps {
     execute(
       name: string,
       args: unknown,
-      ctx?: { projectId?: string; dir?: string; sessionId?: string },
-    ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
+      ctx?: { projectId?: string; dir?: string; sessionId?: string; signal?: AbortSignal },
+    ): Promise<{ content: string; isError?: boolean; imagePath?: string; videoPath?: string }>;
   };
   /** Fired for every provider usage report, with the model that produced it. */
   onUsage?: (
@@ -600,6 +600,7 @@ export class SessionManager {
               name.startsWith('archive_') ||
               name.startsWith('map_') ||
               name.startsWith('image_') ||
+              name.startsWith('video_') ||
               name.startsWith('look_') ||
               name.startsWith('file_') ||
               name.startsWith('group_') ||
@@ -614,6 +615,8 @@ export class SessionManager {
               projectId: this.deps.projects.meta(sessionId)?.projectId,
               dir: this.projectDirFor(sessionId),
               sessionId,
+              // video_generate polls for minutes — Stop has to reach it.
+              ...(signal ? { signal } : {}),
             });
           }
           return this.deps.mcp.call(name, args);

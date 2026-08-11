@@ -81,6 +81,8 @@ export interface AppConfig {
   visionModel: VisionPointer | null;
   /** Model used by the image_generate tool (an image-OUTPUT model). */
   imageModel: VisionPointer | null;
+  /** video_generate's model — a video-OUTPUT model (Grok Imagine, Sora). */
+  videoModel: VisionPointer | null;
   /** Extended thinking for the Default agent (per-agent specs set their own). */
   thinkingDefault: boolean;
   voice: VoiceSettings;
@@ -216,6 +218,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   mcpServers: [],
   visionModel: null,
   imageModel: null,
+  videoModel: null,
   thinkingDefault: false,
   voice: {
     stt: 'openai',
@@ -680,6 +683,14 @@ export interface VoApi {
   memMapDelete(projectId: string, nodeId: number): Promise<void>;
   /** Read a generated/project image as a data URL for inline display. */
   imageRead(path: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
+  /**
+   * A generated video's bytes, for a Blob the player can stream. Raw bytes
+   * rather than imageRead's data URL: base64 would inflate a 20 MB clip by a
+   * third for nothing, and blob: is what the CSP allows media to load from.
+   */
+  videoRead(
+    path: string,
+  ): Promise<{ ok: boolean; data?: ArrayBuffer; mimeType?: string; error?: string }>;
 }
 
 export interface CatalogInfo {
@@ -789,4 +800,5 @@ export const IPC = {
   memMapSetStatus: 'mem:mapSetStatus',
   memMapDelete: 'mem:mapDelete',
   imageRead: 'image:read',
+  videoRead: 'video:read',
 } as const;

@@ -53,6 +53,8 @@ export type Segment =
       resultChars?: number;
       /** Generated image on disk — rendered inline via imageRead. */
       imagePath?: string;
+      /** Generated video on disk — played inline via videoRead. */
+      videoPath?: string;
     };
 
 export interface UiMessage {
@@ -1375,6 +1377,7 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         // 50k-char ws_read reads as ~150 tokens to anything counting the UI.
         resultChars: event.result.length,
         ...(event.imagePath ? { imagePath: event.imagePath } : {}),
+        ...(event.videoPath ? { videoPath: event.videoPath } : {}),
       }));
       break;
     case 'usage':

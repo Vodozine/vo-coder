@@ -26,6 +26,8 @@ export type SessionEvent =
       isError: boolean;
       /** Generated image on disk — UI-only; never enters token-bearing history. */
       imagePath?: string;
+      /** Generated video on disk — same side-channel, same rule. */
+      videoPath?: string;
     };
 
 export interface ToolExecutor {
@@ -35,7 +37,7 @@ export interface ToolExecutor {
     args: unknown,
     /** Aborted when the user stops the run — long tools (ws_run) must honor it. */
     signal?: AbortSignal,
-  ): Promise<{ content: string; isError?: boolean; imagePath?: string }>;
+  ): Promise<{ content: string; isError?: boolean; imagePath?: string; videoPath?: string }>;
 }
 
 export type PermissionDecision = 'allow' | 'deny';
@@ -427,7 +429,12 @@ export class AgentSession {
             name: tc.name,
             args: tc.args,
           });
-          let result: { content: string; isError?: boolean; imagePath?: string };
+          let result: {
+            content: string;
+            isError?: boolean;
+            imagePath?: string;
+            videoPath?: string;
+          };
           try {
             result = this.opts.toolExecutor
               ? await this.opts.toolExecutor.execute(tc.name, tc.args, runAbort.signal)
@@ -451,6 +458,7 @@ export class AgentSession {
             result: result.content,
             isError: !!result.isError,
             ...(result.imagePath ? { imagePath: result.imagePath } : {}),
+            ...(result.videoPath ? { videoPath: result.videoPath } : {}),
           });
           // Stop pressed while (or just after) the tool ran — end now instead
           // of feeding the aborted result back for another turn.

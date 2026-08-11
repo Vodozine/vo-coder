@@ -47,6 +47,7 @@ import { UsageTracker } from './usage';
 import { DeadModels } from './dead-models';
 import { executeFileIdTool, fileIdToolSpecs } from './file-id';
 import { executeImageTool, imageToolSpecs } from './image-gen';
+import { executeVideoTool, videoToolSpecs } from './video-gen';
 import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, stopLaunched, workspaceToolSpecs } from './workspace-tools';
@@ -220,6 +221,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     specs: () => [
       ...webToolSpecs(),
       ...imageToolSpecs(),
+      ...videoToolSpecs(),
       ...fileIdToolSpecs(),
       ...journal.toolSpecs(),
       ...(bank?.toolSpecs() ?? []),
@@ -289,7 +291,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     execute: (
       name: string,
       args: unknown,
-      ctx?: { projectId?: string; dir?: string; sessionId?: string },
+      ctx?: { projectId?: string; dir?: string; sessionId?: string; signal?: AbortSignal },
     ) => {
       // The chat's folder. Read from the session's LIVE meta first: ctx is
       // captured once per turn, so a project created earlier in this same turn
@@ -372,6 +374,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           if (res.imagePath) rememberShownInChat(res.imagePath);
           return res;
         });
+      }
+      if (name === 'video_generate') {
+        return executeVideoTool(
+          args,
+          config,
+          secrets,
+          ctxDir(),
+          { xaiToken: () => xaiOauth.token() },
+          ctx?.signal,
+        );
       }
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
@@ -2548,27 +2560,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
   // Inline display of generated/project images — reads are fenced to project
   // folders and the app's own generated dir.
+  /**
+   * Where a viewer may read generated media from. The generic folder belongs
+   * here too: a folder-less chat writes there (that is the whole point of it),
+   * and image_generate in a General chat once saved a picture the viewer then
+   * refused to open — generated, on disk, and invisible.
+   */
+  const insideAllowedRoots = (path: string): string | null => {
+    const generic = config.get().genericDir;
+    const roots = [
+      join(app.getPath('userData'), 'generated'),
+      ...(generic ? [generic] : []),
+      ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
+      ...projects.list().sessions.flatMap((s) => (s.dir ? [s.dir] : [])),
+    ];
+    const target = resolve(path);
+    const inside = (root: string) => {
+      const rel = relative(root, target);
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+    };
+    return roots.some(inside) ? target : null;
+  };
+
   ipcMain.handle(IPC.imageRead, (_e, path: string) => {
     try {
-      // The generic folder belongs here too: a folder-less chat writes there
-      // (that is the whole point of it), so image_generate in a General chat
-      // saved a picture the viewer then refused to open — generated, on disk,
-      // and invisible.
-      const generic = config.get().genericDir;
-      const allowedRoots = [
-        join(app.getPath('userData'), 'generated'),
-        ...(generic ? [generic] : []),
-        ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
-        ...projects.list().sessions.flatMap((s) => (s.dir ? [s.dir] : [])),
-      ];
-      const target = resolve(path);
-      const inside = (root: string) => {
-        const rel = relative(root, target);
-        return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
-      };
-      if (!allowedRoots.some(inside)) {
-        return { ok: false, error: 'Path outside allowed folders.' };
-      }
+      const target = insideAllowedRoots(path);
+      if (!target) return { ok: false, error: 'Path outside allowed folders.' };
       let data: Buffer = readFileSync(target);
       const ext = target.split('.').pop()?.toLowerCase() ?? 'png';
       // Camera RAW files render via their embedded JPEG preview.
@@ -2580,6 +2597,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (data.length > 24 * 1024 * 1024) return { ok: false, error: 'Image too large to preview.' };
       const mime = RAW_EXTS.has(`.${ext}`) || ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
       return { ok: true, dataUrl: `data:${mime};base64,${data.toString('base64')}` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Raw bytes, not a data URL: the renderer wraps them in a Blob so the player
+  // can seek without a base64 copy a third larger than the file.
+  ipcMain.handle(IPC.videoRead, (_e, path: string) => {
+    try {
+      const target = insideAllowedRoots(path);
+      if (!target) return { ok: false, error: 'Path outside allowed folders.' };
+      const data = readFileSync(target);
+      if (data.length > 200 * 1024 * 1024) return { ok: false, error: 'Video too large to play.' };
+      const ext = target.split('.').pop()?.toLowerCase() ?? 'mp4';
+      const mimeType =
+        ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+      return {
+        ok: true,
+        data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+        mimeType,
+      };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

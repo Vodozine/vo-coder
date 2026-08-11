@@ -44,9 +44,18 @@ export function imageToolSpecs(): ToolSpec[] {
   ];
 }
 
-function guardedTarget(dir: string | undefined, saveAs: string | undefined): string {
+/** Shared with video_generate: one place decides where generated media may land. */
+export function guardedTarget(
+  dir: string | undefined,
+  saveAs: string | undefined,
+  ext = 'png',
+  prefix = 'img',
+): string {
   const base = dir ?? join(app.getPath('userData'), 'generated');
-  const rel = (saveAs?.trim() || `designs/img-${Date.now().toString(36)}.png`).replace(/^[/\\]+/, '');
+  const rel = (saveAs?.trim() || `designs/${prefix}-${Date.now().toString(36)}.${ext}`).replace(
+    /^[/\\]+/,
+    '',
+  );
   const target = resolve(base, rel);
   const back = relative(base, target);
   if (back.startsWith('..') || isAbsolute(back)) {

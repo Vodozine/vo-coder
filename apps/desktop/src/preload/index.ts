@@ -146,6 +146,7 @@ const api: VoApi = {
     ipcRenderer.invoke(IPC.memMapSetStatus, projectId, nodeId, status),
   memMapDelete: (projectId, nodeId) => ipcRenderer.invoke(IPC.memMapDelete, projectId, nodeId),
   imageRead: (path) => ipcRenderer.invoke(IPC.imageRead, path),
+  videoRead: (path) => ipcRenderer.invoke(IPC.videoRead, path),
 };
 
 contextBridge.exposeInMainWorld('vo', api);
