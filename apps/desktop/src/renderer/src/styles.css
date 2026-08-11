@@ -764,6 +764,11 @@ select:focus {
   /* Dark teal plates on a near-black app: without a lift he reads as a smudge. */
   filter: brightness(1.18) saturate(1.1);
 }
+/* Work stops: he stops, on whichever frame he was on. Pausing a stepped
+   animation lands on a whole frame, never half of one. */
+.robot-walk--still {
+  animation-play-state: paused;
+}
 @keyframes robot-walk {
   to {
     background-position: -256px 0;

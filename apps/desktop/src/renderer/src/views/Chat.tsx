@@ -276,17 +276,17 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
 }
 
 /**
- * Vodo, walking, for as long as there is work. A sprite sheet rather than the
- * source clip: sixteen frames of one keyed stride, so it starts on the frame
- * it stops on and costs nothing to pause — when the turn ends the walker is
- * simply not rendered, and the robot stops mid-stride where it stood.
+ * Vodo, walking, for as long as there is work — and then standing there. A
+ * sprite sheet rather than the source clip: sixteen frames of one keyed
+ * stride, so stopping is `animation-play-state: paused`, which freezes on a
+ * whole frame. He stops walking; he does not disappear.
  */
-function RobotWalker({ title }: { title: string }) {
+function RobotWalker({ walking, title }: { walking: boolean; title: string }) {
   return (
     <span
-      className="robot-walk"
+      className={`robot-walk${walking ? '' : ' robot-walk--still'}`}
       role="img"
-      aria-label="working"
+      aria-label={walking ? 'working' : 'idle'}
       title={title}
       style={{ backgroundImage: `url(${robotWalkUrl})` }}
     />
@@ -308,7 +308,7 @@ function WaitingBubble() {
     <>
       <div className="bubble pulse">
         …
-        <RobotWalker title="thinking" />
+        <RobotWalker walking title="thinking" />
       </div>
       {secs >= 8 && (
         <div className="meta">
@@ -374,7 +374,9 @@ function TurnStats({ m }: { m: UiMessage }) {
   return (
     <div className="meta turn-stats" title="Tokens, generation rate, and the turn's wall-clock time">
       {parts.join(' · ')}
-      {ticking && <RobotWalker title="working" />}
+      {m.startedAt !== undefined && (
+        <RobotWalker walking={ticking} title={ticking ? 'working' : 'done'} />
+      )}
     </div>
   );
 }
