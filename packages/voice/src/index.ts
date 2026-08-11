@@ -12,3 +12,5 @@ export { listSystemVoices } from './tts/system-voices.js';
 export { ElevenLabsTts } from './tts/elevenlabs-tts.js';
 export type { ElevenLabsTtsOptions } from './tts/elevenlabs-tts.js';
 export { speakable } from './speakable.js';
+export { nextSpeechCut } from './chunker.js';
+export type { CutOptions } from './chunker.js';

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnergyVad, encodeWavPcm16 } from '@vo-coder/voice/dsp';
+import { nextSpeechCut } from '@vo-coder/voice';
 import { useStore } from '../state/store';
 import { MicCapture } from './capture';
 
@@ -271,29 +272,11 @@ export function useVoice(appendToInput: (text: string) => void) {
       .join(' ');
     const pending = text.slice(spokenPosRef.current.chars);
 
-    let cut = -1;
-    if (!last.streaming) {
-      cut = pending.length;
-      lastSpokenIdRef.current = last.id; // reply fully queued
-    } else {
-      // Never cut inside a code fence. A chunk that ends mid-block arrives at
-      // the cleaner with an unclosed ``` it cannot pair, and the engine reads
-      // the backticks and the source out loud. An odd count means the last
-      // fence is still open, so nothing past it is speakable yet.
-      let searchable = pending;
-      if (((pending.match(/```/g) ?? []).length & 1) === 1) {
-        searchable = pending.slice(0, pending.lastIndexOf('```'));
-      }
-      // Latest sentence boundary — but only speak fragments of a useful size.
-      // Every chunk costs a synthesis round trip, so a bulleted list cut at
-      // each newline became a dozen of them, and the delivery came out in
-      // stutters. Bigger pieces, fewer seams.
-      for (const mark of ['. ', '! ', '? ', '.\n', '!\n', '?\n', '\n\n']) {
-        const at = searchable.lastIndexOf(mark);
-        if (at >= 0) cut = Math.max(cut, at + mark.length);
-      }
-      if (cut < 160) return;
-    }
+    if (!last.streaming) lastSpokenIdRef.current = last.id; // reply fully queued
+    const cut = nextSpeechCut(pending, {
+      streaming: last.streaming,
+      opening: spokenPosRef.current.chars === 0,
+    });
     if (cut <= 0) return;
     const chunk = pending.slice(0, cut).trim();
     spokenPosRef.current.chars += cut;
