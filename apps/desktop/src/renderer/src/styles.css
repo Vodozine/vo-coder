@@ -749,17 +749,32 @@ select:focus {
 }
 /*
  * The working indicator: one keyed stride of Robot 8, 16 frames across a
- * 1024x96 sheet, quartered to 16x24 on screen. steps(16) walks the sheet a
- * frame at a time — no tween, no video decode, and it stops the instant the
- * element goes away, which is what "Vodo stopped working" should look like.
+ * 2048x192 sheet, shown at 3/4 size so every frame lands on whole pixels.
+ * steps(16) walks the sheet a frame at a time — no tween, no video decode.
+ *
+ * He is DOCKED, not inline: bottom-right of the message area, above the
+ * composer, in the same spot every turn. The messages reserve that column so
+ * nothing scrolls under him.
  */
+.messages-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.messages-wrap .messages {
+  padding-right: 132px;
+}
 .robot-walk {
-  display: inline-block;
-  width: 16px;
-  height: 24px;
-  vertical-align: -7px;
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  z-index: 2;
+  pointer-events: none;
+  width: 96px;
+  height: 144px;
   background-repeat: no-repeat;
-  background-size: 256px 24px;
+  background-size: 1536px 144px;
   animation: robot-walk 1.4s steps(16) infinite;
   /* Dark teal plates on a near-black app: without a lift he reads as a smudge. */
   filter: brightness(1.18) saturate(1.1);
@@ -771,16 +786,8 @@ select:focus {
 }
 @keyframes robot-walk {
   to {
-    background-position: -256px 0;
+    background-position: -1536px 0;
   }
-}
-.turn-stats {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.bubble.pulse .robot-walk {
-  margin-left: 8px;
 }
 /* Someone who asked the OS for less movement should not get a walking robot. */
 @media (prefers-reduced-motion: reduce) {

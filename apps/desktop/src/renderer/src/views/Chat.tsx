@@ -276,10 +276,14 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
 }
 
 /**
- * Vodo, walking, for as long as there is work — and then standing there. A
- * sprite sheet rather than the source clip: sixteen frames of one keyed
- * stride, so stopping is `animation-play-state: paused`, which freezes on a
- * whole frame. He stops walking; he does not disappear.
+ * Vodo, walking, for as long as there is work — and then standing there.
+ *
+ * One of him per chat, docked bottom-right above the composer, so he is always
+ * in the same place: an indicator that moved with the last message was reading
+ * as a different thing each turn. A sprite sheet rather than the source clip —
+ * sixteen frames of one keyed stride, so stopping is `animation-play-state:
+ * paused`, which freezes on a whole frame. He stops walking; he does not
+ * disappear.
  */
 function RobotWalker({ walking, title }: { walking: boolean; title: string }) {
   return (
@@ -306,10 +310,7 @@ function WaitingBubble() {
   }, []);
   return (
     <>
-      <div className="bubble pulse">
-        …
-        <RobotWalker walking title="thinking" />
-      </div>
+      <div className="bubble pulse">…</div>
       {secs >= 8 && (
         <div className="meta">
           {secs}s — waiting for the first token. Local servers load the model and read the whole
@@ -372,11 +373,8 @@ function TurnStats({ m }: { m: UiMessage }) {
   if (elapsed !== null) parts.push(humanDuration(elapsed));
   if (!parts.length) return null;
   return (
-    <div className="meta turn-stats" title="Tokens, generation rate, and the turn's wall-clock time">
+    <div className="meta" title="Tokens, generation rate, and the turn's wall-clock time">
       {parts.join(' · ')}
-      {m.startedAt !== undefined && (
-        <RobotWalker walking={ticking} title={ticking ? 'working' : 'done'} />
-      )}
     </div>
   );
 }
@@ -1304,6 +1302,8 @@ export function Chat() {
       )}
 
       {!groupTakesOver && (
+      <div className="messages-wrap">
+      <RobotWalker walking={streaming} title={streaming ? 'working' : 'idle'} />
       <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         {messages.length === 0 && (
           <StatusCard
@@ -1336,6 +1336,7 @@ export function Chat() {
             )}
           </div>
         ))}
+      </div>
       </div>
       )}
 
