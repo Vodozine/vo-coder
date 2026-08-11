@@ -48,6 +48,7 @@ import { DeadModels } from './dead-models';
 import { executeFileIdTool, fileIdToolSpecs } from './file-id';
 import { executeImageTool, imageToolSpecs } from './image-gen';
 import { executeVideoTool, videoToolSpecs } from './video-gen';
+import { executePaymentTool, paymentToolSpecs, SpendLedger } from './payments';
 import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, stopLaunched, workspaceToolSpecs } from './workspace-tools';
@@ -172,6 +173,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // Vodo's cross-everything memory: every chat, mission, tool run, and note
   // lands in one timestamped journal that memory_recall can search.
   const journal = new Journal(join(app.getPath('userData'), 'journal.jsonl'));
+  // Every attempt to spend, approved or not — the daily cap is computed from it.
+  const spendLedger = new SpendLedger(join(app.getPath('userData'), 'spending.json'));
   const projectNameOf = (projectId?: string): string | undefined =>
     projectId ? projects.list().projects.find((p) => p.id === projectId)?.name : undefined;
   // Forgiving on purpose: models paraphrase project names ("solitaire" for
@@ -222,6 +225,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ...webToolSpecs(),
       ...imageToolSpecs(),
       ...videoToolSpecs(),
+      ...paymentToolSpecs(config),
       ...fileIdToolSpecs(),
       ...journal.toolSpecs(),
       ...(bank?.toolSpecs() ?? []),
@@ -373,6 +377,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }).then((res) => {
           if (res.imagePath) rememberShownInChat(res.imagePath);
           return res;
+        });
+      }
+      if (name === 'payment_spend') {
+        // Reaching here means a human already approved it: the gate ahead of
+        // this cannot be waived by any mode, mission flag or group allowance.
+        return executePaymentTool(args, config, secrets, spendLedger, {
+          askedBy:
+            (ctx?.sessionId ? projects.meta(ctx.sessionId)?.title : undefined) ?? 'an agent',
         });
       }
       if (name === 'video_generate') {

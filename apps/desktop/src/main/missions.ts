@@ -4,6 +4,7 @@ import { AgentSession, type PermissionDecision } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { Mission, MissionAction, MissionCreateInput } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
+import { ALWAYS_CONFIRM_TOOLS } from './tool-policy';
 
 /**
  * Missions: background objectives Vodo pursues on its own schedule. Each
@@ -376,7 +377,11 @@ export class MissionManager {
       },
       permission: async (req) => {
         const current = this.byId(mission.id);
-        if (current?.autoApprove) return 'allow';
+        // A mission is unattended BY DESIGN, which is exactly why its blanket
+        // approval must not cover money. This asks even at 3am, and an
+        // unanswered ask denies — a mission that wants to spend stalls rather
+        // than spends.
+        if (current?.autoApprove && !ALWAYS_CONFIRM_TOOLS.has(req.name)) return 'allow';
         if (this.backend.askPermission) {
           return this.backend.askPermission(mission.title, req.name, req.args);
         }

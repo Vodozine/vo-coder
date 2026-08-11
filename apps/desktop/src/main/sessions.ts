@@ -9,7 +9,7 @@ import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contr
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
-import { AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { ALWAYS_CONFIRM_TOOLS, AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { lookToolSpecs } from './vision-look';
 import { projectMdNote } from './project-md';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
@@ -810,11 +810,18 @@ export class SessionManager {
   ): Promise<PermissionDecision> {
     if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
     const mode = this.deps.config.get().approvalMode;
+    // Spending is asked EVERY time, before any of the escapes below. Auto mode
+    // is the user opting into autonomous work, not into autonomous purchases.
+    const mustConfirm = ALWAYS_CONFIRM_TOOLS.has(name);
     // Auto: the user opted into autonomous agents. Plan: allow through so the
     // executor's plan-mode block answers instructively (no modal either way).
     // Destructive infra tools still enforce their own confirm tier downstream.
-    if (mode === 'auto' || mode === 'plan') return Promise.resolve('allow');
-    if (SessionManager.GROUP_MEMBER_TOOLS.has(name) && this.isGroupMember(sessionId)) {
+    if (!mustConfirm && (mode === 'auto' || mode === 'plan')) return Promise.resolve('allow');
+    if (
+      !mustConfirm &&
+      SessionManager.GROUP_MEMBER_TOOLS.has(name) &&
+      this.isGroupMember(sessionId)
+    ) {
       return Promise.resolve('allow');
     }
     return new Promise((resolve) => {

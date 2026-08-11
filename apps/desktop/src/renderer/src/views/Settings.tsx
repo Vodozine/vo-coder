@@ -934,6 +934,214 @@ function VideoModelSection() {
   );
 }
 
+/**
+ * Spending. The registry of places money may go — and the ONLY place a payee
+ * can be named, which is the whole safety model: an agent picks from this list
+ * and supplies an amount, so a web page it read cannot address a payment.
+ */
+function SpendingSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [kind, setKind] = useState<'api' | 'checkout' | 'payout'>('api');
+  const [url, setUrl] = useState('');
+  const [payee, setPayee] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+
+  if (!config) return null;
+  const p = config.spending;
+  const save = (patch: Partial<typeof p>) => void saveConfig({ spending: { ...p, ...patch } });
+
+  const addMethod = () => {
+    const id = `pay_${Date.now().toString(36)}`;
+    save({
+      methods: [
+        ...p.methods,
+        {
+          id,
+          label: label.trim() || 'Unnamed',
+          kind,
+          currency: p.currency,
+          enabled: true,
+          ...(kind === 'api' || kind === 'payout' ? { url: url.trim(), secretRef: id } : {}),
+          ...(kind === 'payout' && payee.trim() ? { payee: payee.trim() } : {}),
+          ...(maxAmount ? { maxAmount: Number(maxAmount) } : {}),
+        },
+      ],
+    });
+    setLabel('');
+    setUrl('');
+    setPayee('');
+    setMaxAmount('');
+    setAdding(false);
+  };
+
+  return (
+    <section>
+      <h2>Spending</h2>
+      <p className="hint">
+        Off unless you turn it on. When on, agents get one tool — spend through a method you
+        registered here — and <strong>you confirm every single call</strong>. No mode, mission or
+        group setting can waive that prompt.
+      </p>
+      <details className="hint-more">
+        <summary>why it works this way</summary>
+        <p className="hint">
+          An agent reads web pages, repositories and issue trackers, and it cannot reliably tell an
+          instruction from you apart from one written into something it read. So it never names a
+          payee: it chooses from this list and supplies an amount and a reason. The caps below are
+          checked <em>before</em> you are asked, so a confirm dialog is never the only thing between
+          a mistake and the money — and every attempt is recorded whether it went through or not.
+          Use a virtual card with its own low limit for anything on the other end of this; the
+          issuer bounding the damage beats any code of mine being correct.
+        </p>
+      </details>
+      <div className="field-row">
+        <label>enabled</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={p.enabled}
+            onChange={(e) => save({ enabled: e.target.checked })}
+          />
+          agents may spend money
+        </label>
+      </div>
+      {p.enabled && (
+        <>
+          <div className="field-row">
+            <label>limits</label>
+            <input
+              type="number"
+              min={0}
+              value={p.perTransactionMax}
+              title="Per transaction — anything above is refused, not prompted"
+              onChange={(e) => save({ perTransactionMax: Number(e.target.value) })}
+            />
+            <span className="meta">per payment</span>
+            <input
+              type="number"
+              min={0}
+              value={p.dailyMax}
+              title="Rolling 24 hours, across every method"
+              onChange={(e) => save({ dailyMax: Number(e.target.value) })}
+            />
+            <span className="meta">per 24h</span>
+            <input
+              value={p.currency}
+              size={4}
+              onChange={(e) => save({ currency: e.target.value.toUpperCase().slice(0, 3) })}
+            />
+          </div>
+          {p.methods.length > 0 && (
+            <div className="agents-list">
+              {p.methods.map((m) => (
+                <div key={m.id} className={`agent-row${m.enabled ? '' : ' agent-row--off'}`}>
+                  <div className="agent-info">
+                    <strong>{m.label}</strong>
+                    <span className="meta">
+                      {m.kind}
+                      {m.payee ? ` → ${m.payee}` : ''}
+                      {m.url ? ` · ${m.url}` : ''}
+                      {m.maxAmount ? ` · max ${m.maxAmount} ${m.currency}` : ''}
+                    </span>
+                  </div>
+                  <div className="agent-actions">
+                    <button
+                      className={m.enabled ? 'ghost' : ''}
+                      onClick={() =>
+                        save({
+                          methods: p.methods.map((x) =>
+                            x.id === m.id ? { ...x, enabled: !x.enabled } : x,
+                          ),
+                        })
+                      }
+                    >
+                      {m.enabled ? 'On' : 'Off'}
+                    </button>
+                    <button
+                      className="ghost"
+                      onClick={() => save({ methods: p.methods.filter((x) => x.id !== m.id) })}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {adding ? (
+            <div className="agent-form form-grid">
+              <div className="field-row">
+                <label>label</label>
+                <input
+                  className="grow"
+                  value={label}
+                  placeholder="OpenRouter credits"
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+                <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+                  <option value="api">api — charge an endpoint</option>
+                  <option value="checkout">checkout — agent stops, you pay</option>
+                  <option value="payout">payout — fixed recipient</option>
+                </select>
+              </div>
+              {kind !== 'checkout' && (
+                <div className="field-row">
+                  <label>endpoint</label>
+                  <input
+                    className="grow"
+                    value={url}
+                    placeholder="https://api.example.com/v1/credits"
+                    onChange={(e) => setUrl(e.target.value)}
+                  />
+                </div>
+              )}
+              {kind === 'payout' && (
+                <div className="field-row">
+                  <label>recipient</label>
+                  <input
+                    className="grow"
+                    value={payee}
+                    placeholder="who receives it — fixed here, never chosen by an agent"
+                    onChange={(e) => setPayee(e.target.value)}
+                  />
+                </div>
+              )}
+              <div className="field-row">
+                <label>max</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={maxAmount}
+                  placeholder="this method's own ceiling (optional)"
+                  onChange={(e) => setMaxAmount(e.target.value)}
+                />
+              </div>
+              <p className="hint">
+                {kind === 'checkout'
+                  ? 'Nothing is paid from here: the agent prepares it and stops.'
+                  : 'After saving, add the credential under API keys using this method’s id — the token never goes in this form.'}
+              </p>
+              <div className="modal-actions">
+                <button className="ghost" onClick={() => setAdding(false)}>
+                  Cancel
+                </button>
+                <button className="send" disabled={!label.trim()} onClick={addMethod}>
+                  Add method
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)}>+ Add payment method</button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function WhisperSetupButton() {
   const saveConfig = useStore((s) => s.saveConfig);
   const [busy, setBusy] = useState(false);
@@ -2226,6 +2434,7 @@ export function Settings() {
       <ImageModelSection />
       <VideoModelSection />
       <VoiceSection />
+      <SpendingSection />
       <TelegramSection />
 
       <UpdatesSection />

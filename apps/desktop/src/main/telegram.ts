@@ -6,7 +6,7 @@ import type { TelegramInfo } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
 import { fmtStamp } from './journal';
 import type { SecretStore } from './secrets';
-import { AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { ALWAYS_CONFIRM_TOOLS, AUTO_ALLOWED_TOOLS } from './tool-policy';
 
 /**
  * Telegram remote control: talk to Vodo from your phone, start missions, get
@@ -399,8 +399,11 @@ export class TelegramBridge {
     if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
     const mode = this.config.get().approvalMode;
     // Auto: no prompts. Plan: allow through — the executor's plan-mode block
-    // replies instructively instead of a dead Allow/Deny exchange.
-    if (mode === 'auto' || mode === 'plan') return Promise.resolve('allow');
+    // replies instructively instead of a dead Allow/Deny exchange. Spending is
+    // the exception in every mode: it is always asked.
+    if (!ALWAYS_CONFIRM_TOOLS.has(name) && (mode === 'auto' || mode === 'plan')) {
+      return Promise.resolve('allow');
+    }
     return new Promise((resolve) => {
       const id = `tg${++this.permSeq}_${randomBytes(4).toString('hex')}`;
       this.pendingPerms.set(id, { chatId, resolve });

@@ -32,3 +32,16 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   // Reading installed know-how touches nothing outside the skills folder.
   'skill_read',
 ]);
+
+/**
+ * The opposite list: tools that a human confirms EVERY time, and that no
+ * setting can wave through — not Auto mode, not a mission's autoApprove, not a
+ * group member's allowance.
+ *
+ * Money is the only thing here, and it is here because every other gate in this
+ * app has a legitimate "the user opted into autonomy" escape. Spending has no
+ * safe version of that: a mission is unattended by design, and an agent cannot
+ * tell an instruction from the user apart from one embedded in a page it read.
+ * A confirm that can be turned off is not a confirm.
+ */
+export const ALWAYS_CONFIRM_TOOLS = new Set(['payment_spend']);

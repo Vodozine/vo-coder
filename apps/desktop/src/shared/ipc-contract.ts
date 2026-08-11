@@ -127,6 +127,8 @@ export interface AppConfig {
    * their own confirm tier in all modes.
    */
   approvalMode: 'auto' | 'plan' | 'manual';
+  /** Money. Off until deliberately turned on; see SpendingPolicy. */
+  spending: SpendingPolicy;
   /**
    * The app's generic scratch folder — every chat can always write SOMETHING.
    * Folder-less chats get it as their working folder (single files, images,
@@ -247,6 +249,13 @@ export const DEFAULT_CONFIG: AppConfig = {
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
   autoUpdate: true,
   approvalMode: 'manual',
+  spending: {
+    enabled: false,
+    perTransactionMax: 25,
+    dailyMax: 100,
+    currency: 'EUR',
+    methods: [],
+  },
   // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
   // cannot ask Electron for paths.
   genericDir: '',
@@ -454,6 +463,64 @@ export interface XaiOauthEvent {
  * One-shot ("run once") or looping (every N minutes, context carried between
  * runs while the app is open).
  */
+/**
+ * A place money may go, registered by the USER — never by an agent.
+ *
+ * This is the whole safety model, so it is worth stating plainly. An agent
+ * reads web pages, repositories and issue trackers, and it cannot reliably tell
+ * an instruction from the user apart from an instruction embedded in something
+ * it read. If it could name a payee, any page could name one. So it cannot: it
+ * chooses among these, and supplies only an amount and a reason.
+ */
+export interface PaymentMethod {
+  id: string;
+  /** What the human sees in the confirm prompt: "OpenRouter credits". */
+  label: string;
+  /**
+   * 'api'      — POST to a fixed URL with a saved token (top-ups, credits)
+   * 'checkout' — the agent prepares a basket and STOPS; the human pays
+   * 'payout'   — money to a fixed recipient; the recipient is part of this
+   *              record, so an agent can never redirect it
+   */
+  kind: 'api' | 'checkout' | 'payout';
+  /** 'api' only: the exact endpoint. Agents cannot supply a URL. */
+  url?: string;
+  /** Secret-store key holding the token/credential for this method. */
+  secretRef?: string;
+  /** 'payout' only: who receives it, fixed here. */
+  payee?: string;
+  /** Hard ceiling for THIS method, on top of the global per-transaction cap. */
+  maxAmount?: number;
+  currency: string;
+  enabled: boolean;
+}
+
+export interface SpendingPolicy {
+  /** Master switch. Off means the spend tool is not even offered to agents. */
+  enabled: boolean;
+  /** Refused before a human is ever asked — a cap, not a default. */
+  perTransactionMax: number;
+  /** Rolling 24h total across every method. */
+  dailyMax: number;
+  currency: string;
+  methods: PaymentMethod[];
+}
+
+/** One attempt to spend, approved or not. Kept whatever the outcome. */
+export interface SpendRecord {
+  id: string;
+  at: number;
+  methodId: string;
+  methodLabel: string;
+  amount: number;
+  currency: string;
+  purpose: string;
+  /** Which agent/session/mission asked. */
+  askedBy: string;
+  outcome: 'approved' | 'denied' | 'over-cap' | 'failed';
+  detail?: string;
+}
+
 export interface Mission {
   id: string;
   title: string;
