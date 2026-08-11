@@ -1,14 +1,15 @@
 import { execFile } from 'node:child_process';
 import type { SystemVoice } from '../types.js';
+import { LIST_VOICES_SCRIPT } from './windows-sapi.js';
 
 /**
  * What voices can this machine actually speak with?
  *
- * The name is not a label — it is the exact string SAPI's SelectVoice, `say -v`
- * and espeak's `-v` match on, so it is passed through untouched. Everything
- * else (language, gender) is decoration for the picker.
+ * The name is not a label — it is the exact string SAPI, `say -v` and espeak's
+ * `-v` match on, so it is passed through untouched. Everything else (language,
+ * gender) is decoration for the picker.
  *
- * Every platform is asked with the same engine that later does the speaking,
+ * Every platform is asked through the same engine that later does the speaking,
  * so the list can never offer a voice {@link SystemTts} cannot select.
  */
 
@@ -31,23 +32,6 @@ const run: Runner = (cmd, args) =>
       },
     );
   });
-
-/**
- * System.Speech is what SystemTts speaks through, so it is also what gets
- * asked. Two details are load-bearing:
- *
- * - Console output is forced to UTF-8, or the console codepage mangles a name
- *   like "Microsoft Guðrún" into one SelectVoice will never match.
- * - Not one double quote in the whole command. Node's argument quoting turns
- *   them into \" and powershell.exe eats them — the same boundary that once
- *   made SystemTts's SSML invalid. [char]9 is the tab that survives.
- */
-const WINDOWS_QUERY =
-  '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
-  'Add-Type -AssemblyName System.Speech; ' +
-  '(New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | ' +
-  'Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo } | ' +
-  'ForEach-Object { $_.Name + [char]9 + $_.Culture.Name + [char]9 + $_.Gender }';
 
 /** name<TAB>culture<TAB>gender, one voice per line. */
 export function parseWindowsVoices(stdout: string): SystemVoice[] {
@@ -108,7 +92,9 @@ export async function listSystemVoices(
   try {
     if (platform === 'win32') {
       return dedupe(
-        parseWindowsVoices(await exec('powershell', ['-NoProfile', '-Command', WINDOWS_QUERY])),
+        parseWindowsVoices(
+          await exec('powershell', ['-NoProfile', '-Command', LIST_VOICES_SCRIPT]),
+        ),
       );
     }
     if (platform === 'darwin') return dedupe(parseMacVoices(await exec('say', ['-v', '?'])));

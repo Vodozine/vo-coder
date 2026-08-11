@@ -5,6 +5,7 @@ import {
   parseMacVoices,
   parseWindowsVoices,
 } from '../src/tts/system-voices.ts';
+import { LIST_VOICES_SCRIPT, speakScript } from '../src/tts/windows-sapi.ts';
 
 describe('parseWindowsVoices', () => {
   it('reads name, culture and gender off the tab-separated lines', () => {
@@ -56,6 +57,42 @@ describe('parseEspeakVoices', () => {
       { name: 'afrikaans', language: 'af', gender: 'Male' },
       { name: 'icelandic', language: 'is', gender: 'Female' },
     ]);
+  });
+});
+
+describe('windows sapi scripts', () => {
+  const scripts = [
+    LIST_VOICES_SCRIPT,
+    speakScript({ rate: 0, pitch: 0, hasVoice: false }),
+    speakScript({ rate: -3, pitch: 7, hasVoice: true }),
+  ];
+
+  // Node's argument quoting turns a double quote into \" and powershell.exe
+  // then eats it. Every script here has to survive that boundary.
+  it('never uses a double quote', () => {
+    for (const s of scripts) expect(s).not.toContain('"');
+  });
+
+  it('reads both voice categories, not just the classic one', () => {
+    for (const s of [scripts[0]!, scripts[2]!]) {
+      expect(s).toContain('SOFTWARE\\Microsoft\\Speech\\Voices');
+      expect(s).toContain('SOFTWARE\\Microsoft\\Speech_OneCore\\Voices');
+    }
+  });
+
+  it('speaks plain text as NOT-markup, so a tag in an answer is read aloud', () => {
+    expect(scripts[1]).toMatch(/Speak\(\[Console\]::In\.ReadToEnd\(\), 16\)/);
+    expect(scripts[1]).not.toContain('VO_TTS_VOICE');
+  });
+
+  it('escapes the text before wrapping it in pitch markup', () => {
+    const s = scripts[2]!;
+    expect(s).toContain('SecurityElement]::Escape');
+    expect(s).toContain("<pitch absmiddle=''7''>");
+    expect(s).toMatch(/, 8\)$/);
+    expect(s).toContain('$v.Rate = -3;');
+    // The name itself never enters the command line.
+    expect(s).toContain('$env:VO_TTS_VOICE');
   });
 });
 
