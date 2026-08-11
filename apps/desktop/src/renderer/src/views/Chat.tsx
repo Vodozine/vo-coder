@@ -288,13 +288,28 @@ function humanDuration(ms: number): string {
  * model"; the elapsed time answers "how long did I wait" — and on a local box
  * those two are wildly different numbers, because loading and tool runs live
  * in the gap between them.
+ *
+ * The clock runs while the turn does. A number that only appears at the end is
+ * no use during the wait it is measuring — which is the whole point of it.
  */
 function TurnStats({ m }: { m: UiMessage }) {
+  // Until the first output arrives the waiting bubble is already counting;
+  // two clocks on screen at once is worse than one.
+  const ticking = m.streaming && m.startedAt !== undefined && !!(m.segments?.length || m.writing);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!ticking) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [ticking]);
+
   const parts: string[] = [];
   if (m.usage) parts.push(`${m.usage.inputTokens} in`, `${m.usage.outputTokens} out`);
   const rate = tokensPerSec(m);
   if (rate !== null) parts.push(`${rate} tok/s`);
-  if (m.elapsedMs !== undefined) parts.push(humanDuration(m.elapsedMs));
+  const elapsed =
+    m.elapsedMs ?? (ticking && m.startedAt !== undefined ? Date.now() - m.startedAt : null);
+  if (elapsed !== null) parts.push(humanDuration(elapsed));
   if (!parts.length) return null;
   return (
     <div className="meta" title="Tokens, generation rate, and the turn's wall-clock time">
