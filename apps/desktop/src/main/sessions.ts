@@ -11,7 +11,7 @@ import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
 import { ALWAYS_CONFIRM_TOOLS, AUTO_ALLOWED_TOOLS } from './tool-policy';
 import { lookToolSpecs } from './vision-look';
-import { projectMdNote } from './project-md';
+import { globalRulesNote, projectMdNote } from './project-md';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
 interface SessionManagerDeps {
@@ -284,7 +284,9 @@ export class SessionManager {
     // bind the work, its Map orients faster than ws_list. Re-read per send but
     // stable while the file is unchanged, so prompt caches survive; an edit
     // costs one reprefill, which is what an edit is for.
-    const projectNote = dir ? projectMdNote(dir) : '';
+    // The user's own standing rules come first and apply with or without a
+    // folder; the project's file is narrower and wins where they disagree.
+    const projectNote = globalRulesNote() + (dir ? projectMdNote(dir) : '');
     // The skills card catalog: names + one-liners only; the body loads
     // through skill_read on demand. Stable ordering, so prompt caches hold.
     const skillsNote = this.deps.skillsCatalog?.() ?? '';

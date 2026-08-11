@@ -253,7 +253,79 @@ function BrowserPreview({ suspend = false }: { suspend?: boolean }) {
   );
 }
 
+/**
+ * The user's standing rules, editable in the app. Deliberately a plain
+ * monospace box and not the highlighted code view: that one follows files as
+ * agents change them, and this file is the one thing here they must never
+ * touch — it is the user's half of the agreement.
+ */
+function GlobalRulesEditor() {
+  const close = useStore((s) => s.closeGlobalRules);
+  const [path, setPath] = useState('');
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.vo.globalRulesRead().then((r) => {
+      setPath(r.path);
+      setText(r.text);
+      setLoaded(true);
+    });
+  }, []);
+
+  const save = async () => {
+    const res = await window.vo.globalRulesWrite(text);
+    if (res.ok) {
+      setDirty(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      setError(res.error ?? 'Could not save.');
+    }
+  };
+
+  return (
+    <div className="rules-editor">
+      <div className="rules-editor-bar">
+        <strong>Your rules</strong>
+        <span className="meta grow">{path}</span>
+        {error && <span className="meta error-text">{error}</span>}
+        <button className="send" disabled={!dirty} onClick={() => void save()}>
+          {saved ? 'Saved ✓' : dirty ? 'Save' : 'Saved'}
+        </button>
+        <button className="ghost" onClick={close}>
+          Close
+        </button>
+      </div>
+      <textarea
+        className="rules-editor-text"
+        spellCheck={false}
+        value={loaded ? text : 'Loading…'}
+        onChange={(e) => {
+          setText(e.target.value);
+          setDirty(true);
+        }}
+        // Ctrl+S is the muscle memory for a text box that owns a file.
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            if (dirty) void save();
+          }
+        }}
+      />
+      <p className="hint">
+        Every agent reads this before working, in every folder. A project’s own VO-CODER.md is
+        more specific and wins where the two disagree. Agents never edit this file.
+      </p>
+    </div>
+  );
+}
+
 export function Preview() {
+  const editingRules = useStore((s) => s.editGlobalRules);
   // What the pane shows. Remembered across view switches: this component
   // unmounts on every trip to Chat/Settings, and re-picking Browser each time
   // is the same papercut the group grid's per-page pick had.
@@ -291,8 +363,15 @@ export function Preview() {
 
   // Whatever is on the right, in both layouts. Only the browser pane needs
   // the drag suspend — CodeWatch is plain DOM, so it resizes live.
-  const pane =
-    mode === 'browser' ? <BrowserPreview suspend={split && dragging} /> : <CodeWatch />;
+  // The rules editor takes the pane over when Settings sends us here: it is
+  // the one thing in Preview that is written rather than watched.
+  const pane = editingRules ? (
+    <GlobalRulesEditor />
+  ) : mode === 'browser' ? (
+    <BrowserPreview suspend={split && dragging} />
+  ) : (
+    <CodeWatch />
+  );
 
   return (
     <div className="preview-view">

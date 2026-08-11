@@ -757,6 +757,10 @@ export interface VoApi {
   memMapSetStatus(projectId: string, nodeId: number, status: string): Promise<void>;
   memMapDelete(projectId: string, nodeId: number): Promise<void>;
   /** Read a generated/project image as a data URL for inline display. */
+  /** The user's global VO-CODER.md (~/.vo-coder/VO-CODER.md), read and written
+   *  from Settings only — agents never edit the user's own rules. */
+  globalRulesRead(): Promise<{ path: string; text: string }>;
+  globalRulesWrite(text: string): Promise<{ ok: boolean; error?: string }>;
   imageRead(path: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
   /**
    * A generated video's bytes, for a Blob the player can stream. Raw bytes
@@ -876,4 +880,6 @@ export const IPC = {
   memMapDelete: 'mem:mapDelete',
   imageRead: 'image:read',
   videoRead: 'video:read',
+  globalRulesRead: 'rules:read',
+  globalRulesWrite: 'rules:write',
 } as const;

@@ -182,6 +182,10 @@ interface AppState {
   updateInfo: UpdateEvent | null;
   usage: UsageData | null;
   missions: Mission[];
+  /** Settings → "Edit rules" sends the Preview pane into its editor. */
+  editGlobalRules: boolean;
+  openGlobalRules(): void;
+  closeGlobalRules(): void;
 
   startWatch(dir: string): Promise<string | null>;
   stopWatch(): Promise<void>;
@@ -305,6 +309,7 @@ export const useStore = create<AppState>((set, get) => ({
   updateInfo: null,
   usage: null,
   missions: [],
+  editGlobalRules: false,
 
   async startWatch(dir) {
     const result = await window.vo.watchStart(dir);
@@ -485,6 +490,13 @@ export const useStore = create<AppState>((set, get) => ({
   },
   clearAgentToEdit() {
     if (get().agentToEdit) set({ agentToEdit: null });
+  },
+  openGlobalRules() {
+    set({ editGlobalRules: true });
+    get().setView('preview');
+  },
+  closeGlobalRules() {
+    set({ editGlobalRules: false });
   },
   setView(view) {
     const prev = get().view;

@@ -60,7 +60,15 @@ import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import { executeGroupTool, groupToolSpecs } from './groups';
-import { gateNudge, projectGate, projectMdPath } from './project-md';
+import {
+  gateNudge,
+  globalRulesPath,
+  GLOBAL_RULES_TEMPLATE,
+  projectGate,
+  projectMdPath,
+  readGlobalRules,
+  writeGlobalRules,
+} from './project-md';
 import {
   importSkill,
   importSkillFromGitHub,
@@ -2606,6 +2614,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     };
     return roots.some(inside) ? target : null;
   };
+
+  ipcMain.handle(IPC.globalRulesRead, () => ({
+    path: globalRulesPath(),
+    text: readGlobalRules() || GLOBAL_RULES_TEMPLATE,
+  }));
+  ipcMain.handle(IPC.globalRulesWrite, (_e, text: string) => {
+    try {
+      writeGlobalRules(String(text ?? ''));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 
   ipcMain.handle(IPC.imageRead, (_e, path: string) => {
     try {

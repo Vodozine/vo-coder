@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 
 /**
  * VO-CODER.md — the standing agreement between the user and the agents that
@@ -181,6 +182,58 @@ export function gateNudge(codeFiles: number, capped: boolean): string {
     '"## Rules" — the user\'s decisions in their words, which only they may change — and ' +
     '"## Map" — layout, build/run/test commands, key files, kept fresh by you. If the user wants ' +
     'none of it, accept it, write nothing, and never raise it again.]'
+  );
+}
+
+/** The user's own rules, applying everywhere: ~/.vo-coder/VO-CODER.md. */
+export function globalRulesPath(): string {
+  return join(homedir(), '.vo-coder', 'VO-CODER.md');
+}
+
+export function readGlobalRules(): string {
+  try {
+    return readFileSync(globalRulesPath(), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** Written only from Settings — never by an agent. Creates ~/.vo-coder on first save. */
+export function writeGlobalRules(text: string): void {
+  const path = globalRulesPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, 'utf8');
+}
+
+/** What a brand-new file says, so the box is never blank and unexplained. */
+export const GLOBAL_RULES_TEMPLATE = `# My rules
+
+Standing rules for every project. Vodo and every agent read this before they
+work, in every folder. A project's own VO-CODER.md is more specific and wins
+where the two disagree.
+
+## Rules
+
+-
+`;
+
+/**
+ * The standing rules that follow the user between projects, prepended to every
+ * session — folder or no folder. A project's own VO-CODER.md is narrower and
+ * therefore wins where the two disagree; that precedence is stated to the
+ * agent rather than left to be inferred.
+ */
+export function globalRulesNote(): string {
+  const text = readGlobalRules().trim();
+  if (!text) return '';
+  const body = text.length > RULES_MAX_CHARS ? `${text.slice(0, RULES_MAX_CHARS)}\n…` : text;
+  return (
+    '\n\nTHE USER’S STANDING RULES (from their global VO-CODER.md, applying to every project ' +
+    'and every folder):\n' +
+    body +
+    '\nThese are the user’s words and bind your work. A project’s own VO-CODER.md is more ' +
+    'specific and wins where the two disagree. Never edit this file yourself — if the user ' +
+    'states a new standing rule in chat, offer to add it and let them confirm.'
   );
 }
 

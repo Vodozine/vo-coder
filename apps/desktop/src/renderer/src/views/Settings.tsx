@@ -935,6 +935,47 @@ function VideoModelSection() {
 }
 
 /**
+ * The user's standing rules — the ones that follow them between projects. A
+ * project's VO-CODER.md covers one folder; this covers all of them, and it is
+ * the user's own file, so it opens in an editor rather than being written by
+ * an agent on request.
+ */
+function GlobalRulesSection() {
+  const openGlobalRules = useStore((s) => s.openGlobalRules);
+  const [path, setPath] = useState('');
+  const [lines, setLines] = useState<number | null>(null);
+
+  useEffect(() => {
+    void window.vo.globalRulesRead().then((r) => {
+      setPath(r.path);
+      setLines(r.text.split('\n').filter((l) => l.trim()).length);
+    });
+  }, []);
+
+  return (
+    <section>
+      <h2>Your rules</h2>
+      <p className="hint">
+        Standing rules for every project — Vodo and every agent read them before working, folder or
+        no folder. A project&apos;s own VO-CODER.md is narrower and wins where the two disagree.
+      </p>
+      <div className="field-row">
+        <label>file</label>
+        <input className="grow" value={path} readOnly />
+        <button onClick={openGlobalRules}>Edit in Preview</button>
+      </div>
+      {lines !== null && (
+        <p className="hint">
+          {lines > 6
+            ? `${lines} lines in force.`
+            : 'Nothing set yet — the editor opens with a starting template.'}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * Spending. The registry of places money may go — and the ONLY place a payee
  * can be named, which is the whole safety model: an agent picks from this list
  * and supplies an amount, so a web page it read cannot address a payment.
@@ -2428,6 +2469,7 @@ export function Settings() {
         </details>
       </section>
 
+      <GlobalRulesSection />
       <McpSection />
       <SkillsSection />
       <VisionSection />
