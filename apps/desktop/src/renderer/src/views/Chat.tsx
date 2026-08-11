@@ -232,6 +232,35 @@ function tokensPerSec(m: UiMessage): string | null {
   return rate >= 10 ? rate.toFixed(0) : rate.toFixed(1);
 }
 
+/** "45s", "6m 1s", "1h 12m" — the shape a wait is actually read in. */
+function humanDuration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}m ${total % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/**
+ * What the turn cost, in one line. Tokens and tok/s answer "how fast is the
+ * model"; the elapsed time answers "how long did I wait" — and on a local box
+ * those two are wildly different numbers, because loading and tool runs live
+ * in the gap between them.
+ */
+function TurnStats({ m }: { m: UiMessage }) {
+  const parts: string[] = [];
+  if (m.usage) parts.push(`${m.usage.inputTokens} in`, `${m.usage.outputTokens} out`);
+  const rate = tokensPerSec(m);
+  if (rate !== null) parts.push(`${rate} tok/s`);
+  if (m.elapsedMs !== undefined) parts.push(humanDuration(m.elapsedMs));
+  if (!parts.length) return null;
+  return (
+    <div className="meta" title="Tokens, generation rate, and the turn's wall-clock time">
+      {parts.join(' · ')}
+    </div>
+  );
+}
+
 export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
   return (
     <>
@@ -279,12 +308,7 @@ export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking:
         )}
       {m.error && <div className="bubble error">⚠ {m.error}</div>}
       {m.aborted && <div className="meta">stopped</div>}
-      {m.usage && (
-        <div className="meta">
-          {m.usage.inputTokens} in · {m.usage.outputTokens} out
-          {tokensPerSec(m) !== null && ` · ${tokensPerSec(m)} tok/s`}
-        </div>
-      )}
+      <TurnStats m={m} />
     </>
   );
 }

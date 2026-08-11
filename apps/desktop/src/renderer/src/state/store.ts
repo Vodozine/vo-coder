@@ -89,6 +89,13 @@ export interface UiMessage {
   /** Open stream's first/last delta; folded into genMs when it ends. */
   genStart?: number;
   genLast?: number;
+  /**
+   * Wall-clock for the whole turn — set when the bubble appears, frozen when
+   * the turn goes idle. Unlike genMs this INCLUDES the waiting: model loading,
+   * prompt processing, every tool run. It is the number you feel.
+   */
+  startedAt?: number;
+  elapsedMs?: number;
   /** A tool call's arguments are streaming in — the "silence" is a file being written. */
   writing?: { name?: string; chars: number };
   streaming: boolean;
@@ -1037,6 +1044,7 @@ export const useStore = create<AppState>((set, get) => ({
       role: 'assistant',
       segments: [],
       streaming: true,
+      startedAt: Date.now(),
     };
     set((s) => ({
       attachments: [],
@@ -1407,13 +1415,26 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
             streaming: true,
             messages: [
               ...session.messages,
-              { id: nextId++, role: 'assistant', segments: [], streaming: true },
+              {
+                id: nextId++,
+                role: 'assistant',
+                segments: [],
+                streaming: true,
+                startedAt: Date.now(),
+              },
             ],
           };
         });
       } else if (event.status === 'idle') {
         // Seal too: a turn cut short (abort, error) may never reach 'done'.
-        patchDraft((m) => sealGen({ ...m, streaming: false, writing: undefined }));
+        patchDraft((m) =>
+          sealGen({
+            ...m,
+            streaming: false,
+            writing: undefined,
+            ...(m.startedAt !== undefined ? { elapsedMs: Date.now() - m.startedAt } : {}),
+          }),
+        );
         patchSession((session) => ({ ...session, streaming: false }));
         // A finished review run means the proposal is on screen — show the
         // Approve / Revise / Don't accept pill.
