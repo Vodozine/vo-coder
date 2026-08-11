@@ -747,6 +747,42 @@ select:focus {
   border-radius: 0 0 var(--radius) var(--radius);
   background: #000;
 }
+/*
+ * The working indicator: one keyed stride of Robot 8, 16 frames across a
+ * 1024x96 sheet, quartered to 16x24 on screen. steps(16) walks the sheet a
+ * frame at a time — no tween, no video decode, and it stops the instant the
+ * element goes away, which is what "Vodo stopped working" should look like.
+ */
+.robot-walk {
+  display: inline-block;
+  width: 16px;
+  height: 24px;
+  vertical-align: -7px;
+  background-repeat: no-repeat;
+  background-size: 256px 24px;
+  animation: robot-walk 1.4s steps(16) infinite;
+  /* Dark teal plates on a near-black app: without a lift he reads as a smudge. */
+  filter: brightness(1.18) saturate(1.1);
+}
+@keyframes robot-walk {
+  to {
+    background-position: -256px 0;
+  }
+}
+.turn-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bubble.pulse .robot-walk {
+  margin-left: 8px;
+}
+/* Someone who asked the OS for less movement should not get a walking robot. */
+@media (prefers-reduced-motion: reduce) {
+  .robot-walk {
+    animation: none;
+  }
+}
 .gen-video-wrap {
   border-top: 1px solid var(--border);
 }

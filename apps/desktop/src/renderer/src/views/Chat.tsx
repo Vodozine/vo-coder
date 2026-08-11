@@ -5,6 +5,7 @@ import { ModelPicker } from '../components/ModelPicker';
 import { ModeToggle } from '../components/ModeToggle';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
+import robotWalkUrl from '../assets/robot-walk.png';
 import { useStore, type Segment, type UiMessage } from '../state/store';
 import { useVoice } from '../voice/useVoice';
 import { GroupView } from './GroupView';
@@ -275,6 +276,24 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
 }
 
 /**
+ * Vodo, walking, for as long as there is work. A sprite sheet rather than the
+ * source clip: sixteen frames of one keyed stride, so it starts on the frame
+ * it stops on and costs nothing to pause — when the turn ends the walker is
+ * simply not rendered, and the robot stops mid-stride where it stood.
+ */
+function RobotWalker({ title }: { title: string }) {
+  return (
+    <span
+      className="robot-walk"
+      role="img"
+      aria-label="working"
+      title={title}
+      style={{ backgroundImage: `url(${robotWalkUrl})` }}
+    />
+  );
+}
+
+/**
  * A local server sends nothing while it loads the model and reads the prompt —
  * minutes on an older GPU. A bare "…" reads as a hang, so once the wait stops
  * looking instant, say what is happening and count.
@@ -287,7 +306,10 @@ function WaitingBubble() {
   }, []);
   return (
     <>
-      <div className="bubble pulse">…</div>
+      <div className="bubble pulse">
+        …
+        <RobotWalker title="thinking" />
+      </div>
       {secs >= 8 && (
         <div className="meta">
           {secs}s — waiting for the first token. Local servers load the model and read the whole
@@ -350,8 +372,9 @@ function TurnStats({ m }: { m: UiMessage }) {
   if (elapsed !== null) parts.push(humanDuration(elapsed));
   if (!parts.length) return null;
   return (
-    <div className="meta" title="Tokens, generation rate, and the turn's wall-clock time">
+    <div className="meta turn-stats" title="Tokens, generation rate, and the turn's wall-clock time">
       {parts.join(' · ')}
+      {ticking && <RobotWalker title="working" />}
     </div>
   );
 }
