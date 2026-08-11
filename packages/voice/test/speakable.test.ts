@@ -17,6 +17,25 @@ describe('speakable', () => {
     expect(out).toContain('Gather');
   });
 
+  // Live voice speaks a reply in pieces. A piece cut mid-block used to arrive
+  // with a fence the paired rule could not match, and the engine read the
+  // backticks and the source aloud.
+  it('omits a code block the chunker cut in half', () => {
+    const opens = speakable('Here is the fix:\n```ts\nconst a = 1;');
+    expect(opens).not.toContain('`');
+    expect(opens).not.toContain('const a');
+    expect(opens).toContain('Code block omitted');
+    expect(speakable('half `an identifier')).not.toContain('`');
+  });
+
+  it('reads identifiers and paths the way a person would', () => {
+    expect(speakable('the `CENTER_CROP` value')).toContain('CENTER CROP');
+    expect(speakable('APK: `app/build/outputs/apk/debug/app-debug.apk`')).toContain('app-debug.apk');
+    expect(speakable('APK: `app/build/outputs/apk/debug/app-debug.apk`')).not.toContain('build');
+    expect(speakable('stretch to exact W×H')).toContain('W by H');
+    expect(speakable('`FIT_CENTER` / `EXACT`')).toContain('FIT CENTER, EXACT');
+  });
+
   it('omits code blocks and de-noises links', () => {
     const out = speakable('Run this:\n```js\nconst x = 1;\n```\nSee [the docs](https://example.com) or https://raw.example.com/x');
     expect(out).toContain('Code block omitted');

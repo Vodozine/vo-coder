@@ -34,6 +34,15 @@ export function useVoice(appendToInput: (text: string) => void) {
   /** Streaming TTS: sentences queue up as the model writes them. */
   const speakQueueRef = useRef<string[]>([]);
   const speakPumpingRef = useRef(false);
+  /**
+   * The system voice speaks from the main process and only returns when it has
+   * finished, so its clips cannot be fetched ahead. Every other engine hands
+   * back bytes, and the next one can be synthesised while this one plays.
+   */
+  const canPrefetchRef = useRef(false);
+  canPrefetchRef.current = useStore(
+    (s) => s.config?.voice.tts !== 'system' && s.config?.voice.tts !== 'none',
+  );
   /** How far into the current assistant message we've already spoken. */
   const spokenPosRef = useRef<{ id: number; chars: number }>({ id: 0, chars: 0 });
 
@@ -174,16 +183,28 @@ export function useVoice(appendToInput: (text: string) => void) {
   }, [liveStart, liveStop]);
 
   // Sequentially voice queued sentences; the mic stays deaf the whole time.
+  //
+  // The gap between sentences used to be a whole synthesis round trip — seconds
+  // on a local Kokoro box — because nothing was requested until the previous
+  // clip had finished playing. The next chunk is now fetched WHILE the current
+  // one plays, so the pause is whatever is left of that wait, usually none.
   const pumpSpeech = useCallback(async () => {
     if (speakPumpingRef.current) return;
     speakPumpingRef.current = true;
+    /** Synthesis already in flight for the chunk at the head of the queue. */
+    let prefetched: ReturnType<typeof window.vo.voiceSpeak> | null = null;
     try {
       while (speakQueueRef.current.length > 0) {
         // The ref mutates across awaits — re-read it uncached each pass.
         if ((liveStateRef.current as LiveState) === 'off') return;
         setLiveState('speaking');
         const chunk = speakQueueRef.current.shift()!;
-        const result = await window.vo.voiceSpeak(chunk);
+        const result = await (prefetched ?? window.vo.voiceSpeak(chunk));
+        prefetched = null;
+        // Start the next one now, so it is ready when this clip ends.
+        if (canPrefetchRef.current && speakQueueRef.current.length > 0) {
+          prefetched = window.vo.voiceSpeak(speakQueueRef.current[0]!);
+        }
         if ((liveStateRef.current as LiveState) === 'off') return;
         if (!result.ok) {
           setVoiceError(result.error);
@@ -255,12 +276,23 @@ export function useVoice(appendToInput: (text: string) => void) {
       cut = pending.length;
       lastSpokenIdRef.current = last.id; // reply fully queued
     } else {
+      // Never cut inside a code fence. A chunk that ends mid-block arrives at
+      // the cleaner with an unclosed ``` it cannot pair, and the engine reads
+      // the backticks and the source out loud. An odd count means the last
+      // fence is still open, so nothing past it is speakable yet.
+      let searchable = pending;
+      if (((pending.match(/```/g) ?? []).length & 1) === 1) {
+        searchable = pending.slice(0, pending.lastIndexOf('```'));
+      }
       // Latest sentence boundary — but only speak fragments of a useful size.
-      for (const mark of ['. ', '! ', '? ', '.\n', '!\n', '?\n', '\n']) {
-        const at = pending.lastIndexOf(mark);
+      // Every chunk costs a synthesis round trip, so a bulleted list cut at
+      // each newline became a dozen of them, and the delivery came out in
+      // stutters. Bigger pieces, fewer seams.
+      for (const mark of ['. ', '! ', '? ', '.\n', '!\n', '?\n', '\n\n']) {
+        const at = searchable.lastIndexOf(mark);
         if (at >= 0) cut = Math.max(cut, at + mark.length);
       }
-      if (cut < 60) return;
+      if (cut < 160) return;
     }
     if (cut <= 0) return;
     const chunk = pending.slice(0, cut).trim();
