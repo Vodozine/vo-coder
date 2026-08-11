@@ -61,6 +61,8 @@ interface SessionManagerDeps {
     tools?: boolean;
     image?: boolean;
   };
+  /** Agent id -> title of the running mission holding it. */
+  busyAgents?: () => Map<string, string>;
   /** The skills catalog note (empty when no skills are installed/enabled). */
   skillsCatalog?: () => string;
 }
@@ -208,6 +210,7 @@ export class SessionManager {
     if (agents.length < 2) return '';
     const band = (q: number | undefined): string =>
       q === undefined ? 'unrated' : q >= 9 ? 'top' : q >= 7 ? 'strong' : q >= 5 ? 'mid' : 'small';
+    const onMission = this.deps.busyAgents?.() ?? new Map<string, string>();
     const lines = agents.map((a) => {
       const p = this.deps.agentProfile?.(a) ?? {};
       const can: string[] = [];
@@ -219,11 +222,13 @@ export class SessionManager {
       if (a.thinking?.enabled) can.push('extended thinking');
       const mcp = (a.mcpServers ?? []).filter(Boolean);
       const hints = a.routingHints?.trim();
+      const busy = onMission.get(a.id);
       return (
         `- ${a.name} — ${a.model ?? '(app default)'} [${band(p.quality)}]` +
         (can.length ? ` · ${can.join(', ')}` : '') +
         (mcp.length ? ` · MCP: ${mcp.join(', ')}` : ' · no MCP servers') +
-        (hints ? ` · good at: ${hints}` : '')
+        (hints ? ` · good at: ${hints}` : '') +
+        (busy ? ` · BUSY — on the mission "${busy}", do not give it work` : '')
       );
     });
     return (

@@ -24,6 +24,8 @@ const RESULT_SNIPPET = 800;
 export interface MissionAgentBackend {
   /** Vodo's current spec (fresh config each call). */
   vodoSpec(): AgentSpec;
+  /** A hired agent's spec by id — the mission runs AS that agent. */
+  agentSpec(agentId: string): AgentSpec | undefined;
   projectDir(projectId: string): string | undefined;
   resolveProject(nameOrId: string): string | undefined;
   resolve(spec: AgentSpec, override?: { provider?: string; model?: string }): BoundModel;
@@ -97,6 +99,22 @@ export class MissionManager {
     return this.missions.map((m) => ({ ...m }));
   }
 
+  /**
+   * Agents currently held by a running mission, and by which one.
+   *
+   * An agent IS a model on a GPU here. Handing it a chat turn while a mission
+   * has it means one card serving two jobs, which halves both — so routing and
+   * group seating consult this and skip what is busy, and say so rather than
+   * silently choosing someone weaker.
+   */
+  busyAgents(): Map<string, string> {
+    const held = new Map<string, string>();
+    for (const m of this.missions) {
+      if (m.status === 'running' && m.agentId) held.set(m.agentId, m.title);
+    }
+    return held;
+  }
+
   create(input: MissionCreateInput): Mission {
     const title = input.title.trim() || 'Untitled mission';
     const objective = input.objective.trim();
@@ -108,6 +126,7 @@ export class MissionManager {
       id: `mission_${Date.now()}_${++this.seq}`,
       title,
       objective,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(interval ? { intervalMinutes: interval } : {}),
       // Unattended by design: nobody is watching a scheduled 3am run, and an
@@ -307,11 +326,17 @@ export class MissionManager {
     if (state) return state;
 
     const dir = mission.projectId ? this.backend.projectDir(mission.projectId) : undefined;
-    const base = this.backend.vodoSpec();
+    // A mission can be handed to one of the hired agents. Its own model, MCP
+    // servers and system prompt come with it; only the mission framing is
+    // added. An id that no longer resolves (agent deleted) falls back to Vodo
+    // rather than failing the run.
+    const base =
+      (mission.agentId ? this.backend.agentSpec(mission.agentId) : undefined) ??
+      this.backend.vodoSpec();
     const spec: AgentSpec = {
       ...base,
       id: mission.id,
-      name: `Vodo · ${mission.title}`,
+      name: `${base.name} · ${mission.title}`,
       systemPrompt:
         `${base.systemPrompt ?? ''}\n\n` +
         `You are running an autonomous background MISSION titled "${mission.title}". ` +
@@ -387,10 +412,17 @@ export class MissionManager {
           'You have your previous runs above. Continue where you left off, verify earlier work, and report what changed.';
     this.backend.log?.(`"${mission.title}" run #${mission.runCount} started`, mission.projectId);
 
+    // Auto-routing picks the model for a Vodo mission. It must NOT do that when
+    // the mission was given to a named agent: choosing that agent IS choosing
+    // its model — and on this rig its model is a specific GPU. Routing over the
+    // top would run the mission somewhere else entirely while still holding the
+    // agent's reservation.
     let override: { provider?: string; model?: string } | undefined;
-    const dir = mission.projectId ? this.backend.projectDir(mission.projectId) : undefined;
-    const pick = await this.backend.route(mission.objective, !!dir).catch(() => undefined);
-    if (pick) override = { provider: pick.provider, model: pick.model };
+    if (!mission.agentId) {
+      const dir = mission.projectId ? this.backend.projectDir(mission.projectId) : undefined;
+      const pick = await this.backend.route(mission.objective, !!dir).catch(() => undefined);
+      if (pick) override = { provider: pick.provider, model: pick.model };
+    }
 
     const parts: UserPart[] = [{ type: 'text', text: prompt }];
     const result = state.session.send(parts, override);

@@ -27,6 +27,9 @@ function MissionCard({ mission }: { mission: Mission }) {
   const project = mission.projectId
     ? projects.find((p) => p.id === mission.projectId)?.name
     : undefined;
+  const agentName = useStore((s) =>
+    mission.agentId ? s.config?.agents.find((a) => a.id === mission.agentId)?.name : undefined,
+  );
 
   const control = (action: 'run' | 'pause' | 'resume' | 'delete') =>
     void window.vo.missionControl(mission.id, action);
@@ -62,8 +65,12 @@ function MissionCard({ mission }: { mission: Mission }) {
       </div>
       <div className="meta">
         {mission.intervalMinutes ? `every ${mission.intervalMinutes} min` : 'one-shot'}
+        {agentName ? ` · ${agentName}` : ''}
         {project ? ` · ${project}` : ''} · runs: {mission.runCount} · last: {fmtWhen(mission.lastRunAt)}
       </div>
+      {mission.agentId && mission.status === 'running' && (
+        <div className="meta">{agentName ?? 'That agent'} is reserved until this finishes</div>
+      )}
       {mission.lastError && <div className="meta error-text">⚠ {mission.lastError}</div>}
       {mission.lastResult && (
         <>
@@ -84,8 +91,10 @@ export function Missions() {
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [projectId, setProjectId] = useState('');
+  const [agentId, setAgentId] = useState('');
   const [interval, setInterval_] = useState<number | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const agents = useStore((s) => s.config?.agents ?? []);
 
   const create = async () => {
     setError(null);
@@ -93,6 +102,7 @@ export function Missions() {
       await window.vo.missionCreate({
         title: title.trim(),
         objective: objective.trim(),
+        ...(agentId ? { agentId } : {}),
         ...(projectId ? { projectId } : {}),
         ...(interval ? { intervalMinutes: interval } : {}),
       });
@@ -145,6 +155,31 @@ export function Missions() {
               placeholder="Full instructions — the mission agent starts with no other context. e.g. Check the Proxmox backup list; if the newest backup is older than 24h, investigate and report why."
             />
           </div>
+          <div className="field-row">
+            <label>agent</label>
+            <select
+              className="grow"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              title="Who runs it. A named agent is reserved while the mission runs — routing and group projects skip it, so its GPU is not serving two jobs at once."
+            >
+              <option value="">Vodo (the default agent)</option>
+              {agents
+                .filter((a) => a.enabled !== false)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                    {a.model ? ` — ${a.model}` : ''}
+                  </option>
+                ))}
+            </select>
+          </div>
+          {agentId && (
+            <p className="hint">
+              Reserved while it runs: Vodo will not route chats to this agent or seat it in a group
+              until the mission finishes.
+            </p>
+          )}
           <div className="field-row">
             <label>project</label>
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>

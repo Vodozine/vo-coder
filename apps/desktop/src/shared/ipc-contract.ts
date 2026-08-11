@@ -458,6 +458,13 @@ export interface Mission {
   id: string;
   title: string;
   objective: string;
+  /**
+   * Which agent runs it. Absent = Vodo himself. A named agent is RESERVED for
+   * the duration of a run: routing and group projects skip it, because an
+   * agent is one local model on one GPU and giving it a second job at the same
+   * time is how both crawl.
+   */
+  agentId?: string;
   /** Optional project whose folder the mission gets workspace tools for. */
   projectId?: string;
   /** Repeat every N minutes; absent = run once. */
@@ -476,6 +483,7 @@ export interface Mission {
 export interface MissionCreateInput {
   title: string;
   objective: string;
+  agentId?: string;
   projectId?: string;
   intervalMinutes?: number;
   autoApprove?: boolean;

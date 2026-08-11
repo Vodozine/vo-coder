@@ -429,7 +429,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
         return executeGroupTool(name, args, {
-          agents: () => config.get().agents,
+          // An agent held by a running mission is not available to be seated:
+          // it is one model on one GPU and it already has a job.
+          agents: () => {
+            const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
+            return config.get().agents.filter((a) => !busy.has(a.id));
+          },
           qualityOf: qualityOfAgent,
           createSession: (pid, agentId, title, groupId, dir) =>
             projects.createSession(pid, agentId, title, groupId, dir).id,
@@ -628,6 +633,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     builtins,
     modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
     agentProfile,
+    busyAgents: () => missionsRef?.busyAgents() ?? new Map<string, string>(),
     skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
     ...(bank
       ? {
@@ -1857,11 +1863,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             provider: config.get().defaultProvider,
             model: config.get().defaultModel,
           };
+          // An agent on a mission is one GPU already working. Routing skips it
+          // rather than handing the same card a second job.
+          const onMission = missionsRef?.busyAgents() ?? new Map<string, string>();
           const agents = [
             boss,
             ...config
               .get()
-              .agents.filter((ag) => ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false),
+              .agents.filter(
+                (ag) =>
+                  ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false && !onMission.has(ag.id),
+              ),
           ];
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
@@ -2420,6 +2432,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   const missions = new MissionManager(join(app.getPath('userData'), 'missions.json'), {
     vodoSpec,
+    agentSpec: (agentId) => config.get().agents.find((a) => a.id === agentId),
     projectDir: (projectId) => projects.list().projects.find((p) => p.id === projectId)?.dir,
     resolveProject: resolveProjectId,
     resolve: resolveSpec,
