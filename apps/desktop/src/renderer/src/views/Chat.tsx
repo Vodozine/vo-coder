@@ -180,17 +180,48 @@ function GeneratedImage({ path }: { path: string }) {
 }
 
 /**
- * Inline player for a generated clip. The bytes arrive raw and become a Blob
- * here rather than a data URL: a 20 MB mp4 would grow by a third in base64 for
- * nothing. Loading is on demand — a chat full of clips must not pull every one
- * into memory just to render the transcript.
+ * Inline player for a generated clip — it plays in the chat, like a generated
+ * image shows in the chat.
+ *
+ * Two details keep that affordable. The bytes arrive raw and become a Blob
+ * rather than a data URL, which would be a third larger for nothing; and a clip
+ * only loads once it scrolls into view, so a long design session with twenty
+ * clips in it does not hold twenty videos in memory to render the transcript.
  */
 function GeneratedVideo({ path }: { path: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const name = path.split(/[/\\]/).pop() ?? path;
+  const holder = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    const node = holder.current;
+    if (!node) return;
+    let live = true;
+    const load = () => {
+      void window.vo.videoRead(path).then((r) => {
+        if (!live) return;
+        if (r.ok && r.data) setUrl(URL.createObjectURL(new Blob([r.data], { type: r.mimeType })));
+        else setError(r.error ?? 'Could not load the video.');
+      });
+    };
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          load();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(node);
+    return () => {
+      live = false;
+      io.disconnect();
+    };
+  }, [path]);
+
+  // Revoking is tied to the url itself: the cleanup above runs on unmount too,
+  // and a blob left behind is the whole file still in memory.
   useEffect(
     () => () => {
       if (url) URL.revokeObjectURL(url);
@@ -198,26 +229,33 @@ function GeneratedVideo({ path }: { path: string }) {
     [url],
   );
 
-  const load = async () => {
-    setLoading(true);
-    const r = await window.vo.videoRead(path);
-    setLoading(false);
-    if (r.ok && r.data) setUrl(URL.createObjectURL(new Blob([r.data], { type: r.mimeType })));
-    else setError(r.error ?? 'Could not load the video.');
-  };
-
-  if (error) return <div className="meta">🎬 {error}</div>;
-  if (!url) {
-    return (
-      <div className="meta gen-video-load">
-        <button className="ghost" disabled={loading} onClick={() => void load()}>
-          {loading ? 'Loading…' : '▶ Play'}
-        </button>
-        {name}
-      </div>
-    );
-  }
-  return <video className="gen-video" src={url} controls autoPlay title={path} />;
+  return (
+    <div className="gen-video-wrap" ref={holder}>
+      {error ? (
+        <div className="meta">🎬 {error}</div>
+      ) : url ? (
+        <video
+          className="gen-video"
+          src={url}
+          controls
+          autoPlay
+          loop
+          title={`${path} — click to open`}
+          // Chromium refuses an unmuted autoplay without user activation.
+          // Rather than start every clip muted, ask for sound and fall back.
+          onCanPlay={(e) => {
+            const el = e.currentTarget;
+            void el.play().catch(() => {
+              el.muted = true;
+              void el.play().catch(() => {});
+            });
+          }}
+        />
+      ) : (
+        <div className="meta">loading video…</div>
+      )}
+    </div>
+  );
 }
 
 function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
