@@ -16,6 +16,11 @@
       "types": "./dist/dsp.d.ts",
       "import": "./dist/dsp.js",
       "default": "./dist/dsp.js"
+    },
+    "./chunker": {
+      "types": "./dist/chunker.d.ts",
+      "import": "./dist/chunker.js",
+      "default": "./dist/chunker.js"
     }
   },
   "files": [

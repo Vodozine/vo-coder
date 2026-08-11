@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnergyVad, encodeWavPcm16 } from '@vo-coder/voice/dsp';
-import { nextSpeechCut } from '@vo-coder/voice';
+// Subpath, not the package root: the index pulls in the TTS providers and
+// their node:child_process, which cannot be bundled into a renderer.
+import { nextSpeechCut } from '@vo-coder/voice/chunker';
 import { useStore } from '../state/store';
 import { MicCapture } from './capture';
 
