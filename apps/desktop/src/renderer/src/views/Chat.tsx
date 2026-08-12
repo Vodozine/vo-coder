@@ -773,6 +773,76 @@ function AdvisorBanner() {
   );
 }
 
+/**
+ * One of your agents is working a mission for Vodo — watch it happen.
+ *
+ * A mission's session is built in the main process and never had a window,
+ * which was right while a mission was Vodo talking to himself at 3am. Once the
+ * work belongs to a named agent, "somebody is working for Vodo" has to be
+ * visible: the pane opens itself when the agent starts and leaves when it is
+ * done, the same bargain the group grid makes.
+ *
+ * It is NOT the group grid: that has an End group button, which on a mission
+ * would end the wrong thing.
+ */
+function MissionLive() {
+  const setView = useStore((s) => s.setView);
+  const mission = useStore((s) =>
+    s.missions.find((m) => m.status === 'running' && m.agentId),
+  );
+  const agentName = useStore((s) =>
+    mission?.agentId ? s.config?.agents.find((a) => a.id === mission.agentId)?.name : undefined,
+  );
+  const live = useStore((s) => (mission ? s.sessions[mission.id] : undefined));
+  const [open, setOpen] = useState(true);
+  const tailRef = useRef<HTMLDivElement>(null);
+
+  const last = live?.messages[live.messages.length - 1];
+  const segments = last?.segments ?? [];
+  // Follow the work: the tail changes on every delta, not only on a new segment.
+  const tailLength = segments.reduce((n, s) => n + (s.kind === 'tool' ? 1 : s.text.length), 0);
+
+  useEffect(() => {
+    tailRef.current?.scrollTo({ top: tailRef.current.scrollHeight });
+  }, [tailLength]);
+
+  if (!mission) return null;
+  return (
+    <div className="mission-live">
+      <div className="mission-live-head">
+        <span className="mission-status running">working</span>
+        <strong>{agentName ?? 'An agent'}</strong>
+        <span className="meta grow">{mission.title}</span>
+        <button className="ghost" onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+        <button className="ghost" onClick={() => setView('missions')}>
+          Missions
+        </button>
+      </div>
+      {open && (
+        <div className="mission-live-body" ref={tailRef}>
+          {segments.length === 0 ? (
+            <div className="meta">starting…</div>
+          ) : (
+            segments.map((seg, i) =>
+              seg.kind === 'tool' ? (
+                <div key={i} className="meta">
+                  {seg.status === 'running' ? '⏳' : seg.status === 'error' ? '✗' : '✓'} {seg.name}
+                </div>
+              ) : seg.kind === 'text' ? (
+                <div key={i} className="mission-live-text">
+                  {seg.text}
+                </div>
+              ) : null,
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CheckinBanner() {
   const checkin = useStore((s) => s.checkin);
   const dismiss = useStore((s) => s.dismissCheckin);
@@ -1341,6 +1411,7 @@ export function Chat() {
       )}
 
       <footer className="composer-wrap">
+        <MissionLive />
         <CheckinBanner />
         <AdvisorBanner />
         <SuggestPanel onApply={() => undefined} />

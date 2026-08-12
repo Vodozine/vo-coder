@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { AgentSession, type PermissionDecision } from '@vo-coder/core';
+import { AgentSession, type PermissionDecision, type SessionEvent } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { Mission, MissionAction, MissionCreateInput } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
@@ -27,6 +27,15 @@ export interface MissionAgentBackend {
   vodoSpec(): AgentSpec;
   /** A hired agent's spec by id — the mission runs AS that agent. */
   agentSpec(agentId: string): AgentSpec | undefined;
+  /**
+   * Mirror a mission's stream to the window, keyed by the mission id.
+   * A mission's AgentSession is built here rather than by the SessionManager,
+   * so nothing it does has ever been visible — fine while missions were
+   * Vodo talking to himself at 3am, wrong once one of the user's agents is the
+   * one doing the work. The renderer's event handler is keyed by session id
+   * and does not care that this id is a mission's.
+   */
+  emitToUi?: (sessionId: string, event: SessionEvent) => void;
   projectDir(projectId: string): string | undefined;
   resolveProject(nameOrId: string): string | undefined;
   resolve(spec: AgentSpec, override?: { provider?: string; model?: string }): BoundModel;
@@ -360,6 +369,9 @@ export class MissionManager {
         return bound;
       },
       emit: (_sid, event) => {
+        // Watchable only when one of the user's agents is doing it: Vodo's own
+        // background chores stay background, which is what a mission is for.
+        if (mission.agentId) this.backend.emitToUi?.(mission.id, event);
         if (event.type === 'text_delta') fresh.text += event.text;
         else if (event.type === 'error') {
           fresh.erred = true;

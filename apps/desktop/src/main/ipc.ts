@@ -2482,6 +2482,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const missions = new MissionManager(join(app.getPath('userData'), 'missions.json'), {
     vodoSpec,
     agentSpec: (agentId) => config.get().agents.find((a) => a.id === agentId),
+    emitToUi: (sessionId, event) => sendToWindow(IPC.chatEvent, { sessionId, event }),
     projectDir: (projectId) => projects.list().projects.find((p) => p.id === projectId)?.dir,
     resolveProject: resolveProjectId,
     resolve: resolveSpec,
