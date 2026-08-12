@@ -65,7 +65,22 @@ export class VoiceHost {
   }
 
   transcribe(wav: Uint8Array): Promise<string> {
-    return this.stt().transcribe(wav);
+    const v = this.config.get().voice;
+    const language = v.sttLanguage?.trim().toLowerCase();
+    // Both engines take a language and neither was ever given one. That is NOT
+    // the same as auto-detect: whisper-cli's own default is `-l en`, so an
+    // Icelandic sentence was being transcribed AS English — which is why it
+    // came back as English-shaped nonsense rather than as bad Icelandic. Empty
+    // now means what the settings box says it means.
+    const opts =
+      v.stt === 'whisper-local'
+        ? { language: language || 'auto' }
+        : // The OpenAI endpoint genuinely auto-detects when the field is absent,
+          // and would reject 'auto' as a language code.
+          language
+          ? { language }
+          : undefined;
+    return this.stt().transcribe(wav, opts);
   }
 
   async speak(text: string): Promise<TtsOutput> {

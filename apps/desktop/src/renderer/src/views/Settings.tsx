@@ -1563,7 +1563,32 @@ function VoiceSection() {
             onChange={(e) => save({ sttModel: e.target.value })}
           />
         )}
+        <input
+          list="stt-langs"
+          size={6}
+          placeholder="auto"
+          value={v.sttLanguage}
+          title="The language YOU speak, as an ISO-639-1 code — is, en, da, de… Empty means auto-detect. Set it if you dictate in anything other than English: whisper.cpp's own default is English, so until now it was pushing every language through English rather than detecting one."
+          onChange={(e) => save({ sttLanguage: e.target.value.trim().toLowerCase() })}
+        />
+        <datalist id="stt-langs">
+          <option value="is">Icelandic</option>
+          <option value="en">English</option>
+          <option value="da">Danish</option>
+          <option value="no">Norwegian</option>
+          <option value="sv">Swedish</option>
+          <option value="de">German</option>
+          <option value="pl">Polish</option>
+        </datalist>
       </div>
+      {v.stt === 'whisper-local' && v.sttLanguage && v.sttLanguage !== 'en' && (
+        <p className="hint">
+          The bundled <code>ggml-base</code> model is multilingual but small, and a language
+          further from English will be rough with it. If <strong>{v.sttLanguage}</strong> comes back
+          garbled, a larger model in the same folder (<code>ggml-large-v3</code>) is a real step up
+          — slower per phrase, since this runs on this machine&apos;s CPU.
+        </p>
+      )}
       {v.stt === 'whisper-local' && (!v.whisperPath || !v.whisperModel) && (
         <div className="field-row">
           <span className="hint grow">

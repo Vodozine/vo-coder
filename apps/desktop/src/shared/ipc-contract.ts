@@ -171,6 +171,16 @@ export interface VoiceSettings {
   stt: 'openai' | 'whisper-local';
   /** Model for the OpenAI-compatible transcription endpoint. */
   sttModel: string;
+  /**
+   * What language you speak, as an ISO-639-1 code — 'is', 'en', 'da'. Empty
+   * means auto-detect.
+   *
+   * Worth stating why this exists: both engines accept a language and nothing
+   * was passing one, and whisper.cpp's own default is `-l en` rather than
+   * auto. So a non-English speaker was not getting a bad guess, they were
+   * getting their words forced through English.
+   */
+  sttLanguage: string;
   whisperPath: string;
   whisperModel: string;
   /**
@@ -225,6 +235,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   voice: {
     stt: 'openai',
     sttModel: 'whisper-1',
+    sttLanguage: '',
     whisperPath: '',
     whisperModel: '',
     tts: 'system',
