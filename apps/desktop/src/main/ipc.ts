@@ -2167,6 +2167,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.watchStart, (_e, dir: string) => projectWatcher.start(dir));
   ipcMain.handle(IPC.watchStop, () => projectWatcher.stop());
   ipcMain.handle(IPC.watchReadFile, (_e, relPath: string) => projectWatcher.read(relPath));
+  ipcMain.handle(IPC.watchWriteFile, (_e, relPath: string, content: string) =>
+    projectWatcher.write(relPath, content),
+  );
   ipcMain.handle(IPC.watchReadBaseline, (_e, relPath: string) =>
     projectWatcher.readBaseline(relPath),
   );

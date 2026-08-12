@@ -1700,10 +1700,35 @@ input[type='radio']:focus-visible {
 .cw-filehead {
   position: sticky;
   top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
   padding: 6px 12px;
   z-index: 2;
+}
+.cw-filehead .cw-edit {
+  padding: 3px 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+/* Editing takes the whole pane: the diff is what you were reading, and half a
+   diff beside half an editor helps nobody. */
+.cw-editor {
+  display: block;
+  width: 100%;
+  min-height: calc(100% - 34px);
+  resize: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 .cw-line {
   display: flex;

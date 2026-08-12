@@ -234,6 +234,14 @@ export function CodeWatch() {
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [suggestInput, setSuggestInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Editing the file being watched. The diff view is the point of this pane, so
+   * editing is a mode you enter rather than the default: `null` means reading.
+   * A truncated read never becomes editable — saving half a file deletes the
+   * other half.
+   */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const codeRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(follow);
   followRef.current = follow;
@@ -280,6 +288,7 @@ export function CodeWatch() {
     async (path: string, state?: FileChangeState) => {
       setSelection(null);
       setSuggestInput(null);
+      setDraft(null); // switching files leaves the editor, never carries a draft across
       setActiveFile(path);
       const s = useStore.getState();
       const effState =
@@ -449,8 +458,84 @@ export function CodeWatch() {
               <div className="cw-filehead mono">
                 {activeFile}
                 {fileNote && <span className="error-text"> — {fileNote}</span>}
+                <span className="grow" />
+                {draft === null ? (
+                  <button
+                    className="ghost cw-edit"
+                    // A truncated read is a partial file; saving it would drop
+                    // the rest, so that one stays read-only.
+                    disabled={!!fileNote}
+                    title={
+                      fileNote
+                        ? 'Not editable — this file was only partly loaded'
+                        : 'Edit this file here and save it back'
+                    }
+                    onClick={() => {
+                      void window.vo.watchReadFile(activeFile).then((r) => {
+                        if (r.ok && r.content !== undefined) setDraft(r.content);
+                        else setError(r.error ?? 'Could not open the file for editing.');
+                      });
+                    }}
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="send cw-edit"
+                      disabled={saving}
+                      onClick={() => {
+                        setSaving(true);
+                        void window.vo.watchWriteFile(activeFile, draft).then((r) => {
+                          setSaving(false);
+                          if (!r.ok) return setError(r.error ?? 'Could not save.');
+                          setError(null);
+                          setDraft(null);
+                          // Re-read: the watcher fires and the diff redraws
+                          // against what is now on disk.
+                          void openFile(activeFile);
+                        });
+                      }}
+                    >
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button className="ghost cw-edit" onClick={() => setDraft(null)}>
+                      Cancel
+                    </button>
+                  </>
+                )}
               </div>
-              {viewLines.map((line, i) => {
+              {draft !== null && (
+                <textarea
+                  className="cw-editor mono"
+                  spellCheck={false}
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Ctrl+S saves; Tab indents instead of leaving the box.
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                      e.preventDefault();
+                      const el = e.currentTarget;
+                      setSaving(true);
+                      void window.vo.watchWriteFile(activeFile, el.value).then((r) => {
+                        setSaving(false);
+                        if (!r.ok) return setError(r.error ?? 'Could not save.');
+                        setError(null);
+                        setDraft(null);
+                        void openFile(activeFile);
+                      });
+                    } else if (e.key === 'Tab') {
+                      e.preventDefault();
+                      const el = e.currentTarget;
+                      const { selectionStart: a, selectionEnd: b, value } = el;
+                      setDraft(`${value.slice(0, a)}  ${value.slice(b)}`);
+                      requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
+                    }
+                  }}
+                />
+              )}
+              {draft === null && viewLines.map((line, i) => {
                 const html =
                   viewLines.length <= MAX_HIGHLIGHT_LINES
                     ? highlight(line.text, activeLang)

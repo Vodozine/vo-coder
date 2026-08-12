@@ -96,6 +96,7 @@ const api: VoApi = {
   onWatchEvent: subscribe(IPC.watchEvent),
   onWatchGit: subscribe(IPC.watchGit),
   watchReadFile: (relPath) => ipcRenderer.invoke(IPC.watchReadFile, relPath),
+  watchWriteFile: (relPath, content) => ipcRenderer.invoke(IPC.watchWriteFile, relPath, content),
   watchReadBaseline: (relPath) => ipcRenderer.invoke(IPC.watchReadBaseline, relPath),
   projectsList: () => ipcRenderer.invoke(IPC.projectsList),
   projectCreate: (name, dir) => ipcRenderer.invoke(IPC.projectCreate, name, dir),

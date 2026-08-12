@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { watch, type FSWatcher } from 'chokidar';
@@ -149,6 +149,35 @@ export class ProjectWatcher {
         content: slice.toString('utf8'),
         truncated: buffer.length > MAX_FILE_BYTES,
       };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * Save an edit made in the code pane. Same fence as read() — a path that
+   * leaves the watched folder is refused — and it refuses to write over what
+   * read() could only show PART of, since saving a truncated view would delete
+   * the rest of the file.
+   */
+  write(relPath: string, content: string): { ok: boolean; error?: string } {
+    if (!this.root) return { ok: false, error: 'Nothing is being watched.' };
+    const target = resolve(this.root, relPath);
+    const rel = relative(this.root, target);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      return { ok: false, error: 'Path escapes the watched folder.' };
+    }
+    try {
+      const existing = statSync(target);
+      if (existing.size > MAX_FILE_BYTES) {
+        return { ok: false, error: 'This file was only partly loaded — saving would truncate it.' };
+      }
+    } catch {
+      /* a new file is fine */
+    }
+    try {
+      writeFileSync(target, content, 'utf8');
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

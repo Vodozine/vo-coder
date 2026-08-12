@@ -674,6 +674,8 @@ export interface VoApi {
   watchStop(): Promise<void>;
   onWatchEvent(cb: (event: WatchEvent) => void): () => void;
   onWatchGit(cb: (status: WatchGitStatus) => void): () => void;
+  /** Save an edit made in the code pane, fenced to the watched folder. */
+  watchWriteFile(relPath: string, content: string): Promise<{ ok: boolean; error?: string }>;
   watchReadFile(relPath: string): Promise<{
     ok: boolean;
     content?: string;
@@ -849,6 +851,7 @@ export const IPC = {
   watchEvent: 'watch:event',
   watchGit: 'watch:git',
   watchReadFile: 'watch:readFile',
+  watchWriteFile: 'watch:writeFile',
   watchReadBaseline: 'watch:readBaseline',
   projectsList: 'projects:list',
   projectCreate: 'projects:create',
