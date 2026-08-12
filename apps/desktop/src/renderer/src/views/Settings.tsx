@@ -1457,7 +1457,14 @@ function CompatTtsFields({
       {!error && catalog.models.length > 0 && (
         <p className="hint">
           {catalog.models.length} speech model{catalog.models.length === 1 ? '' : 's'} from this
-          endpoint{voices.length ? ` · ${voices.length} voices for this model` : ''}.
+          endpoint
+          {voices.length
+            ? ` · ${voices.length} voices for this model.`
+            : // No list is not the same as no voices. A server that does not
+              // publish /audio/voices (openedai-speech, most Piper wrappers)
+              // has whatever names its own config gives it, and guessing them
+              // from the model id produces a list where every entry fails.
+              ' · it does not publish its voice names, so type the one you configured (piper: salka, bui…).'}
         </p>
       )}
       <KeyRow provider="tts-custom" />

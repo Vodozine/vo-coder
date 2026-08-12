@@ -9,8 +9,21 @@ export function humanizeTtsError(status: number, body: string, model?: string): 
   let message = '';
   let code = '';
   try {
-    const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } };
-    message = String(parsed.error?.message ?? '').trim();
+    // Not every OpenAI-compatible server nests its error the way OpenAI does.
+    // openedai-speech answers {"message": "Error loading voice: alloy…"} and
+    // FastAPI answers {"detail": …} — reading only error.message threw both
+    // away and left the user with a bare "Speech failed (400)".
+    const parsed = JSON.parse(body) as {
+      error?: { message?: string; code?: string };
+      message?: string;
+      detail?: unknown;
+    };
+    message = String(
+      parsed.error?.message ??
+        parsed.message ??
+        (typeof parsed.detail === 'string' ? parsed.detail : '') ??
+        '',
+    ).trim();
     code = String(parsed.error?.code ?? '');
   } catch {
     message = body.trim();
@@ -26,6 +39,12 @@ export function humanizeTtsError(status: number, body: string, model?: string): 
   }
   if (status === 401 || status === 403) {
     return `The speech endpoint rejected the key (${status}). Check the key saved under Settings → Voice.`;
+  }
+  if (/voice/i.test(message) && (status === 400 || status === 404)) {
+    return (
+      `${message} — this endpoint does not have that voice. Its own names are whatever it was ` +
+      'configured with; type one in the voice field rather than picking from the list.'
+    );
   }
   if (status === 404 || code === 'model_not_found') {
     return `${named} is not available on this endpoint (404). Pick another from the model list.`;

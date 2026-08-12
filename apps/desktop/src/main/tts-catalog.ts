@@ -33,8 +33,17 @@ const KNOWN_VOICES: Array<{ match: RegExp; voices: string[] }> = [
   },
 ];
 
-function voicesForModel(id: string): string[] {
-  return KNOWN_VOICES.find((k) => k.match.test(id))?.voices ?? [];
+function voicesForModel(id: string, base: string): string[] {
+  // "tts-1" is OpenAI's model id AND the alias half the self-hosted servers
+  // adopt for compatibility — openedai-speech serves Piper under it. Offering
+  // OpenAI's ten voice names for a local server is a list where every entry
+  // 400s, which is worse than offering nothing: nothing leaves a text field,
+  // where the server's own names can be typed.
+  const openAiHosted = /(^|\/\/)api\.openai\.com/i.test(base);
+  const known = KNOWN_VOICES.find((k) => k.match.test(id));
+  if (!known) return [];
+  if (known.match.source.includes('tts-1') && !openAiHosted) return [];
+  return known.voices;
 }
 
 /** A model id worth offering for SPEECH — chat and transcription ids are noise. */
@@ -109,7 +118,7 @@ export async function fetchCompatCatalog(
 
   const voicesFor: Record<string, string[]> = {};
   for (const id of offered) {
-    const known = voicesForModel(id);
+    const known = voicesForModel(id, base);
     const list = serverVoices.length ? serverVoices : known;
     if (list.length) voicesFor[id] = list;
   }
