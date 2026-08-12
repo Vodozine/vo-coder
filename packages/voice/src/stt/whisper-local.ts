@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { cpus, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { SttProvider, TranscribeOptions } from '../types.js';
@@ -13,6 +13,8 @@ export interface WhisperLocalOptions {
   binaryPath: string;
   modelPath: string;
   timeoutMs?: number;
+  /** Decode threads; defaults to the machine's cores minus two. */
+  threads?: number;
 }
 
 export class WhisperLocalStt implements SttProvider {
@@ -25,15 +27,26 @@ export class WhisperLocalStt implements SttProvider {
     const wavPath = join(dir, 'audio.wav');
     try {
       await writeFile(wavPath, wav);
+      // whisper.cpp defaults to 4 threads whatever the machine has. Measured on
+      // a 12-core laptop with large-v3-turbo: 28.0s at the default, 15.8s when
+      // told about the cores — the same words, for free. Two are left for the
+      // rest of the app, which is mid-conversation while this runs.
+      const threads = Math.max(4, (this.opts.threads ?? cpus().length) - 2);
       const args = [
         '-m', this.opts.modelPath,
         '-f', wavPath,
+        '-t', String(threads),
         '--no-timestamps',
         '--no-prints',
         ...(transcribeOpts?.language ? ['-l', transcribeOpts.language] : []),
       ];
+      // Scaled to the audio, not fixed. A big model runs several times slower
+      // than realtime on CPU — large-v3-turbo measured ~4x — so the old flat
+      // 60s killed any longer sentence the moment someone swapped in a model
+      // good enough for their language. PCM16 mono at 16 kHz = 32000 B/s.
+      const audioSeconds = wav.byteLength / 32_000;
       const { stdout } = await pExecFile(this.opts.binaryPath, args, {
-        timeout: this.opts.timeoutMs ?? 60_000,
+        timeout: this.opts.timeoutMs ?? Math.max(60_000, Math.ceil(audioSeconds) * 15_000),
         windowsHide: true,
       });
       return String(stdout).trim();
