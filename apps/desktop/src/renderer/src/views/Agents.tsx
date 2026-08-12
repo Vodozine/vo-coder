@@ -279,6 +279,12 @@ export function Agents() {
     void saveAgents(config.agents.map((a) => (a.id === id ? { ...a, enabled } : a)));
   };
 
+  // A spread patch, like setEnabled — deliberately not a trip through the form,
+  // which rebuilds the spec from its own fields.
+  const setMemory = (id: string, memory: boolean) => {
+    void saveAgents(config.agents.map((a) => (a.id === id ? { ...a, memory } : a)));
+  };
+
   // Mr Homelab is configured in his own tab, next to his name — he owns a whole
   // view, so listing him here as one card among the specialists put the same
   // settings in two places.
@@ -302,6 +308,7 @@ export function Agents() {
         <div className="agents-list">
           {listed.map((a) => {
             const on = a.enabled !== false;
+            const remembers = a.memory !== false;
             return (
               <div key={a.id} className={`agent-row${on ? '' : ' agent-row--off'}`}>
                 <div className="agent-info">
@@ -327,6 +334,17 @@ export function Agents() {
                     onClick={() => setEnabled(a.id, !on)}
                   >
                     {on ? 'On' : 'Off'}
+                  </button>
+                  <button
+                    className={remembers ? 'ghost' : ''}
+                    title={
+                      remembers
+                        ? 'Carries the project between jobs: it gets the project briefing every turn (~1.5k tokens) and can search the memory map and archive. Click to make it work from its brief and the code alone.'
+                        : 'Works only from what it is told and the code in front of it — no briefing, no memory tools — and asks the coordinator when something is missing. Click to give it the project.'
+                    }
+                    onClick={() => setMemory(a.id, !remembers)}
+                  >
+                    {remembers ? 'Memory' : 'No memory'}
                   </button>
                   <button
                     title="Start a new chat with this agent in the current project"
