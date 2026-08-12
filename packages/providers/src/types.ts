@@ -213,4 +213,16 @@ export interface AgentSpec {
   thinkingVisibility?: 'visible' | 'hidden';
   /** Request extended thinking/reasoning from providers that support it. */
   thinking?: ChatRequest['thinking'];
+  /**
+   * Carries the project between jobs. Undefined means yes — an agent written
+   * before this flag existed keeps its memory.
+   *
+   * New agents are created `false`. Such an agent is hired for a part: it works
+   * from the brief it is given and the code in front of it, and asks the
+   * coordinator when something is missing. It gets no project briefing (that is
+   * ~1.5k tokens of other people's tasks on every turn, which a worker reads as
+   * its own orders) and no memory tools — fewer places to look. Coherence is the
+   * coordinator's job, not the worker's.
+   */
+  memory?: boolean;
 }

@@ -31,6 +31,13 @@ export const INFRA_SIGNALS_MIN = 2;
 export interface GroupDeps {
   agents: () => AgentSpec[];
   /**
+   * Agents a running mission is holding, with the mission's title. They are
+   * already absent from agents(), so this exists only to SAY WHY: a seat
+   * refused with "no such agent" reads as a typo, and a named part quietly
+   * rerouted reads as the coordinator's pick being ignored.
+   */
+  onMission?: () => Array<{ name: string; mission: string }>;
+  /**
    * How capable an agent's model is (1–10, the catalog's own scale). Only a
    * tiebreak, but on a roster of general-purpose agents nearly every part ties
    * — and without it the hardest part went to whoever was least recently used.
@@ -280,7 +287,9 @@ export async function executeGroupTool(
     deps.send(
       member.sessionId,
       `FROM VODO (your coordinator) — new instruction:\n\n${message}\n\n` +
-        'Do this now, record progress with map_update, and stop when it is done.',
+        (agent?.memory === false
+          ? 'Do this now, report back what you did, and stop when it is done.'
+          : 'Do this now, record progress with map_update, and stop when it is done.'),
     );
     return {
       content:
@@ -315,10 +324,27 @@ export async function executeGroupTool(
     // explicit named request from the coordinator is a deliberate choice, not
     // the accidental auto-seating the group_start filter guards against.
     const roster = deps.agents().filter((ag) => ag.enabled !== false);
-    const agent =
-      roster.find((ag) => norm(ag.name) === norm(agentName)) ??
-      roster.find((ag) => norm(ag.name).includes(norm(agentName)));
+    // An agent on a mission is off the roster for the duration — one model on
+    // one GPU, already working. Named outright, it is refused by NAME and by
+    // reason: the exact-name case skips the roster lookup so a partial match on
+    // someone else cannot quietly stand in for the person actually asked for.
+    const onMission = deps.onMission?.() ?? [];
+    const heldExact = onMission.find((h) => norm(h.name) === norm(agentName));
+    const agent = heldExact
+      ? undefined
+      : (roster.find((ag) => norm(ag.name) === norm(agentName)) ??
+        roster.find((ag) => norm(ag.name).includes(norm(agentName))));
     if (!agent) {
+      const held = heldExact ?? onMission.find((h) => norm(h.name).includes(norm(agentName)));
+      if (held) {
+        return {
+          content:
+            `${held.name} is on the mission "${held.mission}" and cannot take a seat until it ` +
+            'finishes — that is one model already working, and handing it a second job halves ' +
+            'both. Seat someone else, or give the task to an idle member with group_send.',
+          isError: true,
+        };
+      }
       return {
         content:
           `No enabled agent matches "${agentName}". Roster: ` +
@@ -359,7 +385,14 @@ export async function executeGroupTool(
     if (agent.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(
       member.sessionId,
-      memberBrief(updated.goal, member, updated.members, !!dir, !!(dir && deps.hasProjectMd?.(dir))),
+      memberBrief(
+        updated.goal,
+        member,
+        updated.members,
+        !!dir,
+        !!(dir && deps.hasProjectMd?.(dir)),
+        agent.memory !== false,
+      ),
     );
     return {
       content:
@@ -410,6 +443,10 @@ export async function executeGroupTool(
           '\nDispatch each with group_send the moment a member goes idle — they are YOUR ' +
           'backlog now, and forgetting them ships an incomplete job.'
         : '') +
+      (result.held.length
+        ? `\nNOT AVAILABLE — ${result.held.join('; ')}. Tell the user who actually took it ` +
+          'instead of reporting the agent you named.'
+        : '') +
       '\nThey are working in their own chats now — the split view shows them. Tell the user who ' +
       'is doing what, then wait for their results rather than doing the work yourself. Mid-run ' +
       'you can hand any of them follow-up work with group_send — and if the job needs more ' +
@@ -430,6 +467,14 @@ export function memberBrief(
   all: GroupMember[],
   sharedFolder = false,
   projectMd = false,
+  /**
+   * Does this member carry project memory? A member without it has no map
+   * tools and no briefing, so the paragraphs telling it to record progress in
+   * the map, to read the others' nodes, and to check its briefing for lessons
+   * would all name things it does not have. A false instruction is worse than
+   * a missing one: the model tries, fails, and improvises around the failure.
+   */
+  hasMemory = true,
 ): string {
   const others = all
     .filter((m) => m.sessionId !== member.sessionId)
@@ -465,14 +510,28 @@ export function memberBrief(
     'of something already running (ws_stop with no arguments lists it). A whole team each ' +
     'leaving one instance open is how nineteen copies of the same app ended up running.\n\n' +
     'Do your part only — the others have theirs, and duplicating their work wastes everyone. ' +
-    'Record your plan and progress with map_update as a "task" node (status active, then done): ' +
-    'that is what the others see of you, and it is what survives if this conversation is ' +
-    'summarised. Use map_query to see where they have got to before you assume anything about ' +
-    'their part, and say so plainly if your part turns out to depend on theirs.\n\n' +
+    (hasMemory
+      ? 'Record your plan and progress with map_update as a "task" node (status active, then ' +
+        'done): that is what the others see of you, and it is what survives if this conversation ' +
+        'is summarised. Use map_query to see where they have got to before you assume anything ' +
+        'about their part, and say so plainly if your part turns out to depend on theirs.\n\n'
+      : // Hired help: no map, no briefing, no reading the other members. It
+        // reports to the coordinator and asks the coordinator. That is the
+        // whole point — one place to look, and nothing another agent wrote
+        // half-finished can steer it.
+        'When your part is done, say so plainly in your reply and describe what you changed — ' +
+        'that report IS how your coordinator knows where you got to. Do not go looking for what ' +
+        'the others are doing: you have been given your part, and the coordinator holds the ' +
+        'whole picture. If your part turns out to depend on somebody else, say so and stop ' +
+        'rather than guessing at their half.\n\n') +
     'STUCK? Call ask_vodo and describe exactly what you tried and what happened — Vodo (a ' +
-    'stronger model) will do that one step or teach you the way, and a LESSON is saved to the ' +
-    'project memory. Check your briefing for lessons with your name before asking the same thing ' +
-    'twice. Vodo also reviews your work: when a VODO REVIEW message arrives, fix what it lists ' +
+    'stronger model) will do that one step or teach you the way' +
+    (hasMemory
+      ? ', and a LESSON is saved to the project memory. Check your briefing for lessons with ' +
+        'your name before asking the same thing twice. '
+      : '. Anything you need and were not given — a decision, a convention, how something here ' +
+        'is meant to work — ask for the same way, rather than inventing it. ') +
+    'Vodo also reviews your work: when a VODO REVIEW message arrives, fix what it lists ' +
     'before continuing. Mid-project, a message starting "FROM VODO" is your coordinator handing ' +
     'you follow-up work — do it the same way: work, update the map, stop when done.\n\n' +
     'IMPORTANT: the user is NOT in this chat — never end your turn by asking them anything ' +
@@ -508,6 +567,8 @@ export async function startGroup(
       group: GroupRun;
       /** Parts with no free member — NOT started; the boss dispatches them later. */
       queued: string[];
+      /** Parts whose CHOSEN agent is on a mission, and who took them instead. */
+      held: string[];
     }
   | { ok: false; error: string }
 > {
@@ -587,6 +648,25 @@ export async function startGroup(
   if (homelabPart && homelab) {
     plan.push({ task: homelabPart.task, agent: homelab, matched: ['infrastructure'] });
   }
+  // A part addressed to an agent a mission is holding: the name simply does not
+  // resolve (they are not in the pool), so assignTasks falls back to ranking and
+  // the part lands elsewhere. That is the right outcome and the wrong silence —
+  // the coordinator asked for a specific model and must be told it got another.
+  const onMission = deps.onMission?.() ?? [];
+  const held: string[] = [];
+  if (onMission.length) {
+    const lower = (s: string) => s.trim().toLowerCase();
+    for (const p of parts) {
+      if (!p.agent) continue;
+      const h = onMission.find((x) => lower(x.name) === lower(p.agent!));
+      if (!h) continue;
+      const took = plan.find((q) => q.task === p.task)?.agent.name;
+      held.push(
+        `${h.name} is on the mission "${h.mission}" — their part ` +
+          (took ? `went to ${took}` : 'is queued'),
+      );
+    }
+  }
   // A one-member "group" is a normal chat with extra ceremony — and it hides
   // the fact that nothing was parallelised behind a panel that says otherwise.
   if (plan.length < 2) {
@@ -625,8 +705,15 @@ export async function startGroup(
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(
       member.sessionId,
-      memberBrief(group.goal, member, members, !!dir, !!(dir && deps.hasProjectMd?.(dir))),
+      memberBrief(
+        group.goal,
+        member,
+        members,
+        !!dir,
+        !!(dir && deps.hasProjectMd?.(dir)),
+        agent?.memory !== false,
+      ),
     );
   }
-  return { ok: true, group, queued };
+  return { ok: true, group, queued, held };
 }

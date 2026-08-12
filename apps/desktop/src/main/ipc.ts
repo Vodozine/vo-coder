@@ -455,6 +455,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
             return config.get().agents.filter((a) => !busy.has(a.id));
           },
+          // The same held agents, by name — so a refused seat names the mission
+          // instead of claiming the agent does not exist.
+          onMission: () => {
+            const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
+            return config
+              .get()
+              .agents.filter((a) => busy.has(a.id))
+              .map((a) => ({ name: a.name, mission: busy.get(a.id)! }));
+          },
           qualityOf: qualityOfAgent,
           createSession: (pid, agentId, title, groupId, dir) =>
             projects.createSession(pid, agentId, title, groupId, dir).id,
@@ -1739,6 +1748,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             .map((p) => p.text)
             .join(' '),
         );
+      // "Everyone" cannot include an agent a mission is already holding — it is
+      // one model on one GPU. Naming it here would have Vodo try to seat it,
+      // and the seat is refused downstream; the held ones are listed separately
+      // so he can say why the team is short rather than appear to skip someone.
+      const onMissionNow = missionsRef?.busyAgents() ?? new Map<string, string>();
+      const heldNote = (): string => {
+        const held = config
+          .get()
+          .agents.filter((ag) => ag.enabled !== false && onMissionNow.has(ag.id))
+          .map((ag) => `${ag.name} (mission: ${onMissionNow.get(ag.id)})`);
+        return held.length
+          ? ` ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} on a mission and cannot be ` +
+            'seated — say so rather than counting them in.'
+          : '';
+      };
       if (liveGroupHere && !opts?.noRoute) {
         const idleNames = liveGroupHere.members
           .filter((m) => sessions.statusOf(m.sessionId) === 'idle')
@@ -1750,6 +1774,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 (ag) =>
                   ag.enabled !== false &&
                   ag.id !== HOMELAB_AGENT_ID &&
+                  !onMissionNow.has(ag.id) &&
                   !liveGroupHere.members.some((m) => m.agentId === ag.id),
               )
               .map((ag) => ag.name)
@@ -1768,7 +1793,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               (unseated.length > 0
                 ? `, and seat the unused roster agents with group_add — ${unseated.join(', ')}`
                 : '') +
-              ' — or say, agent by agent, why there is nothing useful for them.'
+              ' — or say, agent by agent, why there is nothing useful for them.' +
+              heldNote()
             : '';
           parts = [...parts, { type: 'text', text: `${idleNote}${teamAsk}]` }];
         }
@@ -1782,7 +1808,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         // enabled agent, before group_start is even called.
         const roster = config
           .get()
-          .agents.filter((ag) => ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID)
+          .agents.filter(
+            (ag) =>
+              ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID && !onMissionNow.has(ag.id),
+          )
           .map((ag) => ag.name);
         if (roster.length >= 2) {
           parts = [
@@ -1790,11 +1819,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             {
               type: 'text',
               text:
-                `\n[the user asked for the WHOLE TEAM — ${roster.length} enabled agents: ` +
+                `\n[the user asked for the WHOLE TEAM — ${roster.length} agents free right now: ` +
                 `${roster.join(', ')}. Plan the split so EVERY one of them gets a part: ` +
                 `group_start with ${roster.length} parts (extra parts queue safely, and ` +
                 'group_add can seat anyone missed later) — or say, agent by agent, why there ' +
-                'is no useful part for them.]',
+                `is no useful part for them.${heldNote()}]`,
             },
           ];
         }

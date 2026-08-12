@@ -89,6 +89,16 @@ function approxChars(msg: HarnessMessage): number {
 
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
 
+/** Everything that reads or writes the project's memory, in one place. */
+const MEMORY_TOOLS = new Set([
+  'memory_recall',
+  'memory_note',
+  'map_query',
+  'map_update',
+  'archive_search',
+  'archive_read',
+]);
+
 /**
  * One live AgentSession per chat session id, created lazily with its history
  * restored from disk. Every session belongs to a project and points at an
@@ -170,6 +180,22 @@ export class SessionManager {
   }
 
   /**
+   * Does this session's agent carry the project between jobs?
+   *
+   * Deliberately separate from assembleEnabled, which governs the WINDOW. That
+   * one gate controls both the briefing and the history trimming, so hanging
+   * "no memory" off it would drop the briefing AND put the agent back to
+   * replaying its whole history every turn — more context, not less, which is
+   * the opposite of the point.
+   *
+   * Reads the LIVE spec: during delegation the running agent is the specialist
+   * Vodo handed the turn to, not the session's stored agent.
+   */
+  private agentCarriesMemory(sessionId: string): boolean {
+    return this.agentSpecSafe(sessionId)?.memory !== false;
+  }
+
+  /**
    * The buffer cut: keep ~ASSEMBLE_BUFFER_CHARS of recent turns, then snap
    * FORWARD to the next user message so the request always opens on a user
    * turn and tool_call/result pairs are never split. 0 = full replay.
@@ -228,6 +254,7 @@ export class SessionManager {
         (can.length ? ` · ${can.join(', ')}` : '') +
         (mcp.length ? ` · MCP: ${mcp.join(', ')}` : ' · no MCP servers') +
         (hints ? ` · good at: ${hints}` : '') +
+        (a.memory === false ? ' · NO project memory' : '') +
         (busy ? ` · BUSY — on the mission "${busy}", do not give it work` : '')
       );
     });
@@ -241,7 +268,13 @@ export class SessionManager {
       'MCP servers are the only outside reach an agent has: a part needing GitHub, a database or ' +
       'infrastructure must go to someone who holds that server, or it will improvise instead of ' +
       'doing it. Image work needs an agent whose model actually sees or makes images. Every agent ' +
-      'has the file and web tools regardless.'
+      'has the file and web tools regardless.\n' +
+      'An agent marked NO project memory carries nothing between jobs and cannot read the memory ' +
+      'map: it sees only the code and what YOU write in its instructions. That is deliberate — it ' +
+      'keeps a worker on its own part — but it means the background it needs has to go INTO the ' +
+      'brief. Do not point such an agent at the map, at another agent, or at "what we decided ' +
+      'earlier"; write the decision out. It will ask you when something is missing, and answering ' +
+      'that is your job.'
     );
   }
 
@@ -249,6 +282,20 @@ export class SessionManager {
   private assemblyNote(sessionId: string): string {
     const projectId = this.assembleEnabled(sessionId);
     if (!projectId) return '';
+    // Hired help: no briefing, but the note cannot simply vanish. The window is
+    // still trimmed, and this prose is the ONLY thing telling the agent its
+    // older turns are not replayed — without it the agent believes it can see a
+    // conversation it cannot, and answers from a history it does not have.
+    if (!this.agentCarriesMemory(sessionId)) {
+      return (
+        '\n\nYOUR WORKING CONTEXT IS BOUNDED: older turns of this conversation are NOT replayed, ' +
+        'only the most recent ones. You also carry NO project briefing — that is deliberate, not ' +
+        'an oversight. You are working on the part you were given, from the instructions you were ' +
+        'given and the code in front of you. Do that part and nothing else. If something you need ' +
+        'is missing — a decision, a convention, what another agent is doing — ask your coordinator ' +
+        'rather than guessing or going looking: they hold the whole picture and you do not.'
+      );
+    }
     // No per-message query ranking: reshuffling the briefing every turn
     // breaks local models' prompt caching exactly like a timestamp does (the
     // box re-prefills the whole context each reply). Stable ordering — active
@@ -350,14 +397,21 @@ export class SessionManager {
       ? `\n\nToday's date: ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} (exact time via your tools when it matters).\n` +
         'You can always search the web (web_search, then web_fetch to read a result) and run ' +
         'background missions (mission_create / mission_list / mission_control) — use a mission for ' +
-        'long or repeating work instead of doing it inline. You also have cross-everything memory: ' +
-        'memory_recall searches the timestamped journal of ALL activity (every chat in every ' +
-        'project, missions, Telegram, file writes, commands) — use it for questions about what the ' +
-        'user was doing at some time or in some project. memory_note pins a durable fact there. ' +
-        'For what was actually SAID, archive_search full-text-searches the lossless verbatim ' +
-        'archive of all conversations, and archive_read pulls the exact surrounding turns. ' +
-        "map_query reads the project's memory map (durable decisions/components/tasks/facts with " +
-        'links); map_update corrects it. image_generate renders images with the configured image ' +
+        'long or repeating work instead of doing it inline. ' +
+        // Only describe the memory tools to an agent that HAS them. Telling
+        // hired help about map_query is a false instruction, and a model that
+        // is told to use a tool it cannot see tries, fails, and improvises.
+        (this.agentCarriesMemory(sessionId)
+          ? 'You also have cross-everything memory: ' +
+            'memory_recall searches the timestamped journal of ALL activity (every chat in every ' +
+            'project, missions, Telegram, file writes, commands) — use it for questions about what ' +
+            'the user was doing at some time or in some project. memory_note pins a durable fact ' +
+            'there. For what was actually SAID, archive_search full-text-searches the lossless ' +
+            'verbatim archive of all conversations, and archive_read pulls the exact surrounding ' +
+            "turns. map_query reads the project's memory map (durable decisions/components/tasks/" +
+            'facts with links); map_update corrects it. '
+          : '') +
+        'image_generate renders images with the configured image ' +
         "model into the project's designs/ folder — use it for mockups, icons, art; the result " +
         'appears in the chat by itself, so never open Preview to show a picture you just made. ' +
         // Seen live: asked to speak, an agent went looking for the user's Groq
@@ -568,9 +622,15 @@ export class SessionManager {
       toolExecutor: {
         tools: () => {
           const dir = this.projectDirFor(sessionId);
+          // Hired help gets no memory tools: fewer places to look, and nothing
+          // it reads can be another agent's half-formed plan. Everything it
+          // needs comes from its brief, the code, and asking the coordinator.
+          const builtins = (this.deps.builtins?.specs() ?? []).filter(
+            (t) => this.agentCarriesMemory(sessionId) || !MEMORY_TOOLS.has(t.name),
+          );
           return [
             ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
-            ...(this.deps.builtins?.specs() ?? []),
+            ...builtins,
             ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
           ];
         },

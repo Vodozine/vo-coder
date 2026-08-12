@@ -45,6 +45,9 @@ function AgentForm({
   });
   const [servers, setServers] = useState<string[]>(initial?.mcpServers ?? []);
   const [thinking, setThinking] = useState(initial?.thinking?.enabled ?? false);
+  // Existing agents keep what they have (undefined reads as on); a NEW agent
+  // starts as hired help — given a part, not the run of the project.
+  const [memory, setMemory] = useState(initial ? initial.memory !== false : false);
   const [thinkingVisibility, setThinkingVisibility] = useState(
     initial?.thinkingVisibility ?? 'visible',
   );
@@ -175,6 +178,16 @@ function AgentForm({
           </div>
         </div>
       )}
+      <div className="field-row wide">
+        <label>project memory</label>
+        <label
+          className="checkbox"
+          title="On: the agent carries the project between jobs — it gets the project briefing every turn (about 1.5k tokens) and can search the memory map and the archive. Off: it works from what Vodo tells it and the code in front of it, and asks him when something is missing. Off keeps a specialist on its own part instead of reading everyone's tasks as its own."
+        >
+          <input type="checkbox" checked={memory} onChange={(e) => setMemory(e.target.checked)} />
+          knows the project between jobs
+        </label>
+      </div>
       <div className="field-row">
         <label>thinking</label>
         <label className="checkbox">
@@ -217,6 +230,9 @@ function AgentForm({
               model: model.trim() || undefined,
               mcpServers: servers.length ? servers : undefined,
               thinking: thinking ? { enabled: true } : undefined,
+              // Written unconditionally: undefined means "carries memory" here,
+              // so a new agent has to persist an explicit false to be hired help.
+              memory,
               thinkingVisibility,
               injectionMode,
               routingHints: routingHints.trim() || undefined,
@@ -296,6 +312,7 @@ export function Agents() {
                   <span className="meta">
                     {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
                     {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
+                    {a.memory === false ? ' · no memory' : ''}
                   </span>
                   {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
                 </div>
