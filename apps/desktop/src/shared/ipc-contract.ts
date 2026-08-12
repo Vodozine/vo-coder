@@ -172,6 +172,14 @@ export interface VoiceSettings {
   /** Model for the OpenAI-compatible transcription endpoint. */
   sttModel: string;
   /**
+   * Where that endpoint lives. Empty = OpenAI's own API. Anything else is a
+   * transcription server of your own (speaches/faster-whisper on a GPU box),
+   * which is the only way to get a model big enough for a language other than
+   * English to answer at conversational speed — the same model on laptop CPU
+   * runs several times slower than realtime. A local server needs no key.
+   */
+  sttBaseUrl: string;
+  /**
    * What language you speak, as an ISO-639-1 code — 'is', 'en', 'da'. Empty
    * means auto-detect.
    *
@@ -236,6 +244,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     stt: 'openai',
     sttModel: 'whisper-1',
     sttLanguage: '',
+    sttBaseUrl: '',
     whisperPath: '',
     whisperModel: '',
     tts: 'system',

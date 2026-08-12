@@ -1588,6 +1588,19 @@ function VoiceSection() {
           <option value="pl">Polish</option>
         </datalist>
       </div>
+      {v.stt === 'openai' && (
+        <div className="field-row">
+          <label>server</label>
+          <input
+            className="grow"
+            placeholder="https://api.openai.com/v1 — or your own, e.g. http://192.168.1.61:8000/v1"
+            value={v.sttBaseUrl}
+            title="Any OpenAI-compatible /audio/transcriptions endpoint. Your own server (speaches / faster-whisper on a GPU box) is the only way to run a model big enough for a language other than English at conversational speed — the same model on this laptop's CPU is several times slower than realtime. A local server needs no key."
+            onChange={(e) => save({ sttBaseUrl: e.target.value })}
+            onBlur={(e) => save({ sttBaseUrl: e.target.value.trim().replace(/\/+$/, '') })}
+          />
+        </div>
+      )}
       {v.stt === 'whisper-local' && v.sttLanguage && v.sttLanguage !== 'en' && (
         <p className="hint">
           The bundled <code>ggml-base</code> model is multilingual but small, and a language

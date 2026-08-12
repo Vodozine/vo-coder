@@ -55,13 +55,17 @@ export class VoiceHost {
         modelPath: v.whisperModel,
       });
     }
-    const apiKey = this.secrets.get('openai');
+    // A transcription server of your own (speaches/faster-whisper on a GPU
+    // box) needs no key — the same bargain the custom TTS endpoint makes.
+    const baseURL = v.sttBaseUrl?.trim().replace(/\/+$/, '');
+    const apiKey = this.secrets.get('openai') ?? (baseURL ? 'none' : null);
     if (!apiKey) {
       throw new Error(
-        'Voice transcription uses your OpenAI key — add it in Settings, or switch STT to whisper-local.',
+        'Voice transcription uses your OpenAI key — add it in Settings, point speech→text at your ' +
+          'own transcription server, or switch to whisper-local.',
       );
     }
-    return new OpenAiStt({ apiKey, model: v.sttModel });
+    return new OpenAiStt({ apiKey, model: v.sttModel, ...(baseURL ? { baseURL } : {}) });
   }
 
   transcribe(wav: Uint8Array): Promise<string> {
