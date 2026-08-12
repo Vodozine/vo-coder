@@ -246,6 +246,23 @@ function AgentForm({
   );
 }
 
+/**
+ * A model id, on one line. Local ids run to 90 characters
+ * (hf.co/DavidAU/Qwen3.6-27B-Fable-Fusion-711-Uncensored-…-GGUF:IQ4_XS) and
+ * used to set the width of the whole card, so a long one collapses to its
+ * tail — the part that identifies it — and opens over the card on click.
+ */
+function ModelLabel({ model }: { model?: string }) {
+  if (!model) return <>default model</>;
+  if (model.length <= 30) return <>{model}</>;
+  return (
+    <details className="agent-model">
+      <summary title={model}>…{model.slice(-27)}</summary>
+      <span className="agent-model-full">{model}</span>
+    </details>
+  );
+}
+
 export function Agents() {
   const config = useStore((s) => s.config);
   const saveAgents = useStore((s) => s.saveAgents);
@@ -317,47 +334,55 @@ export function Agents() {
                     {!on && <span className="meta"> — off duty</span>}
                   </strong>
                   <span className="meta">
-                    {a.provider ?? 'default provider'} · {a.model ?? 'default model'}
-                    {a.mcpServers?.length ? ` · MCP: ${a.mcpServers.join(', ')}` : ''}
+                    {a.provider ?? 'default provider'} · <ModelLabel model={a.model} />
+                  </span>
+                  <span className="meta">
+                    {a.mcpServers?.length ? `MCP: ${a.mcpServers.join(', ')}` : 'no MCP servers'}
                     {a.memory === false ? ' · no memory' : ''}
                   </span>
                   {a.systemPrompt && <span className="agent-prompt">{a.systemPrompt}</span>}
                 </div>
                 <div className="agent-actions">
-                  <button
-                    className={on ? 'ghost' : ''}
-                    title={
-                      on
-                        ? 'Take this agent off duty: routing and group projects skip it, everything else is kept'
-                        : 'Put this agent back on duty'
-                    }
-                    onClick={() => setEnabled(a.id, !on)}
-                  >
-                    {on ? 'On' : 'Off'}
-                  </button>
-                  <button
-                    className={remembers ? 'ghost' : ''}
-                    title={
-                      remembers
-                        ? 'Carries the project between jobs: it gets the project briefing every turn (~1.5k tokens) and can search the memory map and archive. Click to make it work from its brief and the code alone.'
-                        : 'Works only from what it is told and the code in front of it — no briefing, no memory tools — and asks the coordinator when something is missing. Click to give it the project.'
-                    }
-                    onClick={() => setMemory(a.id, !remembers)}
-                  >
-                    {remembers ? 'Memory' : 'No memory'}
-                  </button>
-                  <button
-                    title="Start a new chat with this agent in the current project"
-                    onClick={() => void newSession(undefined, a.id)}
-                  >
-                    Chat
-                  </button>
-                  <button className="ghost" onClick={() => setEditing(a)}>
-                    Edit
-                  </button>
-                  <button className="ghost" onClick={() => remove(a.id)}>
-                    Delete
-                  </button>
+                  {/* What the agent IS — the two states you flip. */}
+                  <div className="agent-actions-row">
+                    <button
+                      className={on ? 'ghost' : ''}
+                      title={
+                        on
+                          ? 'Take this agent off duty: routing and group projects skip it, everything else is kept'
+                          : 'Put this agent back on duty'
+                      }
+                      onClick={() => setEnabled(a.id, !on)}
+                    >
+                      {on ? 'On duty' : 'Off duty'}
+                    </button>
+                    <button
+                      className={remembers ? 'ghost' : ''}
+                      title={
+                        remembers
+                          ? 'Carries the project between jobs: it gets the project briefing every turn (~1.5k tokens) and can search the memory map and archive. Click to make it work from its brief and the code alone.'
+                          : 'Works only from what it is told and the code in front of it — no briefing, no memory tools — and asks the coordinator when something is missing. Click to give it the project.'
+                      }
+                      onClick={() => setMemory(a.id, !remembers)}
+                    >
+                      {remembers ? 'Memory' : 'No memory'}
+                    </button>
+                  </div>
+                  {/* What you DO with it. */}
+                  <div className="agent-actions-row">
+                    <button
+                      title="Start a new chat with this agent in the current project"
+                      onClick={() => void newSession(undefined, a.id)}
+                    >
+                      Chat
+                    </button>
+                    <button className="ghost" onClick={() => setEditing(a)}>
+                      Edit
+                    </button>
+                    <button className="ghost" onClick={() => remove(a.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             );

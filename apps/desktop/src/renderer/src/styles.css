@@ -1008,11 +1008,24 @@ select:focus {
   gap: 12px;
   margin-bottom: 16px;
 }
+/*
+ * A card is a fixed box: details on top, buttons underneath in two rows.
+ *
+ * It used to be a horizontal flex with the button strip set to flex-shrink: 0,
+ * so the buttons always won and the details were crushed to a sliver — a model
+ * id like hf.co/DavidAU/Qwen3.6-27B-… wrapped one character per line and the
+ * card grew to swallow the page. Fixed height and one line per fact means every
+ * card is the same size whatever it holds.
+ */
 .agent-row {
+  position: relative;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  /* Four lines of detail + two button rows + padding. Short by 13px and the
+     prompt line clips mid-glyph, which reads as a rendering bug. */
+  height: 192px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 13px 15px;
@@ -1023,6 +1036,12 @@ select:focus {
 .agent-row:hover {
   border-color: #33405a;
 }
+/* The open model dropdown hangs below its card, and a z-index inside a card
+   cannot outrank a LATER card — the next one paints over it regardless. The
+   card itself has to rise. */
+.agent-row:has(.agent-model[open]) {
+  z-index: 4;
+}
 /* Off duty: still here, still editable, just not picked for work. */
 .agent-row--off {
   opacity: 0.55;
@@ -1031,11 +1050,26 @@ select:focus {
 .agent-row--off:hover {
   opacity: 0.8;
 }
+/* An off-duty card is dimmed with opacity, which its children inherit and
+   cannot escape — the open dropdown came out see-through, with the card behind
+   it reading through the text. Interacting with a card un-dims it. */
+.agent-row--off:has(.agent-model[open]) {
+  opacity: 1;
+}
 .agent-info {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+/* One line per fact. Anything longer is a tooltip or the model dropdown. */
+.agent-info > strong,
+.agent-info > .meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .agent-prompt {
   color: var(--text-dim);
@@ -1043,12 +1077,64 @@ select:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 420px;
 }
+/* The long-model dropdown: the full id floats OVER the card rather than
+   stretching it, so opening one never moves the others. */
+.agent-model {
+  display: inline;
+}
+.agent-model > summary {
+  display: inline;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-model > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-model > summary::after {
+  content: ' ▾';
+  opacity: 0.6;
+}
+.agent-model[open] > summary::after {
+  content: ' ▴';
+}
+/* Hangs BELOW the card, not over it: opening it used to cover the card's own
+   buttons, which then could not be clicked. */
+.agent-model > .agent-model-full {
+  position: absolute;
+  top: 100%;
+  left: -1px;
+  right: -1px;
+  z-index: 3;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  box-shadow: var(--shadow);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Two rows: what the agent IS on top, what you DO with it underneath. */
 .agent-actions {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
+}
+.agent-actions-row {
+  display: flex;
+  gap: 6px;
+}
+.agent-actions-row > button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .agent-form {
   border: 1px solid var(--border);
