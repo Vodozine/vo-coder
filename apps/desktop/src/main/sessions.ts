@@ -341,6 +341,22 @@ export class SessionManager {
   /** Folder-backed projects: tell the agent it has hands and where they work. */
   private projectized(spec: AgentSpec, sessionId: string): AgentSpec {
     const dir = this.projectDirFor(sessionId);
+    // A CLI agent (Claude Code) brings its own tools, reads the folder's
+    // CLAUDE.md itself, and keeps its own conversation — every briefing note
+    // below describes machinery it does not have and must not be told about.
+    // It gets its persona and one honest paragraph about the arrangement.
+    const provider = spec.provider ?? this.deps.config.get().defaultProvider;
+    if (provider === 'claude-code') {
+      return {
+        ...spec,
+        systemPrompt:
+          `${spec.systemPrompt ?? ''}\n\n` +
+          'You are working inside Vo-Coder, hired as one of its agents. The folder you are ' +
+          'started in is the workspace — the app watches file changes live, so work is seen as ' +
+          'it happens. Do the task with your own tools and finish with a compact report of what ' +
+          'you did; that report is what the coordinator and the user read.',
+      };
+    }
     // The folder's VO-CODER.md (when present) rides every prompt: its Rules
     // bind the work, its Map orients faster than ws_list. Re-read per send but
     // stable while the file is unchanged, so prompt caches survive; an edit
@@ -619,9 +635,22 @@ export class SessionManager {
       },
       resolve: (spec) => {
         const { defaultProvider, defaultModel } = this.deps.config.get();
-        const bound = this.deps.hub
+        let bound = this.deps.hub
           .registry()
           .resolve(spec, { provider: defaultProvider, model: defaultModel });
+        // A CLI agent needs to know WHICH chat this is: its conversation lives
+        // in the CLI's own store, keyed by an id we persist on the session
+        // meta. Only the resolve closure knows the sessionId — ChatRequest
+        // deliberately doesn't — so the binding happens here.
+        bound = {
+          model: bound.model,
+          provider: this.deps.hub.bindCli(bound.provider, {
+            key: sessionId,
+            ...(this.projectDirFor(sessionId) ? { dir: this.projectDirFor(sessionId)! } : {}),
+            persistedId: () => this.deps.projects.meta(sessionId)?.cliSessionId,
+            persist: (cliId) => this.deps.projects.setCliSessionId(sessionId, cliId),
+          }),
+        };
         this.lastBound.set(sessionId, bound);
         return bound;
       },
@@ -880,6 +909,9 @@ export class SessionManager {
   reset(sessionId: string): void {
     this.sessions.get(sessionId)?.reset();
     this.deps.projects.saveTranscript(sessionId, []);
+    // A reset chat starts over — resuming the CLI-side conversation would
+    // bring back everything the reset was meant to clear.
+    this.deps.projects.setCliSessionId(sessionId, null);
     this.deps.projects.touch(sessionId);
     this.deps.send(IPC.projectsChanged, this.deps.projects.list());
   }

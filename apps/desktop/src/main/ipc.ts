@@ -37,6 +37,7 @@ import {
   type MissionAction,
   type MissionCreateInput,
 } from '../shared/ipc-contract';
+import { closeAllCliChildren } from './claude-code-provider';
 import { ConfigStore } from './config';
 import { Journal } from './journal';
 import { MemoryBank } from './membank';
@@ -161,6 +162,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         // A GLM Coding Plan key spends plan quota, so catalog token prices
         // would invent a cost that never appears on any bill.
         providerId === 'zai' ||
+        // Claude Code bills through its own login, not through Vo-Coder.
+        providerId === 'claude-code' ||
         (providerId === 'xai' && hub.usingXaiOAuth());
       if (!freeEndpoint) {
         try {
@@ -2526,6 +2529,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     projectDir: (projectId) => projects.list().projects.find((p) => p.id === projectId)?.dir,
     resolveProject: resolveProjectId,
     resolve: resolveSpec,
+    // Missions run unattended: a CLI agent on a mission keeps one CLI-side
+    // conversation per mission and must never wedge on an unanswerable
+    // permission prompt.
+    bindCliSession: (bound, ctx) => ({
+      model: bound.model,
+      provider: hub.bindCli(bound.provider, { ...ctx, permissionMode: 'bypassPermissions' }),
+    }),
     route: (text, builderMode) =>
       routeForVodo([{ type: 'text', text }], false, builderMode),
     tools: remoteTools,
@@ -2645,7 +2655,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // launch outlives its turn on purpose, but not the session — otherwise
     // closing Vo-Coder leaves its leftovers running with nobody to stop them.
     stopLaunched();
+    // CLI agent children (Claude Code turns) die with the app too.
+    closeAllCliChildren();
   });
+
+  // Claude Code CLI: is it installed and answering? Settings' Check button.
+  ipcMain.handle(IPC.claudeCliCheck, () => hub.cliAgent().healthCheck());
 
   ipcMain.handle(IPC.missionsList, () => missions.list());
   ipcMain.handle(IPC.missionCreate, (_e, input: MissionCreateInput) => missions.create(input));

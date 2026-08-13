@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './errors.js';
+export { streamLines } from './internal/ndjson.js';
 export { ProviderRegistry } from './registry.js';
 export type { ResolveDefaults, BoundModel } from './registry.js';
 export { AnthropicProvider } from './adapters/anthropic.js';
@@ -12,6 +13,23 @@ export {
   OllamaProvider,
 } from './adapters/ollama.js';
 export type { KeepAlive, OllamaEndpoint, OllamaProviderOptions } from './adapters/ollama.js';
+export {
+  CLAUDE_CODE_DEFAULT_MODEL,
+  CLAUDE_CODE_ID,
+  CLAUDE_CODE_STALL_MS,
+  claudeCodeArgs,
+  claudeCodePermissionMode,
+  claudeCodeSeedModels,
+  latestUserText,
+  newClaudeCodeParseState,
+  parseClaudeCodeLine,
+  renderHistoryPrompt,
+} from './adapters/claude-code.js';
+export type {
+  ClaudeCodeParsed,
+  ClaudeCodeParseState,
+  ClaudeCodeTurn,
+} from './adapters/claude-code.js';
 export { LlamaCppProvider } from './adapters/llamacpp.js';
 export type { LlamaCppEndpoint, LlamaCppProviderOptions } from './adapters/llamacpp.js';
 export {

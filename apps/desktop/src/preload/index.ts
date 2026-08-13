@@ -125,6 +125,7 @@ const api: VoApi = {
   updateInstall: () => ipcRenderer.invoke(IPC.updateInstall),
   onUpdateEvent: subscribe(IPC.updateEvent),
   voiceSetupWhisper: () => ipcRenderer.invoke(IPC.voiceSetupWhisper),
+  claudeCliCheck: () => ipcRenderer.invoke(IPC.claudeCliCheck),
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
   voiceTranscribe: (wav) => ipcRenderer.invoke(IPC.voiceTranscribe, wav),
   voiceSpeak: (text) => ipcRenderer.invoke(IPC.voiceSpeak, text),

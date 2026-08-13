@@ -291,6 +291,17 @@ export class ProjectStore {
     }
   }
 
+  /** The chat's conversation id inside an external CLI agent (Claude Code
+   *  --resume). Null clears it — a reset chat must not resume the old talk. */
+  setCliSessionId(id: string, cliId: string | null): void {
+    const meta = this.meta(id);
+    if (meta && (meta.cliSessionId ?? null) !== cliId) {
+      if (cliId) meta.cliSessionId = cliId;
+      else delete meta.cliSessionId;
+      this.persist();
+    }
+  }
+
   /**
    * One folder ↔ one project: the project that owns this dir, created from
    * the folder's name when nobody does yet. Path compare is case-blind —

@@ -119,6 +119,8 @@ export function ModelPicker({
     const freeEndpoint =
       provider === 'nvidia' ||
       provider === 'zai' ||
+      // The CLI bills through its own login, not through Vo-Coder.
+      provider === 'claude-code' ||
       (provider === 'xai' && xaiOauthConnected);
 
     let list = [...byId.values()].map((m) => {
@@ -190,6 +192,7 @@ export function ModelPicker({
     // Subscription / free-tier endpoints surface as $0/$0.
     if (r.inPrice === 0 && (r.outPrice ?? 0) === 0) {
       if (provider === 'xai' && xaiOauthConnected) return 'free (Grok login)';
+      if (provider === 'claude-code') return 'your Claude Code login';
       if (provider === 'zai') return 'included (GLM plan)';
       if (provider === 'nvidia') return 'free endpoint';
       return '$0/$0';

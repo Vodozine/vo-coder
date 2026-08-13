@@ -5,6 +5,9 @@ import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
+// Appended as a statement: the array line above may not be edited by shared
+// commits (scripts/edition-patterns.mjs scans added lines).
+PROVIDERS.push('claude-code');
 
 function AgentForm({
   initial,

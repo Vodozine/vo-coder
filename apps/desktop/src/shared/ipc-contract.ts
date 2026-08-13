@@ -130,6 +130,12 @@ export interface AppConfig {
   /** Money. Off until deliberately turned on; see SpendingPolicy. */
   spending: SpendingPolicy;
   /**
+   * Where the Claude Code CLI lives, when the automatic probe cannot find it
+   * (portable installs, unusual prefixes). Empty = probe: the native
+   * installer's location, the npm global dir, then PATH.
+   */
+  claudeCliPath: string;
+  /**
    * The app's generic scratch folder — every chat can always write SOMETHING.
    * Folder-less chats get it as their working folder (single files, images,
    * temp work), so ws_write never dead-ends. It is NOT a project home: real
@@ -276,6 +282,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     currency: 'EUR',
     methods: [],
   },
+  claudeCliPath: '',
   // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
   // cannot ask Electron for paths.
   genericDir: '',
@@ -418,6 +425,13 @@ export interface ChatSessionMeta {
   dir?: string;
   /** Member of this group run — the split view shows these side by side. */
   groupId?: string;
+  /**
+   * This chat's conversation id inside an external CLI agent's own store
+   * (Claude Code --resume). Assigned on the first CLI turn, cleared on reset —
+   * it is the continuity that lets the CLI keep its own context between turns
+   * and across app restarts.
+   */
+  cliSessionId?: string;
 }
 
 /**
@@ -762,6 +776,12 @@ export interface VoApi {
    * back to a text field rather than claiming there are none.
    */
   voiceSystemVoices(): Promise<Array<{ name: string; language?: string; gender?: string }>>;
+  /**
+   * Is the Claude Code CLI installed and answering? Settings' "Check" button —
+   * resolves the binary (override → known installs → PATH) and asks its
+   * version, so a misconfigured path fails here instead of mid-conversation.
+   */
+  claudeCliCheck(): Promise<{ ok: boolean; version?: string; path?: string; error?: string }>;
   missionsList(): Promise<Mission[]>;
   missionCreate(input: MissionCreateInput): Promise<Mission>;
   missionControl(id: string, action: MissionAction): Promise<void>;
@@ -887,6 +907,7 @@ export const IPC = {
   updateInstall: 'update:install',
   updateEvent: 'update:event',
   voiceSetupWhisper: 'voice:setupWhisper',
+  claudeCliCheck: 'claude-code:check',
   openExternal: 'shell:openExternal',
   missionsList: 'missions:list',
   missionCreate: 'missions:create',

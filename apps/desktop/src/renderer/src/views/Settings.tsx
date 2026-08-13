@@ -11,6 +11,9 @@ import { ZoomButtons } from '../components/ZoomButtons';
 import { useStore } from '../state/store';
 
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
+// Appended as a statement: the array line above may not be edited by shared
+// commits (scripts/edition-patterns.mjs scans added lines).
+PROVIDERS.push('claude-code');
 /** Providers that can be flipped off without clearing credentials. */
 const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
@@ -126,6 +129,96 @@ function KeyRow({ provider, placeholder }: { provider: string; placeholder?: str
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Claude Code as a provider — no key row, because there is no key: it runs the
+ * user's installed CLI under their own login. What this row offers instead is
+ * the On/Off gate, a path override for unusual installs, and a Check button so
+ * a broken setup fails HERE with a version string or a reason, not mid-chat.
+ */
+function ClaudeCodeRow() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const [path, setPath] = useState<string | null>(null);
+  const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const providerOff = (config?.disabledProviders ?? []).includes('claude-code');
+  const setEnabled = (on: boolean) => {
+    const cur = config?.disabledProviders ?? [];
+    void saveConfig({
+      disabledProviders: on
+        ? cur.filter((p) => p !== 'claude-code')
+        : cur.includes('claude-code')
+          ? cur
+          : [...cur, 'claude-code'],
+    });
+  };
+
+  const runCheck = async () => {
+    setChecking(true);
+    try {
+      const r = await window.vo.claudeCliCheck();
+      setCheck(
+        r.ok
+          ? { ok: true, text: `${r.version ?? 'found'} — ${r.path ?? ''}` }
+          : { ok: false, text: r.error ?? 'not found' },
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <>
+      <div className={`field-row provider-key-row${providerOff ? ' provider-off' : ''}`}>
+        <label>claude-code</label>
+        <button
+          type="button"
+          className={`provider-toggle ${providerOff ? 'off' : 'on'}`}
+          title={
+            providerOff
+              ? 'Claude Code agents are off — click to enable'
+              : 'Claude Code agents are on — click to disable'
+          }
+          onClick={() => setEnabled(providerOff)}
+        >
+          {providerOff ? 'Off' : 'On'}
+        </button>
+        <input
+          className="grow"
+          value={path ?? config?.claudeCliPath ?? ''}
+          placeholder="path to the claude binary (empty = find it automatically)"
+          onChange={(e) => setPath(e.target.value)}
+          onBlur={() => {
+            if (path !== null && path !== (config?.claudeCliPath ?? '')) {
+              void saveConfig({ claudeCliPath: path.trim() });
+            }
+          }}
+        />
+        <button type="button" onClick={() => void runCheck()} disabled={checking}>
+          {checking ? 'Checking…' : 'Check'}
+        </button>
+      </div>
+      {check && (
+        <p className={`hint${check.ok ? '' : ' error-text'}`}>
+          {check.ok ? `✓ ${check.text}` : check.text}
+        </p>
+      )}
+      <details className="hint-more">
+        <summary>claude-code: your installed Claude Code as an agent</summary>
+        <p className="hint">
+          Runs the <code>claude</code> CLI you already have, under its own login — nothing is
+          billed through Vo-Coder and no key is stored. Make an agent whose provider is{' '}
+          <code>claude-code</code> and hire it like any other: chat with it, give it missions,
+          seat it in groups. It edits files in the chat&apos;s folder with its own tools, and the
+          Preview code view shows the changes live. Best used for agents; Vodo himself should
+          stay on a regular model so he keeps his coordination tools.
+        </p>
+      </details>
+    </>
   );
 }
 
@@ -2249,6 +2342,7 @@ export function Settings() {
           </p>
         </details>
         <KeyRow provider="nvidia" />
+        <ClaudeCodeRow />
       </section>
 
       <section>

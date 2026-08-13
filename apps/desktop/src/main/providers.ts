@@ -11,7 +11,12 @@ import {
   XaiProvider,
   ZaiProvider,
 } from '@vo-coder/providers';
+import type { ChatProvider } from '@vo-coder/providers';
 import type { AppConfig, LocalEndpoint } from '../shared/ipc-contract';
+import {
+  ClaudeCodeCliProvider,
+  type CliSessionBinding,
+} from './claude-code-provider';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
 
@@ -142,6 +147,28 @@ export class ProviderHub {
     if (on('llamacpp') && llamacpp.length) {
       reg.register(new LlamaCppProvider({ endpoints: llamacpp }));
     }
+    // Claude Code CLI: the user's installed, logged-in `claude` as an agent
+    // brain. No key gate on purpose — a missing binary must surface as a
+    // readable chat error, not as "provider not configured".
+    if (on('claude-code')) reg.register(this.cliAgent());
     return reg;
   }
+
+  /**
+   * The CLI provider is the one provider with state (session bindings, binary
+   * cache), so unlike the HTTP adapters it is a singleton across registry()
+   * rebuilds. Config still applies live — it reads through a closure.
+   */
+  cliAgent(): ClaudeCodeCliProvider {
+    this.cli ??= new ClaudeCodeCliProvider(() => this.config.get());
+    return this.cli;
+  }
+
+  /** Tie a resolved claude-code provider to a chat or mission; other providers
+   *  pass through untouched, so callers need no provider-specific branching. */
+  bindCli(provider: ChatProvider, binding: CliSessionBinding): ChatProvider {
+    return provider instanceof ClaudeCodeCliProvider ? provider.forSession(binding) : provider;
+  }
+
+  private cli?: ClaudeCodeCliProvider;
 }

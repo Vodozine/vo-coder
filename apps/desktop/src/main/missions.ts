@@ -39,6 +39,12 @@ export interface MissionAgentBackend {
   projectDir(projectId: string): string | undefined;
   resolveProject(nameOrId: string): string | undefined;
   resolve(spec: AgentSpec, override?: { provider?: string; model?: string }): BoundModel;
+  /**
+   * Tie a resolved CLI-backed provider (Claude Code) to THIS mission, so its
+   * runs share one CLI-side conversation and its permission mode suits
+   * unattended work. Other providers pass through unchanged.
+   */
+  bindCliSession?(bound: BoundModel, ctx: { key: string; dir?: string }): BoundModel;
   route(
     text: string,
     builderMode: boolean,
@@ -364,7 +370,12 @@ export class MissionManager {
       spec,
       maxToolTurns: MAX_TURNS_PER_RUN,
       resolve: (s) => {
-        const bound = this.backend.resolve(s);
+        let bound = this.backend.resolve(s);
+        bound =
+          this.backend.bindCliSession?.(bound, {
+            key: `mission:${mission.id}`,
+            ...(dir ? { dir } : {}),
+          }) ?? bound;
         fresh.bound = bound;
         return bound;
       },
