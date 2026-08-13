@@ -24,9 +24,14 @@ export const IDENTITY_PATHS =
 /**
  * Design that lives INSIDE shared files, where a path check sees nothing wrong —
  * ipc.ts alone holds roughly 2,000 lines of it.
+ *
+ * The CONTRACT TYPES belong here as much as the runtime does. Without them a
+ * commit that merely imports DesignDocument into ipc-contract.ts read as
+ * shared, conflicted on every single sync against a base that has no
+ * design-document module, and had to be hand-skipped each time.
  */
 export const DESIGN_MARKERS =
-  /DesignHub|designHub|IPC\.design|design:[a-zA-Z]|LIVE_EDIT_OVERLAY|live-edit-overlay|design-tools|DESIGN_SYSTEM_PROMPT|vo-edit=1|CLAUDE_SUB_PERSONAL|ClaudeSubscriptionProvider|claude-sub/;
+  /DesignHub|designHub|IPC\.design|design:[a-zA-Z]|LIVE_EDIT_OVERLAY|live-edit-overlay|design-tools|DESIGN_SYSTEM_PROMPT|vo-edit=1|CLAUDE_SUB_PERSONAL|ClaudeSubscriptionProvider|claude-sub|design-document|Design(Document|Object|Op|SuiteMode)\b/;
 
 /**
  * The guards themselves name every Design module, so a naive content scan would
