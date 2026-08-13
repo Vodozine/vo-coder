@@ -1,10 +1,17 @@
 export interface TranscribeOptions {
   language?: string;
+  /**
+   * What the bytes actually are, when they did not come from the mic — a
+   * Telegram voice note (Opus) or a clip the user attached. Server-side engines
+   * take these as they come; whisper.cpp reads WAV only and says so.
+   */
+  mimeType?: string;
+  fileName?: string;
 }
 
 export interface SttProvider {
   readonly id: string;
-  /** Audio is WAV (PCM16, mono, 16 kHz) — one capture format for every backend. */
+  /** Audio is WAV (PCM16, mono, 16 kHz) unless opts says otherwise. */
   transcribe(wav: Uint8Array, opts?: TranscribeOptions): Promise<string>;
 }
 

@@ -55,6 +55,8 @@ export type Segment =
       imagePath?: string;
       /** Generated video on disk — played inline via videoRead. */
       videoPath?: string;
+      /** Generated audio on disk — played inline, same reader. */
+      audioPath?: string;
     };
 
 export interface UiMessage {
@@ -1390,6 +1392,7 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
         resultChars: event.result.length,
         ...(event.imagePath ? { imagePath: event.imagePath } : {}),
         ...(event.videoPath ? { videoPath: event.videoPath } : {}),
+        ...(event.audioPath ? { audioPath: event.audioPath } : {}),
       }));
       break;
     case 'usage':

@@ -4,8 +4,11 @@ import {
   type PermissionDecision,
   type SessionEvent,
 } from '@vo-coder/core';
+import { statSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import type { AgentSpec, BoundModel, HarnessMessage, ToolSpec, UserPart } from '@vo-coder/providers';
 import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contract';
+import { isAudioPath } from '../shared/media';
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
@@ -27,7 +30,13 @@ interface SessionManagerDeps {
       name: string,
       args: unknown,
       ctx?: { projectId?: string; dir?: string; sessionId?: string; signal?: AbortSignal },
-    ): Promise<{ content: string; isError?: boolean; imagePath?: string; videoPath?: string }>;
+    ): Promise<{
+      content: string;
+      isError?: boolean;
+      imagePath?: string;
+      videoPath?: string;
+      audioPath?: string;
+    }>;
   };
   /** Fired for every provider usage report, with the model that produced it. */
   onUsage?: (
@@ -75,6 +84,9 @@ const IMAGE_STUB =
 const ASSEMBLE_MIN_MESSAGES = 12;
 /** …and keeps roughly this many chars (~5k tokens) of recent turns verbatim. */
 const ASSEMBLE_BUFFER_CHARS = 20_000;
+
+/** How recently a file must have been written to count as "the agent made this". */
+const AUDIO_FRESH_MS = 5 * 60_000;
 
 function approxChars(msg: HarnessMessage): number {
   if (msg.role === 'tool') return msg.content.length;
@@ -636,66 +648,139 @@ export class SessionManager {
             ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
           ];
         },
-        execute: (name, args, signal) => {
-          // Plan mode: read-only tools work; anything mutating is blocked
-          // with feedback the model can plan around instead of a bare denial.
-          if (
-            this.deps.config.get().approvalMode === 'plan' &&
-            !AUTO_ALLOWED_TOOLS.has(name)
-          ) {
-            return Promise.resolve({
-              content:
-                'PLAN MODE: execution is disabled — this call was not run. Do not retry it. ' +
-                'Gather what you need with read-only tools, then present a numbered plan; the ' +
-                'user switches to Auto or Manual to execute.',
-              isError: true,
-            });
-          }
-          if (name.startsWith('ws_')) {
-            const dir = this.projectDirFor(sessionId);
-            if (!dir) {
-              return Promise.resolve({
-                content: 'This chat belongs to a project without a folder.',
-                isError: true,
-              });
-            }
-            return executeWorkspaceTool(dir, name, args, signal);
-          }
-          if (
-            this.deps.builtins &&
-            (name.startsWith('web_') ||
-              name.startsWith('mission_') ||
-              name.startsWith('memory_') ||
-              name.startsWith('archive_') ||
-              name.startsWith('map_') ||
-              name.startsWith('image_') ||
-              name.startsWith('video_') ||
-              name.startsWith('look_') ||
-              name.startsWith('file_') ||
-              name.startsWith('group_') ||
-              name.startsWith('ask_') ||
-              name.startsWith('preview_'))
-          ) {
-            // The session knows its own project — tools default to it instead
-            // of making the model guess a name. dir carries the chat's folder
-            // (attached or project) for look_at_image / image saves. sessionId
-            // makes THIS chat the coordinator when a group is started here.
-            return this.deps.builtins.execute(name, args, {
-              projectId: this.deps.projects.meta(sessionId)?.projectId,
-              dir: this.projectDirFor(sessionId),
-              sessionId,
-              // video_generate polls for minutes — Stop has to reach it.
-              ...(signal ? { signal } : {}),
-            });
-          }
-          return this.deps.mcp.call(name, args);
-        },
+        execute: (name, args, signal) =>
+          this.withMedia(sessionId, args, this.runTool(sessionId, name, args, signal)),
       },
       permission: (req) => this.requestPermission(sessionId, req.name, req.args),
     });
     session.history.push(...this.deps.projects.loadTranscript(sessionId));
     this.sessions.set(sessionId, session);
     return session;
+  }
+
+  private runTool(
+    sessionId: string,
+    name: string,
+    args: unknown,
+    signal?: AbortSignal,
+  ): Promise<{
+    content: string;
+    isError?: boolean;
+    imagePath?: string;
+    videoPath?: string;
+    audioPath?: string;
+  }> {
+    // Plan mode: read-only tools work; anything mutating is blocked
+    // with feedback the model can plan around instead of a bare denial.
+    if (this.deps.config.get().approvalMode === 'plan' && !AUTO_ALLOWED_TOOLS.has(name)) {
+      return Promise.resolve({
+        content:
+          'PLAN MODE: execution is disabled — this call was not run. Do not retry it. ' +
+          'Gather what you need with read-only tools, then present a numbered plan; the ' +
+          'user switches to Auto or Manual to execute.',
+        isError: true,
+      });
+    }
+    if (name.startsWith('ws_')) {
+      const dir = this.projectDirFor(sessionId);
+      if (!dir) {
+        return Promise.resolve({
+          content: 'This chat belongs to a project without a folder.',
+          isError: true,
+        });
+      }
+      return executeWorkspaceTool(dir, name, args, signal);
+    }
+    if (
+      this.deps.builtins &&
+      (name.startsWith('web_') ||
+        name.startsWith('mission_') ||
+        name.startsWith('memory_') ||
+        name.startsWith('archive_') ||
+        name.startsWith('map_') ||
+        name.startsWith('image_') ||
+        name.startsWith('video_') ||
+        name.startsWith('look_') ||
+        name.startsWith('file_') ||
+        name.startsWith('group_') ||
+        name.startsWith('ask_') ||
+        name.startsWith('preview_'))
+    ) {
+      // The session knows its own project — tools default to it instead
+      // of making the model guess a name. dir carries the chat's folder
+      // (attached or project) for look_at_image / image saves. sessionId
+      // makes THIS chat the coordinator when a group is started here.
+      return this.deps.builtins.execute(name, args, {
+        projectId: this.deps.projects.meta(sessionId)?.projectId,
+        dir: this.projectDirFor(sessionId),
+        sessionId,
+        // video_generate polls for minutes — Stop has to reach it.
+        ...(signal ? { signal } : {}),
+      });
+    }
+    return this.deps.mcp.call(name, args);
+  }
+
+  /** Same rule as an image: the newest playable file wins, once per turn. */
+  private audioShown = new Set<string>();
+
+  /**
+   * Play what the agents make, where they make it.
+   *
+   * A generated audio file is the deliverable — narration, a voice line, a
+   * rendered mix — and a line of text saying it was written is not something
+   * you can listen to. So after any tool runs, an audio file it named and
+   * actually produced rides back on the same UI side-channel a generated image
+   * or video uses: the PATH reaches the chat, the bytes never touch the token
+   * stream. The check is "did this call put a playable file on disk", which is
+   * why it covers ws_run rendering an mp3 as well as any future speech tool.
+   */
+  private async withMedia<
+    T extends { content: string; isError?: boolean; imagePath?: string; videoPath?: string; audioPath?: string },
+  >(sessionId: string, args: unknown, running: Promise<T>): Promise<T> {
+    const result = await running;
+    if (result.isError || result.audioPath) return result;
+    const hit = this.audioMadeBy(
+      [JSON.stringify(args ?? {}), result.content].join('\n'),
+      this.projectDirFor(sessionId),
+    );
+    return hit ? { ...result, audioPath: hit } : result;
+  }
+
+  /**
+   * The audio file this call produced, if any. Paths are taken from what the
+   * tool was ASKED to do and what it REPORTED, then confirmed against the disk
+   * — a filename in a plan or an error message is not a file, and the player
+   * would show a broken clip for it. Each path plays once: a run that mentions
+   * the same mp3 in three lines of output is still one recording.
+   */
+  private audioMadeBy(text: string, dir: string | undefined): string | undefined {
+    const seen = new Set<string>();
+    for (const raw of text.match(/[^\s"'`,;:<>|*?()[\]{}]+\.[A-Za-z0-9]{2,5}/g) ?? []) {
+      const cleaned = raw.replace(/[.,;:)\]}]+$/, '');
+      if (!isAudioPath(cleaned)) continue;
+      const abs = isAbsolute(cleaned) ? cleaned : dir ? resolve(dir, cleaned) : null;
+      if (!abs || seen.has(abs)) continue;
+      seen.add(abs);
+      // FRESH, not merely present. A script that names its output file, or a
+      // read of last week's mix, would otherwise open a player for something
+      // this call had nothing to do with.
+      let age = Infinity;
+      try {
+        age = Date.now() - statSync(abs).mtimeMs;
+      } catch {
+        continue; // named but not on disk
+      }
+      if (age > AUDIO_FRESH_MS) continue;
+      if (this.audioShown.has(abs)) continue;
+      this.audioShown.add(abs);
+      // Bounded: this only has to outlive the turn that made the file.
+      if (this.audioShown.size > 100) {
+        this.audioShown.delete(this.audioShown.values().next().value!);
+      }
+      return abs;
+    }
+    return undefined;
   }
 
   historyOf(sessionId: string): HarnessMessage[] {

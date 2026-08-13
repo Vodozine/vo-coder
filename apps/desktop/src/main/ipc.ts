@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   addressedByName,
   EmotionalMiddleware,
@@ -61,6 +61,7 @@ import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
+import { audioMimeFor } from '../shared/media';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import {
   gateNudge,
@@ -2604,6 +2605,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     onUsage: (bound, ev) => recordUsage(bound, ev),
     onChanged: (info) => sendToWindow(IPC.telegramChanged, info),
     log: (text) => journal.append({ kind: 'chat', text, surface: 'telegram' }),
+    transcribe: (data, mimeType, fileName) => voice.transcribeFile(data, mimeType, fileName),
+    synthesize: (text) => voice.synthesize(text),
+    // Same folder policy as everything else the agents touch: a phone is not a
+    // way around it. Vodo can send you what he could already read.
+    readFile: (path: string) => {
+      const target = insideAllowedRoots(path);
+      if (!target) return { error: 'That path is outside the folders Vo-Coder may read.' };
+      try {
+        const data = readFileSync(target);
+        return { data: new Uint8Array(data), name: basename(target) };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   });
   // Plan mode gates interactive surfaces only — scheduled missions keep their
   // own autoApprove semantics and are never silently blocked by the toggle.
@@ -2724,10 +2739,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const target = insideAllowedRoots(path);
       if (!target) return { ok: false, error: 'Path outside allowed folders.' };
       const data = readFileSync(target);
-      if (data.length > 200 * 1024 * 1024) return { ok: false, error: 'Video too large to play.' };
+      if (data.length > 200 * 1024 * 1024) return { ok: false, error: 'File too large to play.' };
       const ext = target.split('.').pop()?.toLowerCase() ?? 'mp4';
+      // Audio too: a player needs bytes and a type, and where they came from —
+      // a generated narration mp3 or a rendered clip — changes nothing here.
       const mimeType =
-        ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+        audioMimeFor(target) ??
+        (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : 'video/mp4');
       return {
         ok: true,
         data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),

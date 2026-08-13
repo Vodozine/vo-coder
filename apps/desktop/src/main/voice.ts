@@ -68,7 +68,16 @@ export class VoiceHost {
     return new OpenAiStt({ apiKey, model: v.sttModel, ...(baseURL ? { baseURL } : {}) });
   }
 
-  transcribe(wav: Uint8Array): Promise<string> {
+  /**
+   * A clip that did not come from the mic — an attached file, or a voice note
+   * off Telegram. Same engine and same language setting; only the container
+   * differs, and the engine is told what it is.
+   */
+  transcribeFile(data: Uint8Array, mimeType: string, fileName: string): Promise<string> {
+    return this.transcribe(data, { mimeType, fileName });
+  }
+
+  transcribe(wav: Uint8Array, media?: { mimeType: string; fileName: string }): Promise<string> {
     const v = this.config.get().voice;
     const language = v.sttLanguage?.trim().toLowerCase();
     // Both engines take a language and neither was ever given one. That is NOT
@@ -84,22 +93,17 @@ export class VoiceHost {
           language
           ? { language }
           : undefined;
-    return this.stt().transcribe(wav, opts);
+    return this.stt().transcribe(wav, { ...opts, ...(media ?? {}) });
   }
 
-  async speak(text: string): Promise<TtsOutput> {
+  /** The configured engine, built fresh so a settings change applies at once. */
+  private ttsProvider(): TtsProvider {
     const v = this.config.get().voice;
-    if (v.tts === 'none') return { kind: 'native' };
-    // Markdown reads terribly aloud — every engine gets speakable text only.
-    const clean = speakable(text);
-    if (!clean) return { kind: 'native' };
-    this.stopSpeak();
     switch (v.tts) {
       case 'openai': {
         const apiKey = this.secrets.get('openai');
         if (!apiKey) throw new Error('OpenAI TTS needs your OpenAI key (Settings → API keys).');
-        this.activeTts = new OpenAiTts({ apiKey, voice: v.openaiVoice, speed: v.ttsSpeed });
-        break;
+        return new OpenAiTts({ apiKey, voice: v.openaiVoice, speed: v.ttsSpeed });
       }
       case 'compat': {
         if (!v.compatBaseUrl) {
@@ -111,14 +115,13 @@ export class VoiceHost {
         // quotes ride along and the endpoint answers "model does not exist".
         const model = cleanIdentifier(v.compatModel);
         const compatVoice = cleanIdentifier(v.compatVoice);
-        this.activeTts = new OpenAiTts({
+        return new OpenAiTts({
           apiKey,
           baseURL: cleanIdentifier(v.compatBaseUrl),
           speed: v.ttsSpeed,
           ...(model ? { model } : {}),
           ...(compatVoice ? { voice: compatVoice } : {}),
         });
-        break;
       }
       case 'elevenlabs': {
         const apiKey = this.secrets.get('elevenlabs');
@@ -126,21 +129,46 @@ export class VoiceHost {
         if (!v.elevenVoiceId) {
           throw new Error('ElevenLabs needs a voice id (Settings → Voice).');
         }
-        this.activeTts = new ElevenLabsTts({
+        return new ElevenLabsTts({
           apiKey,
           voiceId: v.elevenVoiceId,
           ...(v.elevenModel ? { model: v.elevenModel } : {}),
         });
-        break;
       }
       default:
-        this.activeTts = new SystemTts({
+        return new SystemTts({
           ...(v.systemVoice ? { voice: v.systemVoice } : {}),
           rate: v.systemRate,
           pitch: v.systemPitch,
         });
     }
+  }
+
+  async speak(text: string): Promise<TtsOutput> {
+    const v = this.config.get().voice;
+    if (v.tts === 'none') return { kind: 'native' };
+    // Markdown reads terribly aloud — every engine gets speakable text only.
+    const clean = speakable(text);
+    if (!clean) return { kind: 'native' };
+    this.stopSpeak();
+    this.activeTts = this.ttsProvider();
     return this.activeTts.speak(clean);
+  }
+
+  /**
+   * Speech as BYTES, for sending somewhere rather than playing here — a voice
+   * reply on Telegram. Deliberately outside the active-playback bookkeeping:
+   * answering the phone must not cut off what the app is saying in the room.
+   * The system voice speaks out of the local speakers and produces no file, so
+   * it cannot serve this.
+   */
+  async synthesize(text: string): Promise<{ data: Uint8Array; mimeType: string } | null> {
+    const v = this.config.get().voice;
+    if (v.tts === 'none' || v.tts === 'system') return null;
+    const clean = speakable(text);
+    if (!clean) return null;
+    const out = await this.ttsProvider().speak(clean);
+    return out.kind === 'audio' ? { data: out.data, mimeType: out.mimeType } : null;
   }
 
   stopSpeak(): void {

@@ -259,6 +259,49 @@ function GeneratedVideo({ path }: { path: string }) {
   );
 }
 
+/**
+ * A generated audio file, played where it was made. Same reader as the video
+ * player and the same bargain: the bytes become a Blob for the player, and only
+ * the path ever travelled through the conversation.
+ */
+function GeneratedAudio({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void window.vo.videoRead(path).then((r) => {
+      if (!live) return;
+      if (r.ok && r.data) setUrl(URL.createObjectURL(new Blob([r.data], { type: r.mimeType })));
+      else setError(r.error ?? 'Could not load the audio.');
+    });
+    return () => {
+      live = false;
+    };
+  }, [path]);
+
+  useEffect(
+    () => () => {
+      if (url) URL.revokeObjectURL(url);
+    },
+    [url],
+  );
+
+  const name = path.split(/[\\/]/).pop() ?? path;
+  return (
+    <div className="gen-audio" title={path}>
+      {error ? (
+        <span className="meta">🔊 {error}</span>
+      ) : (
+        <>
+          <audio src={url ?? undefined} controls preload="metadata" />
+          <span className="meta gen-audio-name">{name}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
   const icon =
@@ -271,6 +314,7 @@ function ToolChip({ seg }: { seg: Extract<Segment, { kind: 'tool' }> }) {
       {open && seg.result && <pre className="tool-result">{seg.result}</pre>}
       {seg.imagePath && <GeneratedImage path={seg.imagePath} />}
       {seg.videoPath && <GeneratedVideo path={seg.videoPath} />}
+      {seg.audioPath && <GeneratedAudio path={seg.audioPath} />}
     </div>
   );
 }

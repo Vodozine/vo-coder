@@ -15,6 +15,7 @@ import mdLang from 'highlight.js/lib/languages/markdown';
 import bashLang from 'highlight.js/lib/languages/bash';
 import psLang from 'highlight.js/lib/languages/powershell';
 import 'highlight.js/styles/atom-one-dark.css';
+import { isAudioPath } from '../../../shared/media';
 import { useStore, type FileChangeState } from '../state/store';
 
 hljs.registerLanguage('typescript', tsLang);
@@ -61,6 +62,44 @@ function highlight(text: string, lang: string | null): string | null {
 /** Last content this viewer has seen per file — fallback diff baseline when
  *  the project has no git. */
 const lastSeen = new Map<string, string>();
+
+/**
+ * An audio file in the tree, played instead of read. The narration the agents
+ * are generating is a file like any other in here — the difference is that
+ * looking at it tells you nothing and listening to it tells you everything.
+ */
+function AudioFile({ root, path }: { root: string; path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setUrl(null);
+    setError(null);
+    const abs = `${root.replace(/[\\/]+$/, '')}/${path}`;
+    void window.vo.videoRead(abs).then((r) => {
+      if (!live) return;
+      if (r.ok && r.data) setUrl(URL.createObjectURL(new Blob([r.data], { type: r.mimeType })));
+      else setError(r.error ?? 'Could not open this file.');
+    });
+    return () => {
+      live = false;
+    };
+  }, [root, path]);
+
+  useEffect(
+    () => () => {
+      if (url) URL.revokeObjectURL(url);
+    },
+    [url],
+  );
+
+  return (
+    <div className="cw-audio">
+      {error ? <div className="meta">🔊 {error}</div> : <audio src={url ?? undefined} controls />}
+    </div>
+  );
+}
 
 interface ViewLine {
   num: number | null;
@@ -243,6 +282,10 @@ export function CodeWatch() {
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const codeRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  /** The line you were reading when you pressed Edit, so edit and cancel both
+   *  put you back there instead of at the top of the file. */
+  const anchorLine = useRef<number | null>(null);
   const followRef = useRef(follow);
   followRef.current = follow;
   const activeLang = useMemo(() => (activeFile ? languageOf(activeFile) : null), [activeFile]);
@@ -299,6 +342,13 @@ export function CodeWatch() {
         lastSeen.delete(path);
         return;
       }
+      // A recording is listened to, not read. Opening one used to dump the
+      // decoded bytes as text — a screen of garbage where the narration was.
+      if (isAudioPath(path)) {
+        setViewLines([]);
+        setFileNote(null);
+        return;
+      }
       const result = await window.vo.watchReadFile(path);
       if (!result.ok || result.content === undefined) {
         setViewLines([]);
@@ -338,6 +388,56 @@ export function CodeWatch() {
     const first = codeRef.current?.querySelector('.cw-line.add, .cw-line.del');
     (first ?? codeRef.current?.firstElementChild)?.scrollIntoView({ block: 'center' });
   }, [viewLines]);
+
+  /** The line number at the top of what you are reading right now. */
+  const topVisibleLine = (): number | null => {
+    const host = codeRef.current;
+    if (!host) return null;
+    const head = host.querySelector('.cw-filehead');
+    const top = host.scrollTop + (head instanceof HTMLElement ? head.offsetHeight : 0);
+    for (const el of host.querySelectorAll<HTMLElement>('.cw-line[data-line]')) {
+      if (el.offsetTop + el.offsetHeight > top) return Number(el.dataset.line);
+    }
+    return null;
+  };
+
+  /**
+   * Put a line back at the top of the textarea. A textarea has no line API and
+   * wrapping makes line height unknowable, so the height of the text ABOVE the
+   * line is measured the only way the browser will answer exactly: hand it the
+   * prefix on its own, read scrollHeight, put the whole value straight back —
+   * all inside one frame, so React never sees the swap.
+   */
+  const scrollEditorToLine = (line: number) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const full = el.value;
+    const idx = full.split('\n').slice(0, Math.max(0, line - 1)).join('\n').length;
+    el.setSelectionRange(idx, idx);
+    el.value = full.slice(0, idx);
+    const above = el.scrollHeight;
+    el.value = full;
+    // Below one screenful scrollHeight clamps to the box, which would read as
+    // "scroll down" for a line that is already visible.
+    el.scrollTop = above > el.clientHeight ? Math.max(0, above - el.clientHeight / 4) : 0;
+  };
+
+  const showLine = (line: number) => {
+    requestAnimationFrame(() => {
+      codeRef.current
+        ?.querySelector(`.cw-line[data-line="${line}"]`)
+        ?.scrollIntoView({ block: 'center' });
+    });
+  };
+
+  // Entering edit mode keeps your place. autoFocus lands the caret at
+  // character zero and the browser scrolls it into view, so without this you
+  // are thrown to the top of the file and have to find your paragraph again.
+  const editing = draft !== null;
+  useEffect(() => {
+    if (!editing || anchorLine.current === null) return;
+    scrollEditorToLine(anchorLine.current);
+  }, [editing]);
 
   const onMouseUp = () => {
     const sel = window.getSelection();
@@ -452,7 +552,7 @@ export function CodeWatch() {
             onOpen={(p) => void openFile(p)}
           />
         </div>
-        <div className="cw-code" ref={codeRef} onMouseUp={onMouseUp}>
+        <div className={`cw-code${editing ? ' editing' : ''}`} ref={codeRef} onMouseUp={onMouseUp}>
           {activeFile ? (
             <>
               <div className="cw-filehead mono">
@@ -463,7 +563,8 @@ export function CodeWatch() {
                   <button
                     className="ghost cw-edit"
                     // A truncated read is a partial file; saving it would drop
-                    // the rest, so that one stays read-only.
+                    // the rest, so that one stays read-only. Neither is audio.
+                    hidden={isAudioPath(activeFile)}
                     disabled={!!fileNote}
                     title={
                       fileNote
@@ -471,9 +572,12 @@ export function CodeWatch() {
                         : 'Edit this file here and save it back'
                     }
                     onClick={() => {
+                      const line = topVisibleLine();
                       void window.vo.watchReadFile(activeFile).then((r) => {
-                        if (r.ok && r.content !== undefined) setDraft(r.content);
-                        else setError(r.error ?? 'Could not open the file for editing.');
+                        if (r.ok && r.content !== undefined) {
+                          anchorLine.current = line;
+                          setDraft(r.content);
+                        } else setError(r.error ?? 'Could not open the file for editing.');
                       });
                     }}
                   >
@@ -499,7 +603,14 @@ export function CodeWatch() {
                     >
                       {saving ? 'Saving…' : 'Save'}
                     </button>
-                    <button className="ghost cw-edit" onClick={() => setDraft(null)}>
+                    <button
+                      className="ghost cw-edit"
+                      onClick={() => {
+                        const line = anchorLine.current;
+                        setDraft(null);
+                        if (line !== null) showLine(line);
+                      }}
+                    >
                       Cancel
                     </button>
                   </>
@@ -508,6 +619,7 @@ export function CodeWatch() {
               {draft !== null && (
                 <textarea
                   className="cw-editor mono"
+                  ref={editorRef}
                   spellCheck={false}
                   autoFocus
                   value={draft}
@@ -535,6 +647,7 @@ export function CodeWatch() {
                   }}
                 />
               )}
+              {isAudioPath(activeFile) && <AudioFile root={watchRoot} path={activeFile} />}
               {draft === null && viewLines.map((line, i) => {
                 const html =
                   viewLines.length <= MAX_HIGHLIGHT_LINES

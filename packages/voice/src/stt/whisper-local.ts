@@ -23,6 +23,16 @@ export class WhisperLocalStt implements SttProvider {
   constructor(private opts: WhisperLocalOptions) {}
 
   async transcribe(wav: Uint8Array, transcribeOpts?: TranscribeOptions): Promise<string> {
+    // whisper.cpp reads WAV with its own decoder and nothing else. Saying so is
+    // the whole fix: handed a Telegram voice note it would otherwise fail deep
+    // inside the CLI with a message about a header, which reads like a bug.
+    const type = transcribeOpts?.mimeType?.toLowerCase() ?? 'audio/wav';
+    if (!/wav|wave|pcm/.test(type)) {
+      throw new Error(
+        `whisper-local reads WAV only — this clip is ${type}. Point speech→text at a ` +
+          'transcription server (Settings → Voice) to accept it as it is.',
+      );
+    }
     const dir = await mkdtemp(join(tmpdir(), 'vo-stt-'));
     const wavPath = join(dir, 'audio.wav');
     try {

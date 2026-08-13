@@ -25,12 +25,31 @@ const MAX_PAIR_ATTEMPTS = 5;
 const PERMISSION_TIMEOUT_MS = 4 * 60_000;
 const CHUNK = 3_900;
 
+/** Telegram caps bot downloads at 20 MB; refuse before spending the round trip. */
+const MAX_INBOUND_BYTES = 20 * 1024 * 1024;
+/** …and bot uploads at 50 MB. Stop short of it so the failure is ours, and legible. */
+const MAX_OUTBOUND_BYTES = 45 * 1024 * 1024;
+/** Tools the bridge runs itself — everything else goes to the app's executor. */
+const PHONE_TOOLS = new Set(['telegram_voice_note', 'telegram_send_file']);
+
+interface TgAudio {
+  file_id: string;
+  duration?: number;
+  mime_type?: string;
+  file_name?: string;
+}
+
 interface TgUpdate {
   update_id: number;
   message?: {
     message_id: number;
     text?: string;
+    caption?: string;
     photo?: unknown[];
+    /** A held-mic voice note (Opus), a sent audio file, and a round video. */
+    voice?: TgAudio;
+    audio?: TgAudio;
+    video_note?: TgAudio;
     chat: { id: number; first_name?: string; username?: string; type: string };
   };
   callback_query?: {
@@ -42,6 +61,12 @@ interface TgUpdate {
 
 export interface TelegramAgentBackend {
   vodoSpec(): AgentSpec;
+  /** Words out of a clip the user sent. Absent = voice not configured. */
+  transcribe?(data: Uint8Array, mimeType: string, fileName: string): Promise<string>;
+  /** Speech as bytes, for a voice note. Null when the engine only speaks aloud here. */
+  synthesize?(text: string): Promise<{ data: Uint8Array; mimeType: string } | null>;
+  /** A file the user asked for, read under the same folder policy as the app. */
+  readFile?(path: string): { data: Uint8Array; name: string } | { error: string };
   resolve(spec: AgentSpec, override?: { provider?: string; model?: string }): BoundModel;
   tools(): ToolSpec[];
   execute(name: string, args: unknown): Promise<{ content: string; isError?: boolean }>;
@@ -281,6 +306,18 @@ export class TelegramBridge {
       await this.sendText(chatId, 'Photos are not supported from Telegram yet — text only for now.');
       return;
     }
+
+    // A voice note is you talking. It gets transcribed and handled like typing;
+    // whether the ANSWER comes back as speech is Vodo's call, made from what you
+    // asked for — he has a voice-note tool and uses it when you want it.
+    const clip = msg.voice ?? msg.audio ?? msg.video_note;
+    if (clip) {
+      const heard = await this.transcribeClip(chatId, clip);
+      if (!heard) return;
+      const caption = (msg.caption ?? '').trim();
+      await this.chat(chatId, caption ? `${heard}\n\n(${caption})` : heard);
+      return;
+    }
     if (!text) return;
 
     if (text === '/missions') {
@@ -297,6 +334,39 @@ export class TelegramBridge {
     }
 
     await this.chat(chatId, text);
+  }
+
+  /**
+   * Voice note → words. The clip is echoed back as text first: transcription is
+   * never perfect, and seeing what was heard is how you catch the turn that went
+   * wrong — especially in a language the model is guessing at.
+   */
+  private async transcribeClip(chatId: number, clip: TgAudio): Promise<string | null> {
+    if (!this.backend.transcribe) {
+      await this.sendText(chatId, '🎤 Voice is not wired up on this machine.');
+      return null;
+    }
+    const file = await this.download(clip.file_id);
+    if (!file) {
+      await this.sendText(chatId, '🎤 Could not fetch that clip (Telegram caps bot downloads at 20 MB).');
+      return null;
+    }
+    const name = clip.file_name ?? file.path.split('/').pop() ?? 'voice.ogg';
+    try {
+      const text = (await this.backend.transcribe(file.data, clip.mime_type ?? 'audio/ogg', name)).trim();
+      if (!text) {
+        await this.sendText(chatId, '🎤 Nothing came through in that clip.');
+        return null;
+      }
+      await this.sendText(chatId, `🎤 “${text}”`);
+      return text;
+    } catch (err) {
+      await this.sendText(
+        chatId,
+        `🎤 Could not transcribe that: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   private isPaired(chatId: number): boolean {
@@ -322,7 +392,13 @@ export class TelegramBridge {
       'and add anything the two of you worked out in this chat, because the Vodo receiving it ' +
       'cannot see these messages. Ask for a location if they did not give one. Then tell the ' +
       'user it is running and that they can watch it in the app. Questions, lookups, status and ' +
-      'memory you answer here yourself.';
+      'memory you answer here yourself.\n\n' +
+      'THIS IS A PHONE, so you can answer with more than text — but only when it is what was ' +
+      'asked for. telegram_voice_note speaks a reply aloud: use it when they ask you to talk, to ' +
+      'read something out, or say they are driving or walking; not otherwise, and never as well ' +
+      'as the same thing in text. A voice message from them is just them talking — it does NOT ' +
+      'mean they want spoken answers back, so keep replying in text until they say. ' +
+      'telegram_send_file puts a file from the machine on their phone when they ask for one.';
     const spec: AgentSpec = {
       ...base,
       id: `tg_${chatId}`,
@@ -356,14 +432,127 @@ export class TelegramBridge {
         }
       },
       toolExecutor: {
-        tools: () => this.backend.tools(),
-        execute: (name, args) => this.backend.execute(name, args),
+        tools: () => [...this.backend.tools(), ...this.phoneToolSpecs()],
+        execute: (name, args) =>
+          PHONE_TOOLS.has(name)
+            ? this.runPhoneTool(chatId, name, args)
+            : this.backend.execute(name, args),
       },
       permission: (req) => this.requestPermission(chatId, req.name, req.args),
     });
     state = fresh;
     this.chats.set(chatId, state);
     return state;
+  }
+
+  /**
+   * What Vodo can put on your phone besides words. These are TOOLS rather than
+   * a setting because the choice belongs in the conversation: "send me that
+   * file", "just talk to me for a while" and "read that back" are three
+   * different answers to three different requests, and a global "always speak"
+   * switch gets every one of them wrong half the time.
+   */
+  private phoneToolSpecs(): ToolSpec[] {
+    const specs: ToolSpec[] = [];
+    if (this.backend.synthesize) {
+      specs.push({
+        name: 'telegram_voice_note',
+        description:
+          'Say something to the user as a VOICE NOTE on Telegram instead of text. Use it when ' +
+          'they asked to be spoken to, asked you to read something out, or are clearly away ' +
+          'from a screen (driving, walking). Keep it short and speakable — no markdown, no code, ' +
+          'no lists. Your written reply still goes as text unless you say otherwise, so do not ' +
+          'repeat yourself: put the answer in ONE of the two.',
+        inputSchema: {
+          type: 'object',
+          properties: { text: { type: 'string', description: 'What to say aloud.' } },
+          required: ['text'],
+        },
+      });
+    }
+    if (this.backend.readFile) {
+      specs.push({
+        name: 'telegram_send_file',
+        description:
+          'Send a file from this machine to the user on Telegram — a document, an image, a log, ' +
+          'anything they asked to be sent over. Absolute path. Up to 45 MB.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Absolute path of the file to send.' },
+            caption: { type: 'string', description: 'Optional one-line note with it.' },
+          },
+          required: ['path'],
+        },
+      });
+    }
+    return specs;
+  }
+
+  private async runPhoneTool(
+    chatId: number,
+    name: string,
+    args: unknown,
+  ): Promise<{ content: string; isError?: boolean }> {
+    const a = (args ?? {}) as { text?: string; path?: string; caption?: string };
+    if (name === 'telegram_voice_note') {
+      const text = (a.text ?? '').trim();
+      if (!text) return { content: 'Nothing to say.', isError: true };
+      try {
+        const audio = await this.backend.synthesize?.(text);
+        if (!audio) {
+          return {
+            content:
+              'No voice available: the speech engine is the local system voice, which speaks out ' +
+              'of the machine rather than producing a file. Settings → Voice can point it at a ' +
+              'server (Kokoro, Piper, OpenAI, ElevenLabs). Answer as text this time.',
+            isError: true,
+          };
+        }
+        // sendVoice demands OGG/Opus; everything else goes as an audio file,
+        // which plays the same way with a different bubble.
+        const ogg = /ogg|opus/.test(audio.mimeType);
+        const sent = await this.upload(
+          ogg ? 'sendVoice' : 'sendAudio',
+          chatId,
+          ogg ? 'voice' : 'audio',
+          audio.data,
+          ogg ? 'voice.ogg' : `voice.${audio.mimeType.includes('wav') ? 'wav' : 'mp3'}`,
+          audio.mimeType,
+        );
+        return sent.ok
+          ? { content: 'Voice note sent.' }
+          : { content: `Could not send it: ${sent.error}`, isError: true };
+      } catch (err) {
+        return {
+          content: `Speech failed: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        };
+      }
+    }
+    if (name === 'telegram_send_file') {
+      const path = (a.path ?? '').trim();
+      if (!path) return { content: 'No path given.', isError: true };
+      const file = this.backend.readFile?.(path);
+      if (!file) return { content: 'Sending files is not available.', isError: true };
+      if ('error' in file) return { content: file.error, isError: true };
+      if (file.data.byteLength > MAX_OUTBOUND_BYTES) {
+        return { content: 'That file is over Telegram\'s 45 MB bot limit.', isError: true };
+      }
+      const sent = await this.upload(
+        'sendDocument',
+        chatId,
+        'document',
+        file.data,
+        file.name,
+        'application/octet-stream',
+        a.caption ? { caption: a.caption.slice(0, 1000) } : {},
+      );
+      return sent.ok
+        ? { content: `Sent ${file.name}.` }
+        : { content: `Could not send it: ${sent.error}`, isError: true };
+    }
+    return { content: `Unknown tool ${name}.`, isError: true };
   }
 
   private async chat(chatId: number, text: string): Promise<void> {
@@ -429,6 +618,63 @@ export class TelegramBridge {
   private async sendText(chatId: number, text: string): Promise<void> {
     for (let i = 0; i < text.length; i += CHUNK) {
       await this.api('sendMessage', { chat_id: chatId, text: text.slice(i, i + CHUNK) });
+    }
+  }
+
+  /** Upload a file to a chat — voice notes, documents and photos are multipart,
+   *  not JSON, so they cannot go through api(). */
+  private async upload(
+    method: string,
+    chatId: number,
+    field: string,
+    data: Uint8Array,
+    fileName: string,
+    mimeType: string,
+    extra: Record<string, string> = {},
+  ): Promise<{ ok: boolean; error?: string }> {
+    const token = this.token();
+    if (!token) return { ok: false, error: 'No bot token.' };
+    const form = new FormData();
+    form.append('chat_id', String(chatId));
+    for (const [k, v] of Object.entries(extra)) form.append(k, v);
+    form.append(
+      field,
+      new Blob([data as unknown as ArrayBuffer], { type: mimeType }),
+      fileName,
+    );
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 120_000);
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: 'POST',
+        body: form,
+        signal: ctl.signal,
+      });
+      const json = (await res.json()) as { ok: boolean; description?: string };
+      return json.ok ? { ok: true } : { ok: false, error: json.description ?? `HTTP ${res.status}` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Download an attachment the user sent (file_id → bytes). */
+  private async download(fileId: string): Promise<{ data: Uint8Array; path: string } | null> {
+    const token = this.token();
+    if (!token) return null;
+    const meta = await this.api<{ file_path?: string; file_size?: number }>('getFile', {
+      file_id: fileId,
+    });
+    const filePath = meta.result?.file_path;
+    if (!meta.ok || !filePath) return null;
+    if ((meta.result?.file_size ?? 0) > MAX_INBOUND_BYTES) return null;
+    try {
+      const res = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+      if (!res.ok) return null;
+      return { data: new Uint8Array(await res.arrayBuffer()), path: filePath };
+    } catch {
+      return null;
     }
   }
 

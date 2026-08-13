@@ -897,6 +897,34 @@ select:focus {
   color: var(--text-dim);
   font-size: 14px;
 }
+/* Generated audio, played under the tool call that produced it — the same
+   place a generated image or clip appears. */
+.gen-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  max-width: 100%;
+}
+.gen-audio audio {
+  height: 34px;
+  flex: 1;
+  min-width: 0;
+  max-width: 340px;
+}
+.gen-audio-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Preview: an audio file listened to instead of read. */
+.cw-audio {
+  padding: 16px 12px;
+}
+.cw-audio audio {
+  width: 100%;
+  max-width: 460px;
+}
 .composer-wrap {
   border-top: 1px solid var(--border);
 }
@@ -1723,12 +1751,23 @@ input[type='radio']:focus-visible {
   border: none;
   border-radius: 0;
   background: transparent;
-  padding: 10px 12px;
+  /* Left inset matches the reader's line-number gutter (46px) plus its padding,
+     so the words do not jump sideways when you press Edit — same column, same
+     wrap points, same page. */
+  padding: 10px 12px 10px 58px;
   font-size: 12.5px;
   line-height: 1.5;
   tab-size: 2;
-  white-space: pre;
-  overflow-wrap: normal;
+  /* pre-WRAP for the same reason the reader uses it: prose in a wide file made
+     editing a sideways scroll to read one sentence. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The reader keeps 30vh of runway below the last line so it can scroll up to
+   the middle. Under the editor that runway is dead space the textarea can
+   never fill — the box ended a third of a screen short of the window. */
+.cw-code.editing {
+  padding-bottom: 0;
 }
 .cw-line {
   display: flex;

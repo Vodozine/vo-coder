@@ -28,6 +28,8 @@ export type SessionEvent =
       imagePath?: string;
       /** Generated video on disk — same side-channel, same rule. */
       videoPath?: string;
+      /** Generated audio on disk — plays in the chat; the bytes stay on disk. */
+      audioPath?: string;
     };
 
 export interface ToolExecutor {
@@ -37,7 +39,13 @@ export interface ToolExecutor {
     args: unknown,
     /** Aborted when the user stops the run — long tools (ws_run) must honor it. */
     signal?: AbortSignal,
-  ): Promise<{ content: string; isError?: boolean; imagePath?: string; videoPath?: string }>;
+  ): Promise<{
+    content: string;
+    isError?: boolean;
+    imagePath?: string;
+    videoPath?: string;
+    audioPath?: string;
+  }>;
 }
 
 export type PermissionDecision = 'allow' | 'deny';
@@ -434,6 +442,7 @@ export class AgentSession {
             isError?: boolean;
             imagePath?: string;
             videoPath?: string;
+            audioPath?: string;
           };
           try {
             result = this.opts.toolExecutor
@@ -459,6 +468,7 @@ export class AgentSession {
             isError: !!result.isError,
             ...(result.imagePath ? { imagePath: result.imagePath } : {}),
             ...(result.videoPath ? { videoPath: result.videoPath } : {}),
+            ...(result.audioPath ? { audioPath: result.audioPath } : {}),
           });
           // Stop pressed while (or just after) the tool ran — end now instead
           // of feeding the aborted result back for another turn.

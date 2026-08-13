@@ -23,7 +23,13 @@ export class OpenAiStt implements SttProvider {
 
   async transcribe(wav: Uint8Array, transcribeOpts?: TranscribeOptions): Promise<string> {
     const form = new FormData();
-    form.append('file', new Blob([wav as unknown as ArrayBuffer], { type: 'audio/wav' }), 'audio.wav');
+    // The mic sends WAV, but a Telegram voice note is Opus and an attached clip
+    // is whatever the user had. Whisper endpoints sniff the container — they
+    // just need to be told the truth about it, and a filename whose extension
+    // agrees, which some servers use in place of the type.
+    const type = transcribeOpts?.mimeType ?? 'audio/wav';
+    const name = transcribeOpts?.fileName ?? 'audio.wav';
+    form.append('file', new Blob([wav as unknown as ArrayBuffer], { type }), name);
     form.append('model', this.model);
     form.append('response_format', 'text');
     if (transcribeOpts?.language) form.append('language', transcribeOpts.language);
