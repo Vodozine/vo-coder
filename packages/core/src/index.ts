@@ -12,7 +12,13 @@ export type {
 export { McpClientManager } from './mcp/client-manager.js';
 export type { McpServerConfig, McpServerStatus } from './mcp/client-manager.js';
 export { McpToolExecutor } from './mcp/tool-router.js';
-export { assignTasks, matchAgentForMessage, rankAgents } from './agent/agent-router.js';
+export {
+  addressedByName,
+  assignTasks,
+  matchAgentForMessage,
+  mentionsName,
+  rankAgents,
+} from './agent/agent-router.js';
 export type { AgentRank, RankOpts, TaskRequest } from './agent/agent-router.js';
 export { searchMcpRegistry, suggestServerName } from './mcp/registry.js';
 export type {

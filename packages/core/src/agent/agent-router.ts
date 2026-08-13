@@ -3,7 +3,7 @@ import type { AgentSpec } from '@vo-coder/providers';
 /**
  * "The right man for the job": match a message to the user's own specialist
  * agents. Pure keyword heuristics — no tokens spent on the decision itself.
- * Scoring: routing hints are the strong signal (3 each), being addressed by
+ * Scoring: routing hints are the strong signal (3 each), being ADDRESSED by
  * name counts (3), and overlap with its system prompt adds up to 3. A match needs
  * score ≥ 3 so casual word collisions don't hijack the conversation — unless
  * `always` is set ("My agents only" mode), where the best-scoring agent wins
@@ -19,8 +19,8 @@ export interface RankOpts {
   /**
    * Whether the turn actually involves an image (current parts or recent
    * history). Without one, vision-flavored words score NOTHING — "i can't SEE
-   * the cards" must not summon a vision agent. Typing the agent's name still
-   * works; that's the user calling it directly.
+   * the cards" must not summon a vision agent. Addressing the agent by name
+   * still works; that's the user calling it directly.
    */
   hasImage?: boolean;
   /**
@@ -55,6 +55,51 @@ const VISION_WORDS = new Set([
 /** Filler that must never count as "the user said this agent's name". */
 const NAME_STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'you', 'your', 'our']);
 
+/** Greetings that can open a message and still leave the next word the addressee. */
+const OPENING_FILLER =
+  /^\s*(?:(?:hey|hei|hi|hello|halló|hallo|hæ|hae|yo|ok|okay|sæll|sæl)[\s,]+)*/i;
+
+/**
+ * Did the user ADDRESS this agent, or merely mention it?
+ *
+ * A name anywhere in the text used to score as being addressed, which meant
+ * telling the coordinator ABOUT an agent handed him the message instead:
+ * "so tarantonio should have exactly what is in v1 … start working on his
+ * side" went straight to Tarantonio, who then read an order written for
+ * somebody else while the coordinator never heard it at all.
+ *
+ * Address is either explicit — `@name`, the way every chat app spells it — or
+ * vocative: the message opens with the name. Anything else is the third
+ * person, and the third person belongs to the coordinator, who has a delegate
+ * tool and a roster and can pass the job on himself.
+ */
+function nameForms(agent: AgentSpec): string[] {
+  return [
+    agent.name.toLowerCase().trim(),
+    ...agent.name
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !NAME_STOPWORDS.has(w)),
+  ].filter(Boolean);
+}
+
+/** Does this agent's name appear at all — addressed or merely talked about? */
+export function mentionsName(text: string, agent: AgentSpec): boolean {
+  const haystack = ` ${text.toLowerCase()} `;
+  return nameForms(agent).some((name) => haystack.includes(name));
+}
+
+export function addressedByName(text: string, agent: AgentSpec): boolean {
+  const lower = text.toLowerCase();
+  const opening = lower.replace(OPENING_FILLER, '');
+  return nameForms(agent).some((name) => {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (
+      new RegExp(`(?:^|[^\\w@])@${esc}\\b`).test(lower) || new RegExp(`^${esc}\\b`).test(opening)
+    );
+  });
+}
+
 /** Beyond this many hint hits, more keywords stop buying more score. */
 const MAX_HINT_HITS = 3;
 
@@ -84,14 +129,11 @@ export function rankAgents(text: string, agents: AgentSpec[], opts: RankOpts = {
       }
     }
 
-    // Stopwords filtered, a name hit means the user addressed this agent —
-    // strong enough to match on its own.
-    for (const word of agent.name.toLowerCase().split(/\s+/)) {
-      if (word.length > 2 && !NAME_STOPWORDS.has(word) && haystack.includes(word)) {
-        matched.push(agent.name);
-        score += 3;
-        break;
-      }
+    // Being ADDRESSED is strong enough to match on its own. Being MENTIONED is
+    // not evidence of anything — see addressedByName.
+    if (addressedByName(text, agent)) {
+      matched.push(agent.name);
+      score += 3;
     }
 
     const promptWords = new Set(

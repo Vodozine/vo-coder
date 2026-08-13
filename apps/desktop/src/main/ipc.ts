@@ -3,10 +3,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
+  addressedByName,
   EmotionalMiddleware,
   matchAgentForMessage,
   McpAdvisor,
   McpClientManager,
+  mentionsName,
   rankAgents,
   searchMcpRegistry,
   type McpServerConfig,
@@ -1939,14 +1941,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           const needsVision =
             historyHasImages || parts.some((p) => p.type === 'image');
 
+          // Talking to the boss ABOUT someone is not talking to that someone.
+          // "so tarantonio should have exactly what is in v1 … start working
+          // on his side" is an order for Vodo to carry out — routing it to
+          // Tarantonio delivered it to the one person it was not addressed to,
+          // who then read instructions written about him in the third person
+          // while the boss never heard them at all. A name in the third person
+          // now PINS the turn to the coordinator: he has the roster and the
+          // delegate tool, and passing the job on is his job. Addressing an
+          // agent — "@name", or opening the message with the name — still
+          // hands it straight over.
+          const aboutSomeoneElse =
+            agents.some((ag) => ag.id !== 'default' && mentionsName(text, ag)) &&
+            !agents.some((ag) => addressedByName(text, ag));
           const recent = recentAgents.get(sessionId) ?? [];
-          let match = matchAgentForMessage(text, agents, {
-            always: mode === 'agents-only',
-            hasImage: needsVision,
-            recent,
-            // Ties go to the more capable model, and the boss is usually it.
-            qualityOf: qualityOfAgent,
-          });
+          let match = aboutSomeoneElse
+            ? null
+            : matchAgentForMessage(text, agents, {
+                always: mode === 'agents-only',
+                hasImage: needsVision,
+                recent,
+                // Ties go to the more capable model, and the boss is usually it.
+                qualityOf: qualityOfAgent,
+              });
           // The boss winning means nobody else was a better fit — that is the
           // turn staying where it already is, not a handover to announce.
           if (match?.agent.id === 'default') match = null;
@@ -1970,7 +1987,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           // are all off-topic (e.g. a vision agent with no image on the table)
           // must hand the job over to catalog routing, not absorb it by being
           // the only staff around.
-          if (!match && mode === 'agents' && builderMode && looksLikeWorkRequest(text) && agents.length > 0) {
+          if (
+            !match &&
+            !aboutSomeoneElse &&
+            mode === 'agents' &&
+            builderMode &&
+            looksLikeWorkRequest(text) &&
+            agents.length > 0
+          ) {
             const top = rankAgents(text, agents, { hasImage: needsVision, recent })[0];
             if (top && top.score > 0) {
               match = {

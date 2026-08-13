@@ -274,7 +274,9 @@ export class SessionManager {
       'keeps a worker on its own part — but it means the background it needs has to go INTO the ' +
       'brief. Do not point such an agent at the map, at another agent, or at "what we decided ' +
       'earlier"; write the decision out. It will ask you when something is missing, and answering ' +
-      'that is your job.'
+      'that is your job.\n' +
+      'When the user names one of these agents while talking to YOU, that is an instruction to you ' +
+      'about that agent — they did not hear it. Carry it out: brief them and start the work.'
     );
   }
 

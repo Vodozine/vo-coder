@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSpec } from '@vo-coder/providers';
-import { assignTasks, matchAgentForMessage, rankAgents } from '../src/agent/agent-router.ts';
+import {
+  addressedByName,
+  assignTasks,
+  matchAgentForMessage,
+  mentionsName,
+  rankAgents,
+} from '../src/agent/agent-router.ts';
 
 const agents: AgentSpec[] = [
   {
@@ -109,6 +115,30 @@ describe('matchAgentForMessage', () => {
   it('matches on the agent name being addressed', () => {
     const match = matchAgentForMessage('hey danny, is the cluster healthy? check the vm list', agents);
     expect(match?.agent.id).toBe('a1');
+  });
+
+  it('a name in the third person is talking ABOUT the agent, not TO it', () => {
+    // Seen live: the whole message went to the specialist, so the coordinator
+    // being given the order never heard it, and the specialist read
+    // instructions written about him in the third person.
+    const text =
+      'i want you to rebuild the mission. the v1 is the north star.\n' +
+      'so danny should have exactly what is in v1 now and start working on his side';
+    const danny = agents[0]!;
+    expect(mentionsName(text, danny)).toBe(true);
+    expect(addressedByName(text, danny)).toBe(false);
+    expect(rankAgents(text, agents)[0]!.matched).not.toContain('Danny');
+    expect(matchAgentForMessage('tell danny to snapshot it later', agents)).toBeNull();
+  });
+
+  it('being addressed still routes: at the front of the message, or with an @', () => {
+    const danny = agents[0]!;
+    expect(addressedByName('danny, is the cluster healthy?', danny)).toBe(true);
+    expect(addressedByName('hey danny — check the vm list', danny)).toBe(true);
+    expect(addressedByName('ok so can @danny take this one', danny)).toBe(true);
+    expect(addressedByName('sæll danny, hvað segirðu?', danny)).toBe(true);
+    // A greeting is not a name, and "and danny" is still the third person.
+    expect(addressedByName('and danny can do the rest', danny)).toBe(false);
   });
 
   it('returns null for generic chatter — no hijacking casual messages', () => {
