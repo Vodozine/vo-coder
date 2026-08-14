@@ -22,7 +22,8 @@ export type IconName =
   | 'branch'
   | 'search'
   | 'copy'
-  | 'check';
+  | 'check'
+  | 'chevron-down';
 
 const PATHS: Record<IconName, JSX.Element> = {
   paperclip: (
@@ -127,6 +128,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   check: <path d="M20 6L9 17l-5-5" />,
+  'chevron-down': <path d="M6 9l6 6 6-6" />,
 };
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {

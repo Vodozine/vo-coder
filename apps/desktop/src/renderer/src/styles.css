@@ -813,6 +813,31 @@ button.bubble-act.danger:hover {
 .messages-wrap .messages {
   padding-right: 132px;
 }
+/* Jump to newest — appears only when scrolled up, clear of the walking robot. */
+.jump-bottom {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  opacity: 0.9;
+}
+.jump-bottom:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
 .robot-walk {
   position: absolute;
   right: 20px;

@@ -1059,6 +1059,8 @@ export function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Follow new output only while the user is already near the bottom. */
   const pinToBottomRef = useRef(true);
+  /** Drives the jump-to-newest button — shown whenever the view is scrolled up. */
+  const [atBottom, setAtBottom] = useState(true);
 
   const { recording, live, voiceError, pttStart, pttStop, liveToggle } = useVoice((text) =>
     setInput((prev) => (prev ? `${prev} ${text}` : text)),
@@ -1093,20 +1095,17 @@ export function Chat() {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
+    pinToBottomRef.current = true;
+    setAtBottom(true);
   };
 
   const onMessagesScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    pinToBottomRef.current = isNearBottom(el);
+    const near = isNearBottom(el);
+    pinToBottomRef.current = near;
+    setAtBottom(near);
   };
-
-  // New chat / session switch: jump to latest and re-enable follow.
-  useEffect(() => {
-    pinToBottomRef.current = true;
-    // Wait a frame so the new session's messages are painted.
-    requestAnimationFrame(() => scrollToBottom());
-  }, [activeSessionId]);
 
   // While pinned, keep the viewport on the latest tokens/tools as they stream in.
   useEffect(() => {
@@ -1136,6 +1135,17 @@ export function Chat() {
   // either way.
   const [groupOpen, setGroupOpen] = useState(true);
   const groupTakesOver = !!activeGroup && groupOpen;
+
+  // Land on the newest message and follow again whenever this pane (re)appears:
+  // a new chat, a session switch, OR returning from a group — the messages pane
+  // unmounts while the group grid takes over and remounts fresh at the TOP, so
+  // keying only on the session id left every group-exit scrolled to the start.
+  useEffect(() => {
+    if (groupTakesOver) return;
+    pinToBottomRef.current = true;
+    // Wait a frame so the (re)mounted session's messages are painted.
+    requestAnimationFrame(() => scrollToBottom());
+  }, [activeSessionId, groupTakesOver]);
   const openSession = useStore((s) => s.openSession);
   // Opening any chat of a group unfolds its grid — that is what "restore the
   // group" means — EXCEPT when the switch came from a pane's own "open full
@@ -1518,6 +1528,15 @@ export function Chat() {
           </div>
         ))}
       </div>
+      {!atBottom && (
+        <button
+          className="jump-bottom"
+          title="Jump to newest"
+          onClick={() => scrollToBottom('smooth')}
+        >
+          <Icon name="chevron-down" size={18} />
+        </button>
+      )}
       </div>
       )}
 
