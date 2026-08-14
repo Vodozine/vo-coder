@@ -801,7 +801,15 @@ export class SessionManager {
     // told it had. Membership cannot drift — a tool that is advertised is
     // routable by construction. (MCP names carry "__", builtins never do, so
     // there is no collision.)
-    if (this.deps.builtins && this.deps.builtins.specs().some((t) => t.name === name)) {
+    // lookToolSpecs rides along: look_at_image is advertised separately (only
+    // folder-backed chats get it) but executed by the builtin executor — the
+    // one advertised-elsewhere tool, and exactly the one the by-name fix
+    // orphaned ("Malformed tool name" on every look, seen live).
+    if (
+      this.deps.builtins &&
+      (this.deps.builtins.specs().some((t) => t.name === name) ||
+        lookToolSpecs().some((t) => t.name === name))
+    ) {
       // The session knows its own project — tools default to it instead
       // of making the model guess a name. dir carries the chat's folder
       // (attached or project) for look_at_image / image saves. sessionId

@@ -2576,8 +2576,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // Match the builtin by NAME, not by a prefix list — the interactive path's
     // hand-written regex here had already dropped video_, so video_generate on
     // a mission fell through to mcp.call and errored. Membership stays correct
-    // as builtins are added.
-    if (builtins.specs().some((t) => t.name === name)) {
+    // as builtins are added. lookToolSpecs rides along: look_at_image is
+    // advertised separately (folder-backed only) but executed here.
+    if (
+      builtins.specs().some((t) => t.name === name) ||
+      lookToolSpecs().some((t) => t.name === name)
+    ) {
       return builtins.execute(name, args, { projectId, ...(dir ? { dir } : {}) });
     }
     return mcp.call(name, args);
