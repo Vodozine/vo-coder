@@ -124,6 +124,29 @@ const BUDGET_RESULT =
   'the user says continue.';
 const INTERRUPTED_RESULT = 'Stopped before this tool ran.';
 
+/**
+ * Chat-template sentinels that leak into TEXT when a local endpoint fails to
+ * parse the model's native tool-call / role syntax (seen live: a Kimi-family
+ * model printing "<|tool_call_begin|>assistant" as prose because the server
+ * had no tool parsing for its template). Left in history, the debris replays
+ * every round-trip and teaches the model to chat instead of act — so it is
+ * scrubbed before the turn is recorded, and the first hit per run raises a
+ * visible warning naming the model: the ENDPOINT is misconfigured, not the
+ * agent. Covers Kimi/DeepSeek tool syntax, ChatML, Llama-3 headers, GLM roles.
+ */
+const TEMPLATE_SENTINELS =
+  /<\|(?:tool_calls?_(?:section_)?(?:begin|end)|tool_call_argument_begin|tool▁(?:calls?|outputs?|sep)(?:▁(?:begin|end))?|im_start|im_end|im_sep|start_header_id|end_header_id|eot_id|eom_id|python_tag|endoftext|end|assistant|user|system|observation|end▁of▁sentence)\|>/giu;
+
+/** Strip leaked sentinels; report the distinct tokens found (empty = clean). */
+export function scrubTemplateSentinels(text: string): { text: string; found: string[] } {
+  const found = text.match(TEMPLATE_SENTINELS);
+  if (!found) return { text, found: [] };
+  return {
+    text: text.replace(TEMPLATE_SENTINELS, '').replace(/[ \t]+\n/g, '\n').trim(),
+    found: [...new Set(found)],
+  };
+}
+
 const STALL_TIMEOUT_MS = 120_000;
 /**
  * Until the FIRST meaningful event of a request the model is prefilling: a
@@ -363,6 +386,7 @@ export class AgentSession {
     this.activeCancel = cancel;
     const runAbort = new AbortController();
     this.runAbort = runAbort;
+    let warnedSentinels = false;
     const maxTurns = this.opts.maxToolTurns ?? 16;
     const stallBudget =
       this.opts.stallTimeoutMs ?? bound.provider.stallTimeoutMs ?? STALL_TIMEOUT_MS;
@@ -434,6 +458,27 @@ export class AgentSession {
           }
         }
         this.abortCtl = null;
+
+        if (text) {
+          const scrubbed = scrubTemplateSentinels(text);
+          if (scrubbed.found.length) {
+            text = scrubbed.text;
+            if (!warnedSentinels) {
+              warnedSentinels = true;
+              this.opts.emit(this.id, {
+                type: 'error',
+                error: {
+                  kind: 'unknown',
+                  message:
+                    `Model "${bound.model}" printed raw tool-call template tokens as text ` +
+                    `(${scrubbed.found.slice(0, 3).join(' ')}). Its endpoint failed to parse ` +
+                    `a tool call — check the server's chat template / tool support. The ` +
+                    `tokens were removed from the transcript.`,
+                },
+              });
+            }
+          }
+        }
 
         const parts: AssistantPart[] = [];
         if (thinking) parts.push({ type: 'thinking', text: thinking, ...(thinkingSig ? { signature: thinkingSig } : {}) });
