@@ -154,6 +154,18 @@ export function workspaceToolSpecs(dir: string): ToolSpec[] {
  * resolved. The root is resolved too, since the project folder may legitimately
  * be reached through a link of its own.
  */
+/**
+ * True when `target` is at or below `root`. The one fence every path-taking
+ * tool should share: `startsWith(root)` without a trailing separator lets a
+ * sibling whose name EXTENDS the root's ("…/mysite-assets" vs "…/mysite")
+ * slip through, and `relative()` closes that — a `..` or an absolute result
+ * means the target climbed out.
+ */
+export function insideRoot(root: string, target: string): boolean {
+  const rel = relative(resolve(root), resolve(target));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
 function guarded(dir: string, relPath: string): string {
   const root = realpathSync(dir);
   const target = resolve(root, relPath);

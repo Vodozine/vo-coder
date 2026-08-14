@@ -66,6 +66,8 @@ const api: VoApi = {
   registryCatalog: () => ipcRenderer.invoke(IPC.registryCatalog),
   registrySuggest: (text, opts) => ipcRenderer.invoke(IPC.registrySuggest, text, opts),
   chatInject: (sessionId, parts) => ipcRenderer.invoke(IPC.chatInject, sessionId, parts),
+  chatCancelInject: (sessionId, injectionId) =>
+    ipcRenderer.invoke(IPC.chatCancelInject, sessionId, injectionId),
   previewOpen: (url) => ipcRenderer.invoke(IPC.previewOpen, url),
   previewOpenFile: (path) => ipcRenderer.invoke(IPC.previewOpenFile, path),
   previewDetect: (dir) => ipcRenderer.invoke(IPC.previewDetect, dir),

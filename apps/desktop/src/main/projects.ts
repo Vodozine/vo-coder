@@ -183,6 +183,10 @@ export class ProjectStore {
     const removed = data.sessions.filter((s) => s.projectId === id).map((s) => s.id);
     data.projects = data.projects.filter((p) => p.id !== id);
     data.sessions = data.sessions.filter((s) => s.projectId !== id);
+    // Drop the project's group runs too — they carry the now-deleted projectId
+    // and member sessionIds, and list() broadcasts them unfiltered, so leaving
+    // them behind strands a dead GroupRun in projects.json on every event.
+    if (data.groups) data.groups = data.groups.filter((g) => g.projectId !== id);
     for (const sessionId of removed) {
       rmSync(this.transcriptPath(sessionId), { force: true });
     }

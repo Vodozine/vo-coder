@@ -47,6 +47,15 @@ export interface MapOp {
 export class MemoryBank {
   private db: DatabaseSync;
   private distilling = new Set<string>();
+  /** Bumped on every node write; keys the digest cache below. */
+  private mapVersion = new Map<string, number>();
+  /** Last rendered digest per (project|maxChars|query), valid while version holds. */
+  private digestCache = new Map<string, { v: number; note: string }>();
+
+  /** A node changed — invalidate this project's cached digests. */
+  private touchMap(projectId: string): void {
+    this.mapVersion.set(projectId, (this.mapVersion.get(projectId) ?? 0) + 1);
+  }
 
   constructor(file: string) {
     this.db = new DatabaseSync(file);
@@ -345,6 +354,7 @@ export class MemoryBank {
         console.error('[membank] op skipped:', err);
       }
     }
+    if (applied > 0) this.touchMap(projectId);
     return applied;
   }
 
@@ -353,7 +363,24 @@ export class MemoryBank {
    * system prompt when window-as-buffer assembly is on. This is what makes
    * dropping old turns safe — the durable knowledge rides along every turn.
    */
+  /**
+   * The digest rides every send, but it only changes when the MAP changes — so
+   * serve it from a version-keyed cache instead of re-running ~50 synchronous
+   * SQLite queries per send (multiplied across every member of a group). The
+   * version bumps on any node write; a query-ranked digest keys on the query
+   * too. Rendering is unchanged — this is a pure memoization in front of it.
+   */
   digest(projectId: string, maxChars = 5_500, query?: string): string {
+    const version = this.mapVersion.get(projectId) ?? 0;
+    const key = `${projectId}|${maxChars}|${query ?? ''}`;
+    const hit = this.digestCache.get(key);
+    if (hit && hit.v === version) return hit.note;
+    const note = this.renderDigest(projectId, maxChars, query);
+    this.digestCache.set(key, { v: version, note });
+    return note;
+  }
+
+  private renderDigest(projectId: string, maxChars = 5_500, query?: string): string {
     try {
       type Row = { id: number; type: string; title: string; body: string; status: string; tags: string };
       // Active tasks come FIRST and unconditionally: they are what the model
@@ -444,26 +471,36 @@ export class MemoryBank {
   ): MapNodeDto[] {
     const typeFilter = opts.type && NODE_TYPES.has(opts.type) ? opts.type : undefined;
     let rows: Array<{ id: number; type: string; title: string; body: string; status: string; tags: string; src_session: string | null; src_turn: number | null; updated_at: number }>;
+    const byRecency = (): typeof rows =>
+      this.db
+        .prepare(
+          `SELECT * FROM nodes WHERE project_id = ?
+           ${typeFilter ? 'AND type = ?' : ''} ORDER BY updated_at DESC LIMIT 200`,
+        )
+        .all(...(typeFilter ? [projectId, typeFilter] : [projectId])) as typeof rows;
     if (opts.query?.trim()) {
       const safe = opts.query
         .trim()
         .split(/\s+/)
         .map((t) => `"${t.replace(/"/g, '')}"`)
         .join(' ');
-      rows = this.db
-        .prepare(
-          `SELECT nodes.* FROM nodes_fts JOIN nodes ON nodes.id = nodes_fts.rowid
-           WHERE nodes_fts MATCH ? AND nodes.project_id = ?
-           ${typeFilter ? 'AND nodes.type = ?' : ''} ORDER BY rank LIMIT 100`,
-        )
-        .all(...(typeFilter ? [safe, projectId, typeFilter] : [safe, projectId])) as typeof rows;
+      try {
+        rows = this.db
+          .prepare(
+            `SELECT nodes.* FROM nodes_fts JOIN nodes ON nodes.id = nodes_fts.rowid
+             WHERE nodes_fts MATCH ? AND nodes.project_id = ?
+             ${typeFilter ? 'AND nodes.type = ?' : ''} ORDER BY rank LIMIT 100`,
+          )
+          .all(...(typeFilter ? [safe, projectId, typeFilter] : [safe, projectId])) as typeof rows;
+      } catch {
+        // A term of only tokenizer-discarded characters collapses to an empty
+        // phrase — an fts5 syntax error. digest() guards the same way; the
+        // Memory-view path did not, so the node list threw instead of showing
+        // "no matches". Fall back to recency.
+        rows = byRecency();
+      }
     } else {
-      rows = this.db
-        .prepare(
-          `SELECT * FROM nodes WHERE project_id = ?
-           ${typeFilter ? 'AND type = ?' : ''} ORDER BY updated_at DESC LIMIT 200`,
-        )
-        .all(...(typeFilter ? [projectId, typeFilter] : [projectId])) as typeof rows;
+      rows = byRecency();
     }
     if (!opts.includeInactive) {
       rows = rows.filter((r) => r.status === 'active' || r.status === 'done');
@@ -493,12 +530,14 @@ export class MemoryBank {
     this.db
       .prepare('UPDATE nodes SET status = ?, updated_at = ? WHERE id = ? AND project_id = ?')
       .run(status, Date.now(), nodeId, projectId);
+    this.touchMap(projectId);
     return true;
   }
 
   deleteNode(projectId: string, nodeId: number): void {
     this.db.prepare('DELETE FROM links WHERE from_id = ? OR to_id = ?').run(nodeId, nodeId);
     this.db.prepare('DELETE FROM nodes WHERE id = ? AND project_id = ?').run(nodeId, projectId);
+    this.touchMap(projectId);
   }
 
   stats(projectId: string): { nodes: number; archiveTurns: number } {

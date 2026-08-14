@@ -80,7 +80,21 @@ function isPrivateAddress(ip: string): boolean {
   }
   const s = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0] ?? '';
   if (s === '::' || s === '::1') return true;
-  if (s.startsWith('::ffff:')) return isPrivateAddress(s.slice(7)); // v4-mapped
+  if (s.startsWith('::ffff:')) {
+    // v4-mapped, BOTH spellings. WHATWG `new URL()` normalises the dotted
+    // form (::ffff:127.0.0.1) into compressed hex (::ffff:7f00:1), so the
+    // dotted-only check that used to live here never fired on a real request —
+    // the hex form recursed into a non-IP string and was waved through.
+    const tail = s.slice(7);
+    if (isIP(tail) === 4) return isPrivateAddress(tail);
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
+    if (hex) {
+      const hi = parseInt(hex[1]!, 16);
+      const lo = parseInt(hex[2]!, 16);
+      return isPrivateAddress(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+    }
+    return true; // unrecognised v4-mapped spelling — fail closed
+  }
   if (/^f[cd]/.test(s)) return true; // unique local
   if (s.startsWith('fe80')) return true; // link-local
   return false;

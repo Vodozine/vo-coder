@@ -76,13 +76,13 @@ function harness(
 describe('mid-task injection', () => {
   it('queue mode holds the message and runs it as the next turn', async () => {
     const { provider, requests } = abortable([textTurn('first answer'), textTurn('second answer')]);
-    const { session, idle } = harness(provider, {
+    const { session, events, idle } = harness(provider, {
       spec: { id: 'a1', name: 't', injectionMode: 'queue' },
     } as Partial<AgentSessionOptions>);
 
     expect(session.send('first question').ok).toBe(true);
     const injected = session.inject('also consider X');
-    expect(injected).toEqual({ ok: true, queued: true });
+    expect(injected).toEqual({ ok: true, queued: true, injectionId: expect.any(Number) });
 
     await idle(2);
     expect(requests).toHaveLength(2);
@@ -101,6 +101,38 @@ describe('mid-task injection', () => {
       role: 'user',
       content: [{ type: 'text', text: 'also consider X' }],
     });
+    // Delivery was announced with the queue handle — the UI's "seen" moment…
+    expect(events).toContainEqual({
+      type: 'inject_delivered',
+      injectionId: injected.injectionId,
+      ok: true,
+    });
+    // …and afterwards the handle is dead: cancel must report "too late".
+    expect(session.cancelInjection(injected.injectionId!)).toBe(false);
+  });
+
+  it('cancelInjection pulls a queued message back before delivery', async () => {
+    const { provider, requests } = abortable([textTurn('only answer')]);
+    const { session, events, idle } = harness(provider, {
+      spec: { id: 'a1', name: 't', injectionMode: 'queue' },
+    } as Partial<AgentSessionOptions>);
+
+    session.send('question');
+    const injected = session.inject('take that back');
+    expect(session.cancelInjection(injected.injectionId!)).toBe(true);
+
+    await idle(1);
+    // Drain runs a microtask after idle — give it a beat before asserting.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(requests).toHaveLength(1);
+    expect(events.some((e) => e.type === 'inject_delivered')).toBe(false);
+    expect(
+      session.history.some(
+        (m) =>
+          m.role === 'user' &&
+          m.content.some((p) => p.type === 'text' && p.text === 'take that back'),
+      ),
+    ).toBe(false);
   });
 
   it('abort-and-resend cancels the stream, keeps the partial, and resends', async () => {

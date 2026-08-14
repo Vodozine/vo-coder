@@ -467,6 +467,54 @@ select:focus {
   border-color: var(--error);
   color: #f1b0b0;
 }
+.bubble.cancelled {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* Hover actions beside the user bubble: copy, and cancel while queued. */
+.bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.bubble-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.message:hover .bubble-actions,
+.bubble-actions.live {
+  opacity: 1;
+}
+.bubble-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+button.bubble-act:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+button.bubble-act.danger:hover {
+  color: var(--error);
+}
+
+/* Lifecycle note under an injected message: queued → seen / cancelled / failed. */
+.queue-note.seen {
+  color: var(--ok);
+}
+.queue-note.failed {
+  color: var(--error);
+}
 .bubble.pulse {
   animation: pulse 1.2s ease-in-out infinite;
   color: var(--text-dim);

@@ -40,6 +40,14 @@ export interface GroupDeps {
    */
   onMission?: () => Array<{ name: string; mission: string }>;
   /**
+   * Resolve any agent by id, UNFILTERED — including agents a mission is holding
+   * and Mr Homelab, who are absent from `agents()`. The brief a member opens
+   * with is keyed on its card's memory flag; resolving that flag through the
+   * filtered roster meant a lookup miss (mission-held member, or Homelab seated
+   * by startGroup) silently briefed a memory-off agent as if it had the map.
+   */
+  agentById?: (id: string) => AgentSpec | undefined;
+  /**
    * How capable an agent's model is (1–10, the catalog's own scale). Only a
    * tiebreak, but on a roster of general-purpose agents nearly every part ties
    * — and without it the hardest part went to whoever was least recently used.
@@ -345,8 +353,11 @@ export async function executeGroupTool(
       };
     }
     // Their model may have been evicted while they sat idle — start the load
-    // now so the instruction begins at prefill, not at reading weights.
-    const agent = deps.agents().find((ag) => ag.id === member.agentId);
+    // now so the instruction begins at prefill, not at reading weights. Resolve
+    // through agentById (unfiltered): a member whose agent a mission later
+    // claimed is gone from agents(), and the memory-flag miss would flip the
+    // instruction to the map variant for an agent that has no map.
+    const agent = deps.agentById?.(member.agentId) ?? deps.agents().find((ag) => ag.id === member.agentId);
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(
       member.sessionId,
@@ -774,8 +785,13 @@ export async function startGroup(
   deps.record?.(group);
   for (const member of members) {
     // Loading starts NOW, in parallel across boxes, so a local member's first
-    // turn begins at prefill instead of at reading gigabytes off disk.
-    const agent = agents.find((a) => a.id === member.agentId);
+    // turn begins at prefill instead of at reading gigabytes off disk. Resolve
+    // through agentById first: `agents` is the SEATABLE roster and excludes Mr
+    // Homelab, so his brief was read off `undefined` and defaulted to the
+    // memory-on variant — instructing map_update on an agent that has no map.
+    // Vodo stand-ins (id 'default') are not in the config, so fall back to the
+    // local pool for them.
+    const agent = deps.agentById?.(member.agentId) ?? agents.find((a) => a.id === member.agentId);
     if (agent?.provider && agent.model) deps.warm?.(agent.provider, agent.model);
     deps.send(
       member.sessionId,

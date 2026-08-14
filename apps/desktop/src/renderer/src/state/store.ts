@@ -65,8 +65,14 @@ export interface UiMessage {
   /** user messages */
   text?: string;
   attachments?: Array<{ name: string; kind: 'image' | 'file' }>;
-  /** injected while the agent was busy; delivered on the next turn */
-  queuedNote?: boolean;
+  /**
+   * Lifecycle of a message injected while the agent was busy:
+   * queued (waiting behind the run) → seen (the next turn opened with it) /
+   * cancelled (user pulled it back) / failed (the queued send errored).
+   */
+  queueState?: 'queued' | 'seen' | 'cancelled' | 'failed';
+  /** Queue handle while 'queued' — chatCancelInject takes it. */
+  injectionId?: number;
   /** Vodo's routing decision for this reply. */
   routedNote?: string;
   /** assistant messages */
@@ -247,6 +253,8 @@ interface AppState {
   send(text: string): Promise<void>;
   /** Text-only send/inject into one group member's session. */
   sendToMember(sessionId: string, text: string): Promise<void>;
+  /** Pull a still-queued injected message back before the agent sees it. */
+  cancelQueued(sessionId: string, messageId: number): Promise<void>;
   stop(): Promise<void>;
   saveConfig(patch: Partial<AppConfig>): Promise<void>;
   saveAgents(agents: AgentSpec[]): Promise<void>;
@@ -966,6 +974,26 @@ export const useStore = create<AppState>((set, get) => ({
     else await window.vo.chatSend(sessionId, parts);
   },
 
+  async cancelQueued(sessionId, messageId) {
+    const msg = get().sessions[sessionId]?.messages.find((m) => m.id === messageId);
+    if (msg?.queueState !== 'queued' || msg.injectionId === undefined) return;
+    const cancelled = await window.vo.chatCancelInject(sessionId, msg.injectionId);
+    // False = it already left the queue — the inject_delivered event marks it
+    // seen/failed, so only a real cancellation may touch the state here.
+    if (!cancelled) return;
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          ...s.sessions[sessionId]!,
+          messages: s.sessions[sessionId]!.messages.map((m) =>
+            m.id === messageId ? { ...m, queueState: 'cancelled' as const } : m,
+          ),
+        },
+      },
+    }));
+  },
+
   async send(text) {
     const { activeSessionId, attachments, config, models, sessions, sessionMetas } = get();
     if (!activeSessionId) return;
@@ -1008,7 +1036,9 @@ export const useStore = create<AppState>((set, get) => ({
             [activeSessionId]: {
               ...s.sessions[activeSessionId]!,
               messages: s.sessions[activeSessionId]!.messages.map((m) =>
-                m.id === userMsg.id ? { ...m, queuedNote: true } : m,
+                m.id === userMsg.id
+                  ? { ...m, queueState: 'queued' as const, injectionId: result.injectionId }
+                  : m,
               ),
             },
           },
@@ -1418,6 +1448,18 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       break;
     case 'error':
       patchDraft((m) => ({ ...m, error: event.error.message }));
+      break;
+    case 'inject_delivered':
+      // The queued note's honest moment: the turn that just opened carries the
+      // message (seen), or the queued send errored and dropped it (failed).
+      patchSession((session) => ({
+        ...session,
+        messages: session.messages.map((m) =>
+          m.injectionId === event.injectionId && m.queueState === 'queued'
+            ? { ...m, queueState: event.ok ? ('seen' as const) : ('failed' as const) }
+            : m,
+        ),
+      }));
       break;
     case 'status':
       if (event.status === 'streaming') {

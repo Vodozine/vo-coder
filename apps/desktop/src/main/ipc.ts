@@ -14,7 +14,7 @@ import {
   type McpServerConfig,
   type RequestLogEntry,
 } from '@vo-coder/core';
-import type { AgentSpec, HarnessMessage, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, BoundModel, HarnessMessage, UserPart } from '@vo-coder/providers';
 import type { ProjectAnswers } from '@vo-coder/project-config';
 import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
@@ -45,7 +45,7 @@ import { MissionManager } from './missions';
 import { GENERAL_PROJECT_ID, HOMELAB_PROJECT_ID, ProjectStore } from './projects';
 import { TelegramBridge } from './telegram';
 import { TerminalManager } from './terminal';
-import { AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { AUTO_ALLOWED_TOOLS, MEMORY_TOOLS } from './tool-policy';
 import { UsageTracker } from './usage';
 import { DeadModels } from './dead-models';
 import { executeFileIdTool, fileIdToolSpecs } from './file-id';
@@ -54,7 +54,7 @@ import { executeVideoTool, videoToolSpecs } from './video-gen';
 import { executePaymentTool, paymentToolSpecs, SpendLedger } from './payments';
 import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './vision-look';
 import { executeWebTool, webToolSpecs } from './web-tools';
-import { executeWorkspaceTool, stopLaunched, workspaceToolSpecs } from './workspace-tools';
+import { executeWorkspaceTool, insideRoot, stopLaunched, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
 import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
@@ -143,6 +143,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   projects.ensureDefault();
   const usage = new UsageTracker(join(app.getPath('userData'), 'usage.json'), sendToWindow);
 
+  /**
+   * Is this endpoint billed by a subscription/plan rather than per-token? Its
+   * catalog token prices are then fiction — they must be zeroed for the meter
+   * AND for routing/UI, or auto-routing steers away from a model that is
+   * actually free on the user's plan. One predicate so the four sites that
+   * cared (usage, routing, catalog, suggest) cannot drift apart again — they
+   * had: only this list zeroed every plan-billed provider, the other three
+   * zeroed xAI alone.
+   */
+  const isSubscriptionBilled = (providerId: string | undefined): boolean => {
+    const p = providerId?.toLowerCase() ?? '';
+    return (
+      p === 'nvidia' ||
+      p === 'zai' ||
+      p === 'claude-code' ||
+      (p === 'xai' && hub.usingXaiOAuth())
+    );
+  };
+  /** Zero a record's pricing when its endpoint is subscription-billed; pass others through. */
+  const zeroSubscriptionPricing = <T extends { provider?: string }>(rec: T): T =>
+    isSubscriptionBilled(rec.provider)
+      ? { ...rec, pricing: { inputPerMTok: 0, outputPerMTok: 0 } }
+      : rec;
+
   /** Price a usage event from the catalog and record it (any session kind). */
   const recordUsage = (
     bound: { model: string; provider?: { id?: string } } | undefined,
@@ -156,16 +180,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // Pricing is per-ENDPOINT. Grok login (subscription OAuth) is preferred
       // over any saved xAI API key for requests — that path is subscription-
       // billed, not pay-per-token. NVIDIA's free tier is the same idea.
-      const providerId = bound.provider?.id?.toLowerCase() ?? '';
-      const freeEndpoint =
-        providerId === 'nvidia' ||
-        // A GLM Coding Plan key spends plan quota, so catalog token prices
-        // would invent a cost that never appears on any bill.
-        providerId === 'zai' ||
-        // Claude Code bills through its own login, not through Vo-Coder.
-        providerId === 'claude-code' ||
-        (providerId === 'xai' && hub.usingXaiOAuth());
-      if (!freeEndpoint) {
+      if (!isSubscriptionBilled(bound.provider?.id)) {
         try {
           const { records } = await getCatalog();
           const rec = records.find((r) => r.id === bound.model);
@@ -470,6 +485,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
               .agents.filter((a) => busy.has(a.id))
               .map((a) => ({ name: a.name, mission: busy.get(a.id)! }));
           },
+          // Resolve ANY agent by id, unfiltered — a member's card (its memory
+          // flag especially) must resolve even after a mission claims that agent
+          // or when it is off the seatable roster (Mr Homelab). The brief text
+          // is keyed on this, so a lookup miss defaulting to "has memory" would
+          // hand a memory-off member instructions for tools it does not have.
+          agentById: (id: string) => config.get().agents.find((a) => a.id === id),
           qualityOf: qualityOfAgent,
           createSession: (pid, agentId, title, groupId, dir) =>
             projects.createSession(pid, agentId, title, groupId, dir).id,
@@ -541,7 +562,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         const rel = String((args as { path?: unknown })?.path ?? '').trim();
         const abs = resolve(dir, rel);
         // Same confinement rule as the workspace tools: never outside the dir.
-        if (!abs.startsWith(resolve(dir))) {
+        // insideRoot handles the sibling-prefix escape a bare startsWith missed.
+        if (!insideRoot(dir, abs)) {
           return Promise.resolve({ content: 'Path escapes the project folder.', isError: true });
         }
         if (!existsSync(abs)) {
@@ -667,6 +689,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     send: sendToWindow,
     builtins,
     modelCanSee: (modelId) => catalogSync.find((r) => r.id === modelId)?.supportsVision,
+    // Usable window: the measured/pinned local window first (what Ollama will
+    // actually enforce), else the catalog's length for cloud models.
+    modelWindow: (modelId) =>
+      contextFit.windowFor(modelId, endpointUrlFor(config.get(), modelId)) ??
+      catalogSync.find((r) => r.id === modelId)?.contextLength,
     agentProfile,
     busyAgents: () => missionsRef?.busyAgents() ?? new Map<string, string>(),
     skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
@@ -689,10 +716,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     onUsage: (sessionId, bound, ev) => {
       const meta = projects.meta(sessionId);
       if (meta) recordUsage(bound, ev, meta.projectId);
-    },
-    pickCheap: async (text) => {
-      const pick = await routeForVodo([{ type: 'text', text }], false, false).catch(() => undefined);
-      return pick ? { provider: pick.provider, model: pick.model } : undefined;
     },
     onEvent: (sessionId, event) => {
       // Group follow-through: models reliably STATE the plan and then end the
@@ -1462,13 +1485,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (sessions.statusOf(group.coordinatorId) !== 'idle') return;
     groupSynthesisFired.add(groupId);
     groupFinishAttempts.set(groupId, attempts + 1);
+    // The coordinator is usually Vodo (memory on), but a memory-off agent can
+    // start a group and hold this seat. Naming map_query/map_update to one that
+    // has no map tools is a false instruction — and the runTool gate now
+    // refuses the call anyway — so the brief must match its tools, exactly as
+    // memberBrief already does for members.
+    const coordAgentId = projects.meta(group.coordinatorId)?.agentId;
+    const coordHasMemory =
+      !coordAgentId ||
+      coordAgentId === 'default' ||
+      config.get().agents.find((a) => a.id === coordAgentId)?.memory !== false;
     const brief =
       attempts === 0
         ? 'THE GROUP IS QUIET — every member is idle. You are the coordinator: the job is NOT ' +
           'finished until the final deliverable exists, is verified, and is shown. You DELEGATE ' +
           '— you do member-level work yourself only when no member can. Members CANNOT read ' +
           'this chat: an assignment only exists once group_send has carried it. Now:\n' +
-          '1. map_query the task nodes and ws_list the folder — check what each part actually ' +
+          (coordHasMemory
+            ? '1. map_query the task nodes and ws_list the folder — check what each part actually '
+            : '1. ws_list the folder — check what each part actually ') +
           'delivered as FILES, not as chat text.\n' +
           '2. Work that is missing, wrong, or still unassembled goes to a MEMBER via ' +
           'group_send: send a broken part back to its owner with a concrete fix list; hand the ' +
@@ -1499,22 +1534,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           'account in your reply — what was built and where it lives, what each part ' +
           'contributed, what you RAN and what it printed, what is still open, what to look at ' +
           'first. Long is fine; a link to a file instead of the answer is not.\n' +
-          '6. Then clear the desk. Anything from those notes that matters LATER goes into the ' +
-          'memory map with map_update (decisions, gotchas, what broke and why) — the map is ' +
-          'what survives; the notes are not. Mark the GROUP PROJECT task node done, then call ' +
-          'team_clean to throw away the scratch under .vodo/team/. Blueprints, block files and ' +
-          'member reports are coordination leftovers: once the work is summarised and the ' +
-          'lessons are in the map, they are clutter in the user\'s project.'
+          '6. Then clear the desk. ' +
+          (coordHasMemory
+            ? 'Anything from those notes that matters LATER goes into the ' +
+              'memory map with map_update (decisions, gotchas, what broke and why) — the map is ' +
+              'what survives; the notes are not. Mark the GROUP PROJECT task node done, then call ' +
+              'team_clean to throw away the scratch under .vodo/team/. Blueprints, block files and ' +
+              'member reports are coordination leftovers: once the work is summarised and the ' +
+              'lessons are in the map, they are clutter in the user\'s project.'
+            : 'Everything worth keeping is in the report you just wrote — you carry no project ' +
+              'map. Then call team_clean to throw away the scratch under .vodo/team/: blueprints, ' +
+              'block files and member reports are coordination leftovers, clutter in the user\'s ' +
+              'project once the work is summarised.')
         : 'THE GROUP IS STILL QUIET AND THE JOB IS STILL NOT DONE. Every member is idle — ' +
           'nobody is working, so nobody will report back to you, and saying you will wait ' +
           'parks the job forever. Check the facts first (group_status for who is running, ' +
           'ws_list for what is on disk), then either group_send the remaining work to a NAMED ' +
           'member right now, or do the last step yourself. The job is not done until the ' +
           'result actually RAN clean under ws_run — build, tests, start. Finish by opening ' +
-          'the result with preview_open, marking the group task node done with map_update, ' +
+          'the result with preview_open, ' +
+          (coordHasMemory
+            ? 'marking the group task node done with map_update, '
+            : '') +
           'and reporting IN THIS CHAT what exists, where, and what it printed when you ran it — ' +
-          'the account itself, not a filename to go and read. Put anything worth keeping in ' +
-          'the memory map, then team_clean the scratch under .vodo/team/.';
+          'the account itself, not a filename to go and read. ' +
+          (coordHasMemory
+            ? 'Put anything worth keeping in the memory map, then team_clean the scratch under .vodo/team/.'
+            : 'Then team_clean the scratch under .vodo/team/.');
     setTimeout(() => {
       void sessions.send(group.coordinatorId, [{ type: 'text', text: brief }]);
     }, 200);
@@ -2137,6 +2183,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     observeMessage(sessionId, parts);
     return sessions.inject(sessionId, parts);
   });
+  ipcMain.handle(IPC.chatCancelInject, (_e, sessionId: string, injectionId: number) =>
+    sessions.cancelInjection(sessionId, injectionId),
+  );
   ipcMain.handle(IPC.chatStop, (_e, sessionId: string) => sessions.stop(sessionId));
   ipcMain.handle(IPC.chatReset, (_e, sessionId: string) => sessions.reset(sessionId));
 
@@ -2376,18 +2425,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       wantsThinking: config.get().thinkingDefault,
     });
     const { records, installed } = await getCatalog();
-    // Catalog seed carries xAI *API* rates. With Grok login active the hub
-    // prefers the OAuth bearer — those calls are subscription-billed ($0
-    // per-token). Zero the rates so auto-routing treats SuperGrok as free
-    // instead of $2–3/MTok API pricing (same pattern as NVIDIA free tier).
-    const xaiSubFree = hub.usingXaiOAuth();
-    const pricedRecords = xaiSubFree
-      ? records.map((r) =>
-          (r.provider ?? '').toLowerCase() === 'xai'
-            ? { ...r, pricing: { inputPerMTok: 0, outputPerMTok: 0 } }
-            : r,
-        )
-      : records;
+    // Subscription-billed endpoints (Grok login, NVIDIA free tier, GLM Coding
+    // Plan, Claude Code) carry catalog API rates that never appear on a bill —
+    // zero them so auto-routing does not rank a free-on-plan model as if it
+    // cost $2-3/MTok and steer away from it.
+    const pricedRecords = records.map(zeroSubscriptionPricing);
     const registered = new Set(hub.registry().ids());
     const liveOpenRouter = new Set(
       pricedRecords.filter((r) => r.provider === 'openrouter').map((r) => r.id),
@@ -2463,6 +2505,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return hub.registry().resolve(spec, { provider: defaultProvider, model: defaultModel });
   };
   /** One-shot completion on the cheapest adequate model (distiller etc.). */
+  // One-shot, non-streamed-to-UI completion: collect the whole reply or throw.
+  const collectOnce = async (bound: BoundModel, prompt: string): Promise<string> => {
+    let out = '';
+    let errMsg: string | undefined;
+    for await (const event of bound.provider.stream(
+      { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
+      { signal: new AbortController().signal },
+    )) {
+      if (event.type === 'text_delta') out += event.text;
+      else if (event.type === 'error') errMsg = event.error.message;
+    }
+    if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
+    return out;
+  };
   const completeCheap = async (prompt: string): Promise<string> => {
     const pick = await routeForVodo([{ type: 'text', text: prompt.slice(0, 2000) }], false, false)
       .catch(() => undefined);
@@ -2470,41 +2526,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const bound = resolveSpec(
       pick ? { ...spec, provider: pick.provider as AgentSpec['provider'], model: pick.model } : spec,
     );
-    let out = '';
-    let errMsg: string | undefined;
-    for await (const event of bound.provider.stream(
-      { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
-      { signal: new AbortController().signal },
-    )) {
-      if (event.type === 'text_delta') out += event.text;
-      else if (event.type === 'error') errMsg = event.error.message;
-    }
-    if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
-    return out;
+    return collectOnce(bound, prompt);
   };
   // Vodo's own voice on the user's default (strong) model — review and help
   // must never be cheap-routed: judging a weaker model's work with an equally
   // weak model teaches nothing.
-  const completeStrong = async (prompt: string): Promise<string> => {
-    const bound = resolveSpec(vodoSpec());
-    let out = '';
-    let errMsg: string | undefined;
-    for await (const event of bound.provider.stream(
-      { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
-      { signal: new AbortController().signal },
-    )) {
-      if (event.type === 'text_delta') out += event.text;
-      else if (event.type === 'error') errMsg = event.error.message;
-    }
-    if (!out.trim()) throw new Error(errMsg ?? 'empty completion');
-    return out;
-  };
-  const remoteTools = (dir?: string) => [
+  const completeStrong = (prompt: string): Promise<string> => collectOnce(resolveSpec(vodoSpec()), prompt);
+  // `spec` is the agent actually running this surface (a mission handed to a
+  // hired agent). Without it — Telegram, Vodo's own chores — the toolset is
+  // Vodo's: full memory, every MCP server. With it, the SAME per-agent gates
+  // the interactive SessionManager applies hold here too: an agent with no
+  // project memory gets no memory tools, and each agent reaches only the MCP
+  // servers on its card, not every connected server.
+  const remoteTools = (dir?: string, spec?: AgentSpec) => [
     ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
-    ...builtins.specs(),
-    ...mcp.toolsFor(undefined),
+    ...builtins
+      .specs()
+      .filter((t) => spec?.memory !== false || !MEMORY_TOOLS.has(t.name)),
+    ...mcp.toolsFor(spec ? spec.mcpServers : undefined),
   ];
-  const remoteExecute = (name: string, args: unknown, dir?: string, projectId?: string) => {
+  const remoteExecute = (
+    name: string,
+    args: unknown,
+    dir?: string,
+    projectId?: string,
+    spec?: AgentSpec,
+  ) => {
+    // Same execution-time gate as SessionManager.runTool: hiding the spec is
+    // not enough — refuse a memory tool outright for a memory-off agent.
+    if (spec?.memory === false && MEMORY_TOOLS.has(name)) {
+      return Promise.resolve({
+        content:
+          'This agent has no project memory, so this tool is not available to it. Work from the ' +
+          'instructions you were given.',
+        isError: true,
+      });
+    }
     // MCP tools are namespaced "<server>__<tool>", and the separator is barred
     // from raw names, so the double underscore is a reliable marker. Check it
     // FIRST: a server named "ws" or "web" would otherwise produce ws__read /
@@ -2516,7 +2573,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         ? executeWorkspaceTool(dir, name, args)
         : Promise.resolve({ content: 'This mission has no project folder.', isError: true });
     }
-    if (/^(web_|mission_|memory_|archive_|map_|image_|look_|file_|ask_|group_|preview_)/.test(name)) {
+    // Match the builtin by NAME, not by a prefix list — the interactive path's
+    // hand-written regex here had already dropped video_, so video_generate on
+    // a mission fell through to mcp.call and errored. Membership stays correct
+    // as builtins are added.
+    if (builtins.specs().some((t) => t.name === name)) {
       return builtins.execute(name, args, { projectId, ...(dir ? { dir } : {}) });
     }
     return mcp.call(name, args);
@@ -2882,7 +2943,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // ---- live preview pane ----
   const preview = new PreviewManager(getWindow);
   // A dev server we spawned must not outlive the app.
-  app.on('before-quit', () => preview.close());
+  app.on('before-quit', () => {
+    preview.close();
+    // Nor the last turn's tokens/cost — record() only writes on an 800ms debounce.
+    usage.flush();
+  });
   ipcMain.handle(IPC.previewOpen, (_e, url: string) => preview.open(url));
   ipcMain.handle(IPC.previewOpenFile, (_e, path: string) => preview.openFile(path));
   ipcMain.handle(IPC.previewDetect, async (_e, dir: string) => {

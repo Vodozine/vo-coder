@@ -62,10 +62,12 @@ function ContextChip({
   const assembled = assemble && perRequest !== undefined;
   const basis = perRequest ?? estTokens;
   const pct = Math.min(100, Math.round((basis / windowTokens) * 100));
-  // With smart context on there is no cliff to walk toward — the request is
-  // rebuilt to a bounded size every turn — so the reading is a steady-state
-  // cost, not a countdown, and it should not turn red for being large.
-  const level = assembled ? 'ok' : pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
+  // Smart context keeps the request bounded, but the bound can still exceed a
+  // small local window — and then the provider silently truncates the FRONT
+  // (system prompt, briefing) with nothing else to warn about it. So the chip
+  // warns on a near-full window in BOTH modes; when assembled, `pct` is the
+  // measured per-request size, which is exactly the number that would truncate.
+  const level = pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
 
   const compact = async () => {
     setBusy(true);
@@ -522,6 +524,64 @@ function PermissionModal() {
   );
 }
 
+const QUEUE_NOTE: Record<NonNullable<UiMessage['queueState']>, string> = {
+  queued: 'queued — delivered next turn',
+  seen: 'seen ✓',
+  cancelled: 'cancelled — never delivered',
+  failed: 'failed — not delivered',
+};
+
+/**
+ * A sent message with its hover actions (copy, and cancel while it is still
+ * queued behind the running turn) and the queued→seen lifecycle note.
+ */
+function UserBubble({ m, sessionId }: { m: UiMessage; sessionId: string }) {
+  const cancelQueued = useStore((s) => s.cancelQueued);
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+  const queued = m.queueState === 'queued';
+  return (
+    <>
+      <div className="bubble-row">
+        <div className={`bubble-actions${queued ? ' live' : ''}`}>
+          {m.text && (
+            <button
+              className="bubble-act"
+              title={copied ? 'Copied' : 'Copy message'}
+              onClick={() => {
+                void navigator.clipboard.writeText(m.text ?? '');
+                setCopied(true);
+                clearTimeout(copyTimer.current);
+                copyTimer.current = setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              <Icon name={copied ? 'check' : 'copy'} size={13} />
+            </button>
+          )}
+          {queued && (
+            <button
+              className="bubble-act danger"
+              title="Cancel — take it back before it's delivered"
+              onClick={() => void cancelQueued(sessionId, m.id)}
+            >
+              <Icon name="x" size={13} />
+            </button>
+          )}
+        </div>
+        {m.text && (
+          <div className={`bubble${m.queueState === 'cancelled' ? ' cancelled' : ''}`}>
+            {m.text}
+          </div>
+        )}
+      </div>
+      {m.queueState && (
+        <div className={`meta queue-note ${m.queueState}`}>{QUEUE_NOTE[m.queueState]}</div>
+      )}
+    </>
+  );
+}
+
 /** Ask for the goal, then hand it to Vodo to split across the agents. */
 function GroupStarter({
   onStart,
@@ -951,9 +1011,14 @@ export function Chat() {
   const activeAgentId = activeMeta?.agentId ?? 'default';
   /** Chat rendered inside the Mr Homelab tab — his agent is fixed there. */
   const isHomelabTab = useStore((s) => s.view === 'homelab');
-  const assembleOn = useStore(
-    (s) => !!s.projects.find((p) => p.id === activeMeta?.projectId)?.assemble,
-  );
+  const assembleOn = useStore((s) => {
+    // Unset means ON — the same default the main process (assembleEnabled) and
+    // the Memory toggle use. Reading it as `!!assemble` made every project that
+    // never touched the switch show the full-replay meter and "Compact
+    // conversation" button while the request was actually digest + buffer.
+    const p = s.projects.find((p) => p.id === activeMeta?.projectId);
+    return !!p && p.assemble !== false;
+  });
   const session = useStore((s) =>
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
@@ -1442,8 +1507,7 @@ export function Chat() {
                     ))}
                   </div>
                 )}
-                {m.text && <div className="bubble">{m.text}</div>}
-                {m.queuedNote && <div className="meta">queued — delivered next turn</div>}
+                <UserBubble m={m} sessionId={activeSessionId ?? ''} />
               </>
             ) : (
               <AssistantBody

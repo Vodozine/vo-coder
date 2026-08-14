@@ -44,11 +44,26 @@ export class UsageTracker {
     this.send(IPC.usageChanged, data);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
-      try {
-        writeFileSync(this.path, JSON.stringify(this.get()), 'utf8');
-      } catch {
-        /* best effort */
-      }
+      this.saveTimer = null;
+      this.flush();
     }, 800);
+  }
+
+  /**
+   * Write immediately. The 800ms debounce means a quit right after an expensive
+   * run would otherwise lose that turn's tokens and cost — the all-time grand
+   * total is supposed to survive everything, so the shutdown path calls this.
+   */
+  flush(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    if (!this.cache) return;
+    try {
+      writeFileSync(this.path, JSON.stringify(this.cache), 'utf8');
+    } catch {
+      /* best effort */
+    }
   }
 }

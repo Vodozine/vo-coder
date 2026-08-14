@@ -259,8 +259,24 @@ describe('AgentSession loop', () => {
     const { session, done } = makeSession(provider, { toolExecutor: executor() });
     session.send('go');
     await done;
+    // Not continued: the aborted tool_call is never executed (one request only).
     expect(requests).toHaveLength(1);
-    expect(session.history.at(-1)?.role).toBe('assistant');
+    // The partial assistant turn — text plus the tool_call — is preserved.
+    const assistant = session.history.find((m) => m.role === 'assistant');
+    expect(assistant).toEqual({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'part' },
+        { type: 'tool_call', id: 't1', name: 'fs__read', args: {} },
+      ],
+    });
+    // …and that tool_call is SEALED with a stub result, so the next send is not
+    // a malformed history opening on an unanswered tool_use (Anthropic 400s).
+    expect(session.history.at(-1)).toMatchObject({
+      role: 'tool',
+      toolCallId: 't1',
+      isError: true,
+    });
     expect(session.getStatus()).toBe('idle');
   });
 

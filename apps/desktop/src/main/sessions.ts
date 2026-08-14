@@ -12,8 +12,9 @@ import { isAudioPath } from '../shared/media';
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
-import { ALWAYS_CONFIRM_TOOLS, AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { AUTO_ALLOWED_TOOLS, MEMORY_TOOLS, permissionFor } from './tool-policy';
 import { lookToolSpecs } from './vision-look';
+import { elideOldTraffic, planWindow, type WindowPlan } from './context-window';
 import { globalRulesNote, projectMdNote } from './project-md';
 import { executeWorkspaceTool, workspaceToolSpecs } from './workspace-tools';
 
@@ -46,10 +47,6 @@ interface SessionManagerDeps {
   ) => void;
   /** Observer for session events (activity journaling). */
   onEvent?: (sessionId: string, event: SessionEvent) => void;
-  /** Cheapest-adequate model pick for internal jobs (context compaction). */
-  pickCheap?: (
-    text: string,
-  ) => Promise<{ provider: string; model: string } | undefined>;
   /**
    * Fold pending turns into the map now (normally it happens in the
    * background on every persist). Awaited only by "consolidate".
@@ -63,6 +60,12 @@ interface SessionManagerDeps {
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
+  /**
+   * The model's usable context window in tokens (measured/pinned for local
+   * endpoints, catalog length for cloud). undefined = unknown. Used only to
+   * bound a smart-context-OFF full replay so it cannot overflow a small window.
+   */
+  modelWindow?: (modelId: string) => number | undefined;
   /** Catalog lookup: what an agent's model is and can do. */
   agentProfile?: (agent: AgentSpec) => {
     quality?: number;
@@ -84,32 +87,19 @@ const IMAGE_STUB =
 const ASSEMBLE_MIN_MESSAGES = 12;
 /** …and keeps roughly this many chars (~5k tokens) of recent turns verbatim. */
 const ASSEMBLE_BUFFER_CHARS = 20_000;
+/**
+ * Beyond the verbatim zone the window reaches back through this many chars of
+ * DIALOGUE — user and assistant text kept word-for-word, tool bulk elided on
+ * the wire. One tool-heavy turn outweighs ASSEMBLE_BUFFER_CHARS on its own, so
+ * without this zone the cut landed on the just-typed message and the agent
+ * could not see even its own previous question.
+ */
+const ASSEMBLE_DIALOG_CHARS = 24_000;
 
 /** How recently a file must have been written to count as "the agent made this". */
 const AUDIO_FRESH_MS = 5 * 60_000;
 
-function approxChars(msg: HarnessMessage): number {
-  if (msg.role === 'tool') return msg.content.length;
-  let n = 0;
-  for (const part of msg.content) {
-    if (part.type === 'text' || part.type === 'thinking') n += part.text.length;
-    else if (part.type === 'tool_call') n += JSON.stringify(part.args ?? {}).length + 40;
-    else n += 400; // images/files: replayed as refs, keep a nominal weight
-  }
-  return n;
-}
-
 const PERMISSION_TIMEOUT_MS = 5 * 60_000;
-
-/** Everything that reads or writes the project's memory, in one place. */
-const MEMORY_TOOLS = new Set([
-  'memory_recall',
-  'memory_note',
-  'map_query',
-  'map_update',
-  'archive_search',
-  'archive_read',
-]);
 
 /**
  * One live AgentSession per chat session id, created lazily with its history
@@ -122,6 +112,13 @@ export class SessionManager {
   private permSeq = 0;
   /** Last resolved provider/model per session — attributes usage to a model. */
   private lastBound = new Map<string, BoundModel>();
+  /**
+   * Per session, the hot-zone offset RELATIVE to the window start — messages
+   * before it ship with tool bulk elided. Anchored by contextStart at send
+   * time and read by prepareMessages on every request of that run; the window
+   * only grows at the END mid-run, so the offset stays valid for the whole run.
+   */
+  private windowHot = new Map<string, number>();
 
   constructor(private deps: SessionManagerDeps) {}
 
@@ -204,30 +201,59 @@ export class SessionManager {
    * Vodo handed the turn to, not the session's stored agent.
    */
   private agentCarriesMemory(sessionId: string): boolean {
-    return this.agentSpecSafe(sessionId)?.memory !== false;
+    return this.specCarriesMemory(this.agentSpecSafe(sessionId));
   }
 
   /**
-   * The buffer cut: keep ~ASSEMBLE_BUFFER_CHARS of recent turns, then snap
-   * FORWARD to the next user message so the request always opens on a user
-   * turn and tool_call/result pairs are never split. 0 = full replay.
+   * The memory decision keyed on a SPEC, not a session. projectized() must use
+   * this: it builds the prompt for the spec it was HANDED (during delegation
+   * that is the specialist), while the live session.spec is still the delegator
+   * until send() reassigns it — reading the session there gave the specialist
+   * the delegator's briefing and memory-tool prose. tools() and the execution
+   * gate read the session, which by request time is correctly the specialist.
    */
-  private bufferCut(history: readonly HarnessMessage[]): number {
-    if (history.length <= ASSEMBLE_MIN_MESSAGES) return 0;
-    let chars = 0;
-    let over = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-      chars += approxChars(history[i]!);
-      if (chars > ASSEMBLE_BUFFER_CHARS) {
-        over = i;
-        break;
-      }
-      if (i === 0) return 0; // whole history fits the buffer budget
-    }
-    for (let k = over; k < history.length; k++) {
-      if (history[k]!.role === 'user') return k;
-    }
-    return 0;
+  private specCarriesMemory(spec: AgentSpec | undefined): boolean {
+    return spec?.memory !== false;
+  }
+
+  /**
+   * The window plan under a total wire budget: a verbatim hot zone (the running
+   * turn and what fits behind it), then a dialogue zone reaching further back —
+   * what was said survives word-for-word, tool bulk is elided on the wire.
+   * Under a tight cap the dialogue zone keeps its share first: the conversation
+   * is the part that must survive, verbatim tool traffic shrinks before it.
+   */
+  private planCut(
+    history: readonly HarnessMessage[],
+    capChars: number,
+    hotWant: number,
+  ): WindowPlan {
+    const dialogueRoom = Math.min(ASSEMBLE_DIALOG_CHARS, Math.ceil(capChars / 2));
+    const hot = Math.min(hotWant, capChars - dialogueRoom);
+    const dialogue = Math.min(ASSEMBLE_DIALOG_CHARS, capChars - hot);
+    return planWindow(history, hot, dialogue, ASSEMBLE_MIN_MESSAGES);
+  }
+
+  /**
+   * With smart context OFF the user asked for full replay — but a full replay
+   * that overflows a small local window is truncated from the FRONT by the
+   * server (Ollama), silently dropping the system prompt. So bound the replay
+   * to what the model's window can actually hold: cut at a user boundary to fit
+   * (preserving the system prompt and the most recent turns) only when the
+   * window is small enough to matter. A cloud model — or any window we cannot
+   * read — returns Infinity here, so its replay stays genuinely full, unchanged.
+   */
+  private replayBudgetChars(sessionId: string): number {
+    const bound = this.lastBound.get(sessionId);
+    const window = bound ? this.deps.modelWindow?.(bound.model) : undefined;
+    if (!window || window <= 0) return Infinity;
+    const sysChars = this.sessions.get(sessionId)?.spec.systemPrompt?.length ?? 0;
+    // Leave the window room for the system prompt, tool schemas and the reply.
+    // Deliberately conservative — overestimate the system tokens (chars/3) and
+    // underestimate how many chars a token buys back (×3) — so we round toward
+    // NOT overflowing rather than toward a tighter fit.
+    const historyTokens = window - Math.ceil(sysChars / 3) - 3000;
+    return Math.max(4000, historyTokens * 3);
   }
 
   /** Agents available to share work with — below two there is no group. */
@@ -293,17 +319,18 @@ export class SessionManager {
   }
 
   /** Window-as-buffer briefing, appended to the prompt when assembly is on. */
-  private assemblyNote(sessionId: string): string {
+  private assemblyNote(sessionId: string, carriesMemory: boolean): string {
     const projectId = this.assembleEnabled(sessionId);
     if (!projectId) return '';
     // Hired help: no briefing, but the note cannot simply vanish. The window is
     // still trimmed, and this prose is the ONLY thing telling the agent its
     // older turns are not replayed — without it the agent believes it can see a
     // conversation it cannot, and answers from a history it does not have.
-    if (!this.agentCarriesMemory(sessionId)) {
+    if (!carriesMemory) {
       return (
-        '\n\nYOUR WORKING CONTEXT IS BOUNDED: older turns of this conversation are NOT replayed, ' +
-        'only the most recent ones. You also carry NO project briefing — that is deliberate, not ' +
+        '\n\nYOUR WORKING CONTEXT IS BOUNDED: recent turns of this conversation are in front of ' +
+        'you in full; behind them the dialogue survives word-for-word but old tool output is ' +
+        'elided. You also carry NO project briefing — that is deliberate, not ' +
         'an oversight. You are working on the part you were given, from the instructions you were ' +
         'given and the code in front of you. Do that part and nothing else. If something you need ' +
         'is missing — a decision, a convention, what another agent is doing — ask your coordinator ' +
@@ -323,8 +350,10 @@ export class SessionManager {
     // tasks these are.
     const ownFolder = !!this.deps.projects.meta(sessionId)?.dir;
     return (
-      '\n\nSMART CONTEXT IS ON: older turns of this conversation are NOT replayed — your working ' +
-      'context is this project briefing plus the most recent messages. Durable project knowledge ' +
+      '\n\nSMART CONTEXT IS ON: your working context is this project briefing plus the ' +
+      'conversation — recent turns in full, older turns with their dialogue kept word-for-word ' +
+      'and tool output elided; only turns beyond that reach are not replayed. Durable project ' +
+      'knowledge ' +
       '(active tasks first — those are what you are in the middle of):\n' +
       (digest || '(the map is still filling in)') +
       (ownFolder
@@ -345,6 +374,10 @@ export class SessionManager {
     // CLAUDE.md itself, and keeps its own conversation — every briefing note
     // below describes machinery it does not have and must not be told about.
     // It gets its persona and one honest paragraph about the arrangement.
+    // Keyed on the spec being projectized, NOT the live session: during
+    // delegation they differ, and the prompt must match the tools the
+    // specialist actually gets.
+    const carriesMemory = this.specCarriesMemory(spec);
     const provider = spec.provider ?? this.deps.config.get().defaultProvider;
     if (provider === 'claude-code') {
       return {
@@ -431,7 +464,7 @@ export class SessionManager {
         // Only describe the memory tools to an agent that HAS them. Telling
         // hired help about map_query is a false instruction, and a model that
         // is told to use a tool it cannot see tries, fails, and improvises.
-        (this.agentCarriesMemory(sessionId)
+        (carriesMemory
           ? 'You also have cross-everything memory: ' +
             'memory_recall searches the timestamped journal of ALL activity (every chat in every ' +
             'project, missions, Telegram, file writes, commands) — use it for questions about what ' +
@@ -487,7 +520,7 @@ export class SessionManager {
           'blueprint contract is what decouples them.' +
           this.rosterNote()
         : '';
-    const assembly = this.assemblyNote(sessionId);
+    const assembly = this.assemblyNote(sessionId, carriesMemory);
     // The boss's own chat while his group runs. Routing rightly pins the
     // user's messages to Vodo here — and then nothing told him a mid-run
     // request is an ASSIGNMENT. Seen live: three members idle, the user asked
@@ -517,13 +550,14 @@ export class SessionManager {
           'tools if needed, then answer with a concrete numbered plan: what files change, what ' +
           'commands run, what the risks are. The user flips to Auto or Manual to execute it.'
         : '';
+    // Every branch appends the SAME set of notes in the SAME order — compute
+    // the suffix once. The dir-less branch used to hand-list them to decide
+    // whether to bother, and had dropped projectNote from that list, so a
+    // folder-less chat carrying only the user's global rules returned the bare
+    // spec and silently lost them.
+    const notesSuffix = `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`;
     if (!dir) {
-      return builtinNote || skillsNote || worktreeNote || voiceNote || teamNote || bossNote || assembly || planNote
-        ? {
-            ...spec,
-            systemPrompt: `${spec.systemPrompt ?? ''}${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
-          }
-        : spec;
+      return notesSuffix ? { ...spec, systemPrompt: `${spec.systemPrompt ?? ''}${notesSuffix}` } : spec;
     }
     // A folder attached directly to the chat is an INSPECTION surface (catalog
     // photos, review code, dig through files) — different framing than a
@@ -550,7 +584,7 @@ export class SessionManager {
           `file references.\n` +
           `Do the work yourself with the tools instead of instructing the user.` +
           `${disciplineNote}` +
-          `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${notesSuffix}`,
       };
     }
     // The generic scratch folder: a floor, not a home. Loose deliverables
@@ -567,7 +601,7 @@ export class SessionManager {
           `multiple files, a build, or a group project, ask the user to attach a real project ` +
           `folder (the folder button next to the composer) instead of building it in the ` +
           `generic folder.` +
-          `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+          `${notesSuffix}`,
       };
     }
     return {
@@ -592,7 +626,7 @@ export class SessionManager {
         `server with a normal ws_run: it never exits, so the turn would hang.\n` +
         `- Only destructive commands (deleting data, force-push, system changes) need asking first.` +
         `${disciplineNote}` +
-        `${builtinNote}${skillsNote}${worktreeNote}${voiceNote}${teamNote}${bossNote}${projectNote}${assembly}${planNote}`,
+        `${notesSuffix}`,
     };
   }
 
@@ -601,8 +635,16 @@ export class SessionManager {
     if (!meta) throw new Error(`Unknown chat session "${sessionId}".`);
     let session = this.sessions.get(sessionId);
     if (session) {
-      // Pick up agent edits (or a switched agent) since the last send.
-      session.spec = this.projectized(this.specFor(meta.agentId), sessionId);
+      // Pick up agent edits (or a switched agent) since the last send — but
+      // ONLY when idle. A delegated turn sets session.spec to the specialist
+      // and streams; an inject (which routes through here) mid-run would swap
+      // it back to the stored agent, changing the prompt AND the toolset under
+      // the running loop — restoring memory tools and every MCP server the
+      // delegation was meant to withhold. A new turn always starts idle, so
+      // edits are still picked up then.
+      if (session.getStatus() === 'idle') {
+        session.spec = this.projectized(this.specFor(meta.agentId), sessionId);
+      }
       return session;
     }
     session = new AgentSession({
@@ -615,14 +657,30 @@ export class SessionManager {
       maxToolTurns: 60,
       // Window-as-buffer: checked at send time, so the Memory-view toggle
       // applies to live sessions immediately.
-      contextStart: (history) =>
-        this.assembleEnabled(sessionId) ? this.bufferCut(history) : 0,
-      // Old images stop handcuffing every later turn to vision models: when
-      // the resolved model explicitly can't see, image parts become text
-      // stubs instead of a provider 400.
+      contextStart: (history) => {
+        // Smart context on: the bounded digest+buffer window, clamped to the
+        // model's real window when we know it. Off: full replay, but still
+        // bounded to the model's window so a small local box does not silently
+        // truncate the FRONT (system prompt) — replayBudgetChars is Infinity
+        // for cloud/unknown windows, so that stays a true full replay.
+        const cap = this.replayBudgetChars(sessionId);
+        const plan: WindowPlan = this.assembleEnabled(sessionId)
+          ? this.planCut(history, cap, ASSEMBLE_BUFFER_CHARS)
+          : cap === Infinity
+            ? { start: 0, hot: 0 }
+            : this.planCut(history, cap, cap);
+        this.windowHot.set(sessionId, plan.hot - plan.start);
+        return plan.start;
+      },
+      // The wire window: turns before the hot boundary keep their dialogue but
+      // shed tool bulk (the boundary was anchored by contextStart at send
+      // time). Then old images stop handcuffing every later turn to vision
+      // models: when the resolved model explicitly can't see, remaining image
+      // parts become text stubs instead of a provider 400.
       prepareMessages: (messages, bound) => {
-        if (this.deps.modelCanSee?.(bound.model) !== false) return [...messages];
-        return messages.map((m) =>
+        const elided = elideOldTraffic(messages, this.windowHot.get(sessionId) ?? 0);
+        if (this.deps.modelCanSee?.(bound.model) !== false) return elided;
+        return elided.map((m) =>
           m.role === 'user' && m.content.some((p) => p.type === 'image')
             ? {
                 ...m,
@@ -699,6 +757,21 @@ export class SessionManager {
     videoPath?: string;
     audioPath?: string;
   }> {
+    // Memory OFF is enforced HERE, not just by hiding the specs. A brief that
+    // still names a memory tool, or a local model imitating its own history
+    // from when memory was on, can emit map_query/memory_note anyway; without
+    // this gate runTool would route it straight to the bank by prefix (and
+    // these tools are auto-allowed, so no prompt intervenes) and hand back the
+    // shared project map the switch promised to withhold.
+    if (MEMORY_TOOLS.has(name) && !this.agentCarriesMemory(sessionId)) {
+      return Promise.resolve({
+        content:
+          'This agent has no project memory, so this tool is not available to it. Work from the ' +
+          'instructions you were given and the code in front of you; ask your coordinator for ' +
+          'anything you are missing.',
+        isError: true,
+      });
+    }
     // Plan mode: read-only tools work; anything mutating is blocked
     // with feedback the model can plan around instead of a bare denial.
     if (this.deps.config.get().approvalMode === 'plan' && !AUTO_ALLOWED_TOOLS.has(name)) {
@@ -720,21 +793,15 @@ export class SessionManager {
       }
       return executeWorkspaceTool(dir, name, args, signal);
     }
-    if (
-      this.deps.builtins &&
-      (name.startsWith('web_') ||
-        name.startsWith('mission_') ||
-        name.startsWith('memory_') ||
-        name.startsWith('archive_') ||
-        name.startsWith('map_') ||
-        name.startsWith('image_') ||
-        name.startsWith('video_') ||
-        name.startsWith('look_') ||
-        name.startsWith('file_') ||
-        name.startsWith('group_') ||
-        name.startsWith('ask_') ||
-        name.startsWith('preview_'))
-    ) {
+    // Route to the built-in executor for ANY tool it actually owns, matched by
+    // NAME against its own spec list — not a hand-written prefix set. That set
+    // had drifted from builtins.specs(): project_create, skill_read,
+    // payment_spend and team_clean matched no prefix and fell through to
+    // mcp.call, which answered "Malformed tool name" for a tool the model was
+    // told it had. Membership cannot drift — a tool that is advertised is
+    // routable by construction. (MCP names carry "__", builtins never do, so
+    // there is no collision.)
+    if (this.deps.builtins && this.deps.builtins.specs().some((t) => t.name === name)) {
       // The session knows its own project — tools default to it instead
       // of making the model guess a name. dir carries the chat's folder
       // (attached or project) for look_at_image / image saves. sessionId
@@ -902,6 +969,10 @@ export class SessionManager {
     }
   }
 
+  cancelInjection(sessionId: string, injectionId: number): boolean {
+    return this.sessions.get(sessionId)?.cancelInjection(injectionId) ?? false;
+  }
+
   stop(sessionId: string): void {
     this.sessions.get(sessionId)?.stop();
   }
@@ -989,22 +1060,16 @@ export class SessionManager {
     name: string,
     args: unknown,
   ): Promise<PermissionDecision> {
-    if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
-    const mode = this.deps.config.get().approvalMode;
-    // Spending is asked EVERY time, before any of the escapes below. Auto mode
-    // is the user opting into autonomous work, not into autonomous purchases.
-    const mustConfirm = ALWAYS_CONFIRM_TOOLS.has(name);
     // Auto: the user opted into autonomous agents. Plan: allow through so the
     // executor's plan-mode block answers instructively (no modal either way).
-    // Destructive infra tools still enforce their own confirm tier downstream.
-    if (!mustConfirm && (mode === 'auto' || mode === 'plan')) return Promise.resolve('allow');
-    if (
-      !mustConfirm &&
-      SessionManager.GROUP_MEMBER_TOOLS.has(name) &&
-      this.isGroupMember(sessionId)
-    ) {
-      return Promise.resolve('allow');
-    }
+    // Group members hold a narrow working grant. Spending (ALWAYS_CONFIRM) is
+    // never waved through by any of these — permissionFor enforces that.
+    const mode = this.deps.config.get().approvalMode;
+    const autoAllow =
+      mode === 'auto' ||
+      mode === 'plan' ||
+      (SessionManager.GROUP_MEMBER_TOOLS.has(name) && this.isGroupMember(sessionId));
+    if (permissionFor(name, autoAllow) === 'allow') return Promise.resolve('allow');
     return new Promise((resolve) => {
       const requestId = `perm_${++this.permSeq}`;
       this.pendingPermissions.set(requestId, resolve);

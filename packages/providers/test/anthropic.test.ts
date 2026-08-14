@@ -40,6 +40,11 @@ describe('AnthropicProvider event normalization', () => {
     const events = await collect(provider('anthropic-thinking.sse.txt'), req);
     expect(events).toEqual([
       { type: 'thinking_delta', text: 'Considering the question...' },
+      // The signature closing the thinking block must be surfaced — a thinking
+      // block replayed without it is rejected, and Anthropic requires it on the
+      // last assistant turn when extended thinking is on and it contains a tool
+      // call. The fixture always carried this; the adapter used to drop it.
+      { type: 'thinking_signature', signature: 'sig_abc123' },
       { type: 'text_delta', text: 'The answer is 4.' },
       { type: 'usage', inputTokens: 20, outputTokens: 12 },
       { type: 'done', stopReason: 'end_turn' },

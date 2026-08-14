@@ -17,6 +17,12 @@ export type SessionStatus = 'idle' | 'streaming' | 'awaiting_tool';
 export type SessionEvent =
   | ProviderEvent
   | { type: 'status'; status: SessionStatus }
+  /**
+   * A queued injection left the queue: the next turn opened with it (`ok`) or
+   * the send failed and the message was dropped (`!ok`). This is the moment
+   * the UI's "queued" note can honestly become "seen".
+   */
+  | { type: 'inject_delivered'; injectionId: number; ok: boolean }
   | { type: 'tool_started'; callId: string; name: string; args: unknown }
   | {
       type: 'tool_result';
@@ -107,12 +113,16 @@ export interface SendResult {
   error?: string;
   /** True when the message was queued behind the in-flight run. */
   queued?: boolean;
+  /** Handle for a queued injection — cancelInjection() takes it, and the
+   *  inject_delivered event echoes it when the message actually goes out. */
+  injectionId?: number;
 }
 
 const DENIED_RESULT = 'The user denied permission for this tool call.';
 const BUDGET_RESULT =
   'Tool-step budget reached — this call was NOT executed. The run paused here; it resumes when ' +
   'the user says continue.';
+const INTERRUPTED_RESULT = 'Stopped before this tool ran.';
 
 const STALL_TIMEOUT_MS = 120_000;
 /**
@@ -198,10 +208,19 @@ export class AgentSession {
   private status: SessionStatus = 'idle';
   /** Aborts the current provider stream (per turn). */
   private abortCtl: AbortController | null = null;
+  /**
+   * The CURRENT run's cancel token. Per-run, not a shared boolean: a reset
+   * followed immediately by a new send used to clear one shared `cancelled`
+   * flag that an older loop — suspended at an await (a pending permission
+   * prompt) — was still relying on, so the stale loop resumed and executed
+   * into the fresh history. Each runLoop closes over its own token; stop()
+   * flips whichever run is active, and a newer run cannot un-cancel an older.
+   */
+  private activeCancel: { flag: boolean } | null = null;
   /** Aborts the whole run including a running tool — this is what Stop hits. */
   private runAbort: AbortController | null = null;
-  private cancelled = false;
-  private injectQueue: UserPart[][] = [];
+  private injectQueue: Array<{ id: number; parts: UserPart[] }> = [];
+  private nextInjectionId = 1;
   /** First history index sent to the provider this run (window-as-buffer). */
   private startIdx = 0;
 
@@ -237,11 +256,42 @@ export class AgentSession {
   }
 
   stop(): void {
-    this.cancelled = true;
+    if (this.activeCancel) this.activeCancel.flag = true;
     // Abort the in-flight stream AND the run — the latter reaches a hung tool
     // (ws_run launching a GUI app, a wedged MCP call) so Stop always bites.
     this.abortCtl?.abort();
     this.runAbort?.abort();
+  }
+
+  /**
+   * Every tool_call in the just-streamed assistant turn must have a matching
+   * tool result before the loop yields, or the next request opens on an
+   * unanswered tool_use and strict providers (Anthropic) 400. On a mid-flight
+   * Stop or stream error some calls have not run — stub those. Guarded on the
+   * tool_call still being PRESENT in history, so a reset() that cleared the
+   * turn leaves the fresh history untouched.
+   */
+  private sealToolCalls(toolCalls: ReadonlyArray<{ id: string }>): void {
+    if (!toolCalls.length) return;
+    const present = new Set<string>();
+    const answered = new Set<string>();
+    for (const m of this.history) {
+      if (m.role === 'assistant') {
+        for (const p of m.content) if (p.type === 'tool_call') present.add(p.id);
+      } else if (m.role === 'tool') {
+        answered.add(m.toolCallId);
+      }
+    }
+    for (const tc of toolCalls) {
+      if (present.has(tc.id) && !answered.has(tc.id)) {
+        this.history.push({
+          role: 'tool',
+          toolCallId: tc.id,
+          content: INTERRUPTED_RESULT,
+          isError: true,
+        });
+      }
+    }
   }
 
   /**
@@ -257,25 +307,43 @@ export class AgentSession {
     if (this.status === 'idle') return this.send(input);
     const parts: UserPart[] = typeof input === 'string' ? [{ type: 'text', text: input }] : input;
     const mode = this.spec.injectionMode ?? 'queue';
-    this.injectQueue.push(parts);
+    const id = this.nextInjectionId++;
+    this.injectQueue.push({ id, parts });
     if (mode === 'abort-and-resend') {
       this.stop();
-      return { ok: true };
+      return { ok: true, injectionId: id };
     }
-    return { ok: true, queued: true };
+    return { ok: true, queued: true, injectionId: id };
+  }
+
+  /**
+   * Remove a still-pending queued injection. False means it's no longer in the
+   * queue — already delivered (or never existed) — so the caller must treat
+   * the message as sent, not as cancelled.
+   */
+  cancelInjection(injectionId: number): boolean {
+    const idx = this.injectQueue.findIndex((q) => q.id === injectionId);
+    if (idx === -1) return false;
+    this.injectQueue.splice(idx, 1);
+    return true;
   }
 
   private drainInjectQueue(): void {
     if (this.status !== 'idle') return;
     const next = this.injectQueue.shift();
     if (next) {
-      const result = this.send(next);
+      const result = this.send(next.parts);
       if (!result.ok) {
         this.opts.emit(this.id, {
           type: 'error',
           error: { kind: 'unknown', message: `Queued message failed: ${result.error}` },
         });
       }
+      this.opts.emit(this.id, {
+        type: 'inject_delivered',
+        injectionId: next.id,
+        ok: result.ok,
+      });
     }
   }
 
@@ -291,7 +359,8 @@ export class AgentSession {
   }
 
   private async runLoop(bound: BoundModel): Promise<void> {
-    this.cancelled = false;
+    const cancel = { flag: false };
+    this.activeCancel = cancel;
     const runAbort = new AbortController();
     this.runAbort = runAbort;
     const maxTurns = this.opts.maxToolTurns ?? 16;
@@ -306,6 +375,7 @@ export class AgentSession {
 
         let text = '';
         let thinking = '';
+        let thinkingSig: string | undefined;
         const toolCalls: Array<{ id: string; name: string; args: unknown }> = [];
         let wantsTools = false;
         let erred = false;
@@ -342,6 +412,9 @@ export class AgentSession {
             case 'thinking_delta':
               thinking += event.text;
               break;
+            case 'thinking_signature':
+              thinkingSig = event.signature;
+              break;
             case 'tool_call':
               toolCalls.push({ id: event.id, name: event.name, args: event.args });
               break;
@@ -350,7 +423,7 @@ export class AgentSession {
               // big tool call streams its args. Never enters history.
               break;
             case 'done':
-              if (event.stopReason === 'aborted') this.cancelled = true;
+              if (event.stopReason === 'aborted') cancel.flag = true;
               else wantsTools = event.stopReason === 'tool_use' && toolCalls.length > 0;
               break;
             case 'error':
@@ -363,12 +436,17 @@ export class AgentSession {
         this.abortCtl = null;
 
         const parts: AssistantPart[] = [];
-        if (thinking) parts.push({ type: 'thinking', text: thinking });
+        if (thinking) parts.push({ type: 'thinking', text: thinking, ...(thinkingSig ? { signature: thinkingSig } : {}) });
         if (text) parts.push({ type: 'text', text });
         for (const tc of toolCalls) parts.push({ type: 'tool_call', ...tc });
         if (parts.length) this.history.push({ role: 'assistant', content: parts });
 
-        if (this.cancelled || erred || !wantsTools) return;
+        if (cancel.flag || erred || !wantsTools) {
+          // Bail with the assistant turn well-formed: a Stop or stream error
+          // after tool_calls were collected must not leave them unanswered.
+          this.sealToolCalls(toolCalls);
+          return;
+        }
 
         if (turn === maxTurns - 1) {
           // The model asked for tools we won't run (budget hit). Those tool_call
@@ -405,7 +483,10 @@ export class AgentSession {
 
         this.setStatus('awaiting_tool');
         for (const tc of toolCalls) {
-          if (this.cancelled) return;
+          if (cancel.flag) {
+            this.sealToolCalls(toolCalls);
+            return;
+          }
           const decision = this.opts.permission
             ? await this.opts.permission({
                 sessionId: this.id,
@@ -414,7 +495,10 @@ export class AgentSession {
                 args: tc.args,
               })
             : 'allow';
-          if (this.cancelled) return;
+          if (cancel.flag) {
+            this.sealToolCalls(toolCalls);
+            return;
+          }
           if (decision === 'deny') {
             this.history.push({
               role: 'tool',
@@ -472,13 +556,21 @@ export class AgentSession {
           });
           // Stop pressed while (or just after) the tool ran — end now instead
           // of feeding the aborted result back for another turn.
-          if (this.cancelled) return;
+          if (cancel.flag) {
+            this.sealToolCalls(toolCalls);
+            return;
+          }
         }
-        if (this.cancelled) return;
+        if (cancel.flag) {
+          this.sealToolCalls(toolCalls);
+          return;
+        }
       }
     } finally {
       this.abortCtl = null;
       this.runAbort = null;
+      // Only clear the token if a newer run has not already taken the slot.
+      if (this.activeCancel === cancel) this.activeCancel = null;
       this.setStatus('idle');
       // Microtask so the finally block fully unwinds before a queued or
       // injected message starts the next run.

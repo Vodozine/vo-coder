@@ -160,16 +160,34 @@ export function listSkills(userData: string): SkillMeta[] {
  * stable ordering so local models keep their prompt cache. Empty string when
  * there is nothing to advertise — no skills, no note.
  */
+let catalogCache: { key: string; note: string } | null = null;
+
 export function skillsCatalog(userData: string, disabled: string[]): string {
+  // This rides EVERY system prompt, so it is rebuilt on every send — and
+  // listSkills readdirs the skills dir, reads every SKILL.md and walks each
+  // skill's bundled files, all synchronously on the main process. Memoize on
+  // the skills-dir mtime (which bumps on add/remove/toggle, the changes that
+  // alter the catalog) plus the disabled set. An in-place SKILL.md description
+  // edit refreshes on restart — the note is a one-line summary, not the body.
+  let mtime = 0;
+  try {
+    mtime = statSync(skillsDir(userData)).mtimeMs;
+  } catch {
+    /* no skills dir yet */
+  }
+  const key = `${userData}|${mtime}|${[...disabled].map((s) => s.toLowerCase()).sort().join(',')}`;
+  if (catalogCache?.key === key) return catalogCache.note;
+
   const off = new Set(disabled.map((s) => s.toLowerCase()));
   const skills = listSkills(userData).filter((s) => !off.has(s.slug.toLowerCase()));
-  if (!skills.length) return '';
-  return (
-    '\n\nSKILLS — packaged know-how you can pull in when a task matches. The catalog:\n' +
-    skills.map((s) => `- ${s.name} — ${s.description}`).join('\n') +
-    '\nWhen a task matches a skill, call skill_read with its name FIRST and follow what it ' +
-    'says before improvising. The catalog line is a summary; the skill is the instructions.'
-  );
+  const note = skills.length
+    ? '\n\nSKILLS — packaged know-how you can pull in when a task matches. The catalog:\n' +
+      skills.map((s) => `- ${s.name} — ${s.description}`).join('\n') +
+      '\nWhen a task matches a skill, call skill_read with its name FIRST and follow what it ' +
+      'says before improvising. The catalog line is a summary; the skill is the instructions.'
+    : '';
+  catalogCache = { key, note };
+  return note;
 }
 
 /**

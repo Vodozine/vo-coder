@@ -331,6 +331,8 @@ export interface SendResult {
   ok: boolean;
   error?: string;
   queued?: boolean;
+  /** Handle for a queued injection — chatCancelInject() takes it. */
+  injectionId?: number;
   /** Present when Vodo auto-routed this message to a model. */
   routed?: { provider: string; model: string; rationale: string };
 }
@@ -633,6 +635,8 @@ export interface VoApi {
     opts?: { noRoute?: boolean },
   ): Promise<SendResult>;
   chatInject(sessionId: string, parts: UserPart[]): Promise<SendResult>;
+  /** Un-queue a pending injection. False = already delivered; treat it as sent. */
+  chatCancelInject(sessionId: string, injectionId: number): Promise<boolean>;
   chatStop(sessionId: string): Promise<void>;
   chatReset(sessionId: string): Promise<void>;
   chatCompact(sessionId: string): Promise<{ ok: boolean; summary?: string; error?: string }>;
@@ -845,6 +849,7 @@ export const IPC = {
   registryCatalog: 'registry:catalog',
   registrySuggest: 'registry:suggest',
   chatInject: 'chat:inject',
+  chatCancelInject: 'chat:cancelInject',
   previewOpen: 'preview:open',
   previewOpenFile: 'preview:openFile',
   previewDetect: 'preview:detect',

@@ -63,13 +63,34 @@ export class AnthropicProvider implements ChatProvider {
       maxTokens = Math.max(maxTokens, budget + 1024);
     }
 
+    // Prompt caching: mark the stable prefix so the agent loop's 2nd..Nth
+    // requests read the system prompt + tool schemas at ~10% cost instead of
+    // re-billing the whole ~10-15k-token prefix on every tool round-trip (up to
+    // 60 per run). The cache order is tools → system → messages: a breakpoint on
+    // the last tool covers the tools, one on system covers tools+system — both
+    // sit at positions that do not change turn to turn, so the cache actually
+    // hits. A prefix under the model's minimum (~1024 tokens) is silently left
+    // uncached, so there is no downside to always marking it.
+    const ephemeral = { type: 'ephemeral' as const };
+    const tools = req.tools?.length
+      ? req.tools.map((t, i) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.inputSchema as Anthropic.Tool['input_schema'],
+          ...(i === req.tools!.length - 1 ? { cache_control: ephemeral } : {}),
+        }))
+      : undefined;
+    const system: Anthropic.TextBlockParam[] | undefined = req.system
+      ? [{ type: 'text', text: req.system, cache_control: ephemeral }]
+      : undefined;
+
     let stream: AsyncIterable<Anthropic.RawMessageStreamEvent>;
     try {
       stream = await this.client.messages.create(
         {
           model: req.model,
           max_tokens: maxTokens,
-          system: req.system,
+          ...(system ? { system } : {}),
           messages: toAnthropicMessages(req.messages),
           stream: true,
           ...(thinking ? { thinking } : {}),
@@ -77,15 +98,7 @@ export class AnthropicProvider implements ChatProvider {
           ...(req.params?.temperature !== undefined && !thinking
             ? { temperature: req.params.temperature }
             : {}),
-          ...(req.tools?.length
-            ? {
-                tools: req.tools.map((t) => ({
-                  name: t.name,
-                  description: t.description,
-                  input_schema: t.inputSchema as Anthropic.Tool['input_schema'],
-                })),
-              }
-            : {}),
+          ...(tools ? { tools } : {}),
         },
         { signal: opts.signal },
       );
@@ -116,6 +129,12 @@ export class AnthropicProvider implements ChatProvider {
               yield { type: 'text_delta', text: ev.delta.text };
             } else if (ev.delta.type === 'thinking_delta') {
               yield { type: 'thinking_delta', text: ev.delta.thinking };
+            } else if (ev.delta.type === 'signature_delta') {
+              // Closes the thinking block. Without replaying this back on the
+              // thinking part, Anthropic 400s the next tool-loop request when
+              // extended thinking is on (toAnthropicMessages drops unsigned
+              // thinking), so it has to ride back to the caller.
+              yield { type: 'thinking_signature', signature: ev.delta.signature };
             } else if (ev.delta.type === 'input_json_delta' && toolAcc) {
               toolAcc.json += ev.delta.partial_json;
               // Heartbeat while args accumulate — see tool_progress in types.

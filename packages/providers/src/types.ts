@@ -146,6 +146,14 @@ export type ProviderEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; text: string }
   /**
+   * The provider-issued signature closing a thinking block (Anthropic). It
+   * arrives after the block's thinking_delta text and MUST be carried on the
+   * ThinkingPart — a thinking block replayed without its signature is rejected,
+   * and Anthropic requires it on the last assistant turn when extended thinking
+   * is on and that turn contains tool_use.
+   */
+  | { type: 'thinking_signature'; signature: string }
+  /**
    * Tool-call arguments are streaming in (chars accumulated so far). A model
    * writing a 40KB file inside one call produces MINUTES of otherwise-silent
    * generation — without this heartbeat the stall watchdog kills healthy

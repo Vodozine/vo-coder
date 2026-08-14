@@ -45,3 +45,37 @@ export const AUTO_ALLOWED_TOOLS = new Set([
  * A confirm that can be turned off is not a confirm.
  */
 export const ALWAYS_CONFIRM_TOOLS = new Set(['payment_spend']);
+
+/**
+ * Everything that reads or writes the project's memory, in one place. An agent
+ * whose card says "no project memory" gets none of these — they are stripped
+ * from its advertised toolset AND refused at execution (a brief that still
+ * names one, or a local model imitating its own history, must not slip a call
+ * through). Every surface that assembles an agent's toolset filters on this:
+ * chat/group sessions (SessionManager) and missions (remoteTools).
+ */
+export const MEMORY_TOOLS = new Set([
+  'memory_recall',
+  'memory_note',
+  'map_query',
+  'map_update',
+  'archive_search',
+  'archive_read',
+]);
+
+/**
+ * The permission decision shared by every surface (chat, Telegram, missions).
+ * 'allow' runs without a prompt; 'ask' means the caller must confirm in its own
+ * way — a modal, a Telegram button, a mission's deny-when-unattended.
+ *
+ * `autoAllow` is the surface's own escape (Auto/Plan mode, a mission's
+ * autoApprove, a group member's grant). It can wave through an ordinary gated
+ * tool but NEVER an ALWAYS_CONFIRM one, and read-only AUTO_ALLOWED tools never
+ * prompt regardless. Centralised because the missions copy had dropped the
+ * AUTO_ALLOWED fast-path, so an un-attended read-only call was denied.
+ */
+export function permissionFor(name: string, autoAllow: boolean): 'allow' | 'ask' {
+  if (AUTO_ALLOWED_TOOLS.has(name)) return 'allow';
+  if (ALWAYS_CONFIRM_TOOLS.has(name)) return 'ask';
+  return autoAllow ? 'allow' : 'ask';
+}

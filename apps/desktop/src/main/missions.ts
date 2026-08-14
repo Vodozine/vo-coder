@@ -4,7 +4,7 @@ import { AgentSession, type PermissionDecision, type SessionEvent } from '@vo-co
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { Mission, MissionAction, MissionCreateInput } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
-import { ALWAYS_CONFIRM_TOOLS } from './tool-policy';
+import { permissionFor } from './tool-policy';
 
 /**
  * Missions: background objectives Vodo pursues on its own schedule. Each
@@ -49,12 +49,14 @@ export interface MissionAgentBackend {
     text: string,
     builderMode: boolean,
   ): Promise<{ provider: string; model: string; rationale: string } | undefined>;
-  tools(projectDir?: string): ToolSpec[];
+  /** `spec` is the agent running the mission — its memory flag and MCP subset gate the toolset. */
+  tools(projectDir?: string, spec?: AgentSpec): ToolSpec[];
   execute(
     name: string,
     args: unknown,
     projectDir?: string,
     projectId?: string,
+    spec?: AgentSpec,
   ): Promise<{ content: string; isError?: boolean }>;
   /** Fallback prompt when a mission is NOT auto-approved (e.g. Telegram buttons). */
   askPermission?: (
@@ -395,8 +397,8 @@ export class MissionManager {
         }
       },
       toolExecutor: {
-        tools: () => this.backend.tools(dir),
-        execute: (name, args) => this.backend.execute(name, args, dir, mission.projectId),
+        tools: () => this.backend.tools(dir, spec),
+        execute: (name, args) => this.backend.execute(name, args, dir, mission.projectId, spec),
       },
       permission: async (req) => {
         const current = this.byId(mission.id);
@@ -404,7 +406,12 @@ export class MissionManager {
         // approval must not cover money. This asks even at 3am, and an
         // unanswered ask denies — a mission that wants to spend stalls rather
         // than spends.
-        if (current?.autoApprove && !ALWAYS_CONFIRM_TOOLS.has(req.name)) return 'allow';
+        // Same policy as every other surface — including the AUTO_ALLOWED
+        // fast-path this callback used to omit, which denied a read-only tool on
+        // an un-attended, non-autoApprove mission and killed the run on its
+        // first ws_read. autoApprove is the mission's escape; spending is never
+        // waved through. 'ask' with no Telegram to ask denies, as before.
+        if (permissionFor(req.name, !!current?.autoApprove) === 'allow') return 'allow';
         if (this.backend.askPermission) {
           return this.backend.askPermission(mission.title, req.name, req.args);
         }
@@ -482,9 +489,17 @@ export class MissionManager {
     // and its tool result produces a history most providers reject.
     const history = state?.session.history;
     if (history && history.length > HISTORY_TRIM_AT) {
+      // Remove whole middle turns: snap BOTH ends of the removed span to a
+      // user-message boundary. headEnd is the end of the opening objective turn
+      // (its next user message), so that turn — and any tool_call/result pair
+      // inside it — stays intact; cut is the next user boundary near the tail.
+      // Splicing from a fixed index 2 used to cut between the first reply's
+      // tool_call and its result, orphaning the call and 400-ing every later run.
+      let headEnd = 1;
+      while (headEnd < history.length && history[headEnd]?.role !== 'user') headEnd++;
       let cut = history.length - HISTORY_TRIM_KEEP;
       while (cut < history.length && history[cut]?.role !== 'user') cut++;
-      if (cut > 2 && cut < history.length) history.splice(2, cut - 2);
+      if (headEnd < cut && cut < history.length) history.splice(headEnd, cut - headEnd);
     }
 
     this.scheduleNext(mission);

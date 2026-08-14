@@ -4,9 +4,10 @@ import { AgentSession, type PermissionDecision } from '@vo-coder/core';
 import type { AgentSpec, BoundModel, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { TelegramInfo } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
+import { elideOldTraffic, planWindow } from './context-window';
 import { fmtStamp } from './journal';
 import type { SecretStore } from './secrets';
-import { ALWAYS_CONFIRM_TOOLS, AUTO_ALLOWED_TOOLS } from './tool-policy';
+import { permissionFor } from './tool-policy';
 
 /**
  * Telegram remote control: talk to Vodo from your phone, start missions, get
@@ -411,9 +412,21 @@ export class TelegramBridge {
       basePrompt,
       session: undefined as unknown as AgentSession,
     };
+    let windowHotOff = 0;
     fresh.session = new AgentSession({
       id: `tg_${chatId}`,
       spec,
+      // A paired phone chat runs for months. Without a bound it replayed its
+      // ENTIRE history to the model every message and held it all in main-process
+      // memory for the app's life. Keep a generous recent tail (~15k tokens)
+      // verbatim, reach further back through the dialogue with tool bulk elided,
+      // and cut at user boundaries so tool pairs are never split.
+      contextStart: (history) => {
+        const plan = planWindow(history, 60_000, 24_000);
+        windowHotOff = plan.hot - plan.start;
+        return plan.start;
+      },
+      prepareMessages: (messages) => elideOldTraffic(messages, windowHotOff),
       resolve: (s) => {
         const bound = this.backend.resolve(s);
         fresh.bound = bound;
@@ -558,16 +571,18 @@ export class TelegramBridge {
   private async chat(chatId: number, text: string): Promise<void> {
     const state = this.chatState(chatId);
     this.backend.log?.(text);
-    // Keep the agent's clock fresh — the spec is rebuilt per turn.
-    state.session.spec = {
-      ...state.session.spec,
-      systemPrompt: `${state.basePrompt}\nCurrent local date-time: ${fmtStamp(Date.now())}.`,
-    };
+    // Keep the SYSTEM prompt byte-stable so provider prompt caching holds. The
+    // clock used to be stamped INTO the system prompt every message — a
+    // per-turn-changing prefix, the exact trap the main app documents avoiding:
+    // it forces a full re-prefill of the whole prompt (base + phone briefing +
+    // every tool schema) on every reply, ~25-36s to first token on a local
+    // model. The time rides on the user turn instead, where it costs nothing.
+    state.session.spec = { ...state.session.spec, systemPrompt: state.basePrompt };
     // NO routing gate here — Telegram answers with Vodo's own model, always.
     // The gate used to pick per message, pinned turns to whatever provider it
     // favoured (OpenRouter, seen live), and a disabled provider then meant
     // silence on the phone while the app itself answered fine.
-    const parts: UserPart[] = [{ type: 'text', text }];
+    const parts: UserPart[] = [{ type: 'text', text: `[${fmtStamp(Date.now())}] ${text}` }];
 
     const result =
       state.session.getStatus() === 'idle'
@@ -585,12 +600,11 @@ export class TelegramBridge {
     name: string,
     args: unknown,
   ): Promise<PermissionDecision> {
-    if (AUTO_ALLOWED_TOOLS.has(name)) return Promise.resolve('allow');
-    const mode = this.config.get().approvalMode;
     // Auto: no prompts. Plan: allow through — the executor's plan-mode block
-    // replies instructively instead of a dead Allow/Deny exchange. Spending is
-    // the exception in every mode: it is always asked.
-    if (!ALWAYS_CONFIRM_TOOLS.has(name) && (mode === 'auto' || mode === 'plan')) {
+    // replies instructively instead of a dead Allow/Deny exchange. Spending
+    // (ALWAYS_CONFIRM) is asked in every mode — permissionFor enforces that.
+    const mode = this.config.get().approvalMode;
+    if (permissionFor(name, mode === 'auto' || mode === 'plan') === 'allow') {
       return Promise.resolve('allow');
     }
     return new Promise((resolve) => {
@@ -686,14 +700,21 @@ export class TelegramBridge {
   ): Promise<{ ok: boolean; result?: T; error?: string }> {
     const token = this.token();
     if (!token) return { ok: false, error: 'No bot token.' };
-    const ctl = signal ? null : new AbortController();
-    const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
+    // The timeout applies ALWAYS, even when the caller passes its own signal.
+    // It used to be skipped whenever a signal was given, so the long-poll's
+    // explicit 65s bound was silently dropped and a half-open socket hung on
+    // undici's ~5-minute default — freezing the whole bridge for minutes.
+    const timeoutCtl = new AbortController();
+    const timer = setTimeout(() => timeoutCtl.abort(), timeoutMs);
+    const composite = signal
+      ? AbortSignal.any([signal, timeoutCtl.signal])
+      : timeoutCtl.signal;
     try {
       const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal: signal ?? ctl!.signal,
+        signal: composite,
       });
       const json = (await res.json()) as { ok: boolean; result?: T; description?: string };
       if (!json.ok) return { ok: false, error: json.description ?? `HTTP ${res.status}` };

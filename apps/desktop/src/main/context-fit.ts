@@ -73,14 +73,6 @@ export class ContextFitStore {
     return fit.chosen ?? undefined;
   }
 
-  fit(modelId: string): ModelFit | undefined {
-    return this.data.models[modelId];
-  }
-
-  vramBudget(url: string): VramBudget | undefined {
-    return this.data.vram[url];
-  }
-
   /**
    * Fold a fresh measurement in and re-choose. Returns the chosen window.
    *
@@ -127,13 +119,5 @@ export class ContextFitStore {
     };
     this.persist();
     return chosen;
-  }
-
-  /** Every model measured on a server, newest first — for the Settings row. */
-  forUrl(url: string): Array<ModelFit & { model: string }> {
-    return Object.entries(this.data.models)
-      .filter(([, f]) => f.url === url)
-      .map(([model, f]) => ({ ...f, model }))
-      .sort((a, b) => b.at - a.at);
   }
 }
