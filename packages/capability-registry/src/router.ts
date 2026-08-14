@@ -45,16 +45,38 @@ export function looksLikeWorkRequest(text: string): boolean {
  * image noun, and bails on code context so "create an icon component" and
  * "fix the <img> tag" stay ordinary work.
  */
-const IMAGE_MAKE =
-  /\b(generate|create|make|draw|render|paint|sketch|illustrate|imagine|produce|design)\b/i;
 const IMAGE_SUBJECT =
-  /\b(image|images|picture|pictures|photo|photos|artwork|illustration|illustrations|logo|logos|icon|icons|poster|posters|banner|banners|wallpaper|drawing|drawings|painting|paintings|sticker|stickers|thumbnail|avatar|graphic|graphics|mockup|render)\b/i;
+  'image|images|picture|pictures|photo|photos|artwork|illustration|illustrations|logo|logos|' +
+  'icon|icons|poster|posters|banner|banners|wallpaper|drawing|drawings|painting|paintings|' +
+  'sticker|stickers|thumbnail|avatar|graphic|graphics|mockup';
+/**
+ * A make-verb that actually GOVERNS an image noun: the verb, then up to three
+ * filler words (articles, adjectives, "me/us/of"), then the noun. This is the
+ * whole point of the tightening — "make a new folder … put some pictures of
+ * boats" has "make" governing "folder" and "pictures" governed by "put", so it
+ * is the user ADDING reference photos, not asking for one to be drawn. Seen
+ * live: that message forced an image_generate call the user never wanted.
+ */
+const IMAGE_MAKE_SUBJECT = new RegExp(
+  `\\b(generate|create|make|draw|render|paint|sketch|illustrate|imagine|produce|design)\\s+` +
+    `(?:\\w+\\s+){0,3}(${IMAGE_SUBJECT})\\b`,
+  'i',
+);
+/**
+ * The user is PROVIDING media, not requesting it: first-person future ("I will
+ * send/upload/attach…") or a placement verb driving the noun ("put/drop/add
+ * some pictures"). Either kills the guess even if a make-verb is loose in the
+ * sentence.
+ */
+const USER_PROVIDES_IMAGE =
+  /\b(i(?:'ll| will| am going to| can| could)?\s+(?:send|share|upload|attach|add|put|drop|paste|give|provide|place|save|move)\b|(?:send|sending|upload|uploading|attach|attaching|paste|pasting)\s+(?:you\s+)?(?:some\s+|a\s+|the\s+|my\s+)?(?:\w+\s+){0,2}(?:image|images|picture|pictures|photo|photos))/i;
 const CODE_CONTEXT =
   /```|\b(component|css|html|svg|react|vue|tsx|jsx|div|tag|class|endpoint|api|function|import|npm|dockerfile|readme)\b/i;
 
 export function looksLikeImageRequest(text: string): boolean {
   if (CODE_CONTEXT.test(text)) return false;
-  return IMAGE_MAKE.test(text) && IMAGE_SUBJECT.test(text);
+  if (USER_PROVIDES_IMAGE.test(text)) return false;
+  return IMAGE_MAKE_SUBJECT.test(text);
 }
 
 /** 0 = trivial … 3 = hard reasoning. Drives the minimum quality bar. */

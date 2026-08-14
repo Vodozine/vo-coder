@@ -1401,11 +1401,17 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
       // it in the generation span so tok/s stays honest.
       patchDraft((m) => {
         const now = Date.now();
+        const base = { ...m, genStart: m.genStart ?? now, genLast: now };
+        // A nameless zero-char progress is a pure keep-alive: the provider is
+        // alive but the tool call has neither a name nor any args yet (Claude
+        // Code between events; a model still deciding to call). Painting
+        // "writing a tool call — 0 chars…" from it read as the model being
+        // stuck on a tool it had not even chosen — seen live. Keep the span
+        // warm, but leave the waiting indicator alone until there is signal.
+        if (!event.name && event.chars === 0) return base;
         return {
-          ...m,
+          ...base,
           writing: { ...(event.name ? { name: event.name } : {}), chars: event.chars },
-          genStart: m.genStart ?? now,
-          genLast: now,
         };
       });
       break;

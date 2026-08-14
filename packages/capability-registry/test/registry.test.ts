@@ -322,6 +322,12 @@ describe('advisory router', () => {
       'make the logo css bigger',
       'look at this picture and tell me what is wrong',
       'add a gallery',
+      // Seen live: the make-verb governs the FOLDER, and the user is placing
+      // reference photos they will send — not asking for one to be generated.
+      'I will make a new folder called References and put some pictures of some boats there',
+      'I will send you some pictures and put them in the images folder',
+      "I'll attach a few photos of the boat so we can work on it",
+      'save these images to the assets folder',
     ]) {
       expect(looksLikeImageRequest(t)).toBe(false);
     }
