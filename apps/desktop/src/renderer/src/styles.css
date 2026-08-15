@@ -2787,6 +2787,157 @@ input[type='radio']:focus-visible {
   pointer-events: none;
 }
 
+/* ---- pipeline editor ---- */
+.pipelines {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.pl-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.pl-name {
+  min-width: 220px;
+}
+.pl-foreman {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.pl-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.pl-list {
+  width: 220px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pl-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.pl-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.pl-list-item.active {
+  border-color: var(--accent);
+}
+.pl-list-name {
+  font-weight: 600;
+}
+.pl-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.pl-canvas .react-flow {
+  background: var(--bg);
+}
+.pl-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 40px;
+}
+.pl-empty p {
+  max-width: 440px;
+  text-align: center;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.pl-node {
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+}
+.pl-node.selected {
+  border-color: var(--accent);
+}
+.pl-node--reviewer {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.pl-node-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent2);
+}
+.pl-node select,
+.pl-node input,
+.pl-node textarea {
+  width: 100%;
+  font-size: 12px;
+}
+.pl-node textarea {
+  resize: vertical;
+}
+.pl-ports {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+.pl-port--pass {
+  color: var(--ok);
+}
+.pl-port--fail {
+  color: var(--error);
+}
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  border: none;
+}
+.react-flow__edge-path {
+  stroke: var(--text-dim);
+}
+.react-flow__controls button {
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  fill: var(--text);
+}
+.react-flow__minimap {
+  background: var(--bg-raised);
+}
+
 /* ---- voice / push-to-talk ---- */
 
 .attach.recording {

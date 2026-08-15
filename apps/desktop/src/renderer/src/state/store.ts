@@ -133,7 +133,8 @@ export type View =
   | 'console'
   | 'missions'
   | 'memory'
-  | 'homelab';
+  | 'homelab'
+  | 'pipelines';
 
 const emptySession = (): SessionUi => ({ messages: [], streaming: false });
 

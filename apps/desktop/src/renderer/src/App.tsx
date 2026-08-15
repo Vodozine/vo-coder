@@ -10,12 +10,14 @@ import { Memory } from './views/Memory';
 import { Missions } from './views/Missions';
 import { Preview } from './views/Preview';
 import { Scaffold } from './views/Scaffold';
+import { Pipelines } from './views/Pipelines';
 import { Settings } from './views/Settings';
 
 const NAV = [
   { id: 'chat', label: 'Chat', enabled: true },
   { id: 'agents', label: 'Agents', enabled: true },
   { id: 'missions', label: 'Missions', enabled: true },
+  { id: 'pipelines', label: 'Pipelines', enabled: true },
   { id: 'memory', label: 'Memory', enabled: true },
   { id: 'scaffold', label: 'Scaffold', enabled: true },
   { id: 'preview', label: 'Preview', enabled: true },
@@ -543,6 +545,8 @@ export function App() {
           <Agents />
         ) : view === 'missions' ? (
           <Missions />
+        ) : view === 'pipelines' ? (
+          <Pipelines />
         ) : view === 'memory' ? (
           <Memory />
         ) : view === 'scaffold' ? (

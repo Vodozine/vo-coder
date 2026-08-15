@@ -77,6 +77,8 @@ export interface AppConfig {
   llamacppEndpoints: LocalEndpoint[];
   systemPrompt: string;
   agents: AgentSpec[];
+  /** Saved multi-agent workflows drawn in the pipeline editor. */
+  pipelines: PipelineSpec[];
   mcpServers: McpServerConfig[];
   visionModel: VisionPointer | null;
   /** Model used by the image_generate tool (an image-OUTPUT model). */
@@ -241,6 +243,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   systemPrompt:
     "You are Vodo, Vo-Coder's coordinator agent. Be direct, concrete, and honest about uncertainty. It's fine to say you don't understand and ask — that's faster than confident-but-wrong.",
   agents: [],
+  pipelines: [],
   mcpServers: [],
   visionModel: null,
   imageModel: null,
@@ -434,6 +437,44 @@ export interface GraphNodeDto {
 export interface MemGraphDto {
   nodes: GraphNodeDto[];
   edges: Array<{ from: number; rel: string; to: number }>;
+}
+
+/**
+ * One tile in a pipeline: an agent step, or a reviewer/gate whose verdict
+ * branches the flow. Positions (x,y) are the editor layout.
+ */
+export interface PipelineNode {
+  id: string;
+  kind: 'agent' | 'reviewer';
+  /** Which agent fills this step. 'default' = Vodo/foreman fills it. */
+  agentId?: string;
+  /** Short role label, e.g. "Simplify", "Review". */
+  label?: string;
+  /** What this step should do — becomes the agent's task brief at run time. */
+  task?: string;
+  x: number;
+  y: number;
+}
+
+/** A wire between tiles. For a reviewer, `branch` says which verdict it follows. */
+export interface PipelineEdge {
+  id: string;
+  source: string;
+  target: string;
+  branch?: 'pass' | 'fail';
+}
+
+/** A saved, reusable multi-agent workflow drawn in the pipeline editor. */
+export interface PipelineSpec {
+  id: string;
+  name: string;
+  description?: string;
+  /** The agent that runs the floor (coordinates), reporting up to Vodo. */
+  foremanAgentId?: string;
+  nodes: PipelineNode[];
+  edges: PipelineEdge[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ChatSessionMeta {

@@ -50,6 +50,10 @@ export class ConfigStore {
         if (!Array.isArray(this.cache.disabledSkills)) {
           this.cache.disabledSkills = [];
         }
+        // Older configs predate saved pipelines.
+        if (!Array.isArray(this.cache.pipelines)) {
+          this.cache.pipelines = [];
+        }
       } catch {
         this.cache = { ...DEFAULT_CONFIG };
       }
