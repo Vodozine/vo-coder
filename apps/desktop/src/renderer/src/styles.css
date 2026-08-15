@@ -591,29 +591,93 @@ button.bubble-act.danger:hover {
   width: 100%;
   padding: 0 32px 40px;
 }
-/* Masonry-style columns: sections pack tightly down each column instead of
-   aligning to a grid row's tallest cell, so short cards don't leave dead space
-   under them. */
-/* Three columns only while three can hold a row. A settings row is a 110px
-   label, a control and one or two buttons; under ~440px the buttons walk off
-   the card, and UI zoom is what takes you there — zoom narrows the viewport in
-   CSS px while the rows keep their size, so at 125% on a 1920 screen the old
-   380px floor still packed three columns into 404px each. */
+/* Uniform tile grid: every card is the same size and the whole page fits a
+   screen, so nothing scrolls. Each tile is a collapsed summary; clicking it
+   opens the section's editor in a centered panel over the grid. The old
+   masonry existed because the cards were wildly different heights — now the
+   height lives in the panel, so the grid can be even. */
 .settings-grid {
-  columns: 3 440px;
-  column-gap: 26px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  align-content: start;
 }
-.settings-grid > section {
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  display: inline-block;
-  width: 100%;
-  margin: 0 0 22px;
-  padding: 16px 18px;
+.settings-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 92px;
+  padding: 14px 16px;
+  text-align: left;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
   box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    transform 0.06s;
+}
+.settings-tile:hover {
+  border-color: var(--accent);
+}
+.settings-tile:active {
+  transform: translateY(1px);
+}
+.settings-tile.active {
+  border-color: var(--accent);
+}
+.settings-tile-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.settings-tile-summary {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The expanded editor — a centered panel over the grid, reusing modal-backdrop.
+   Tall sections (Voice, Local servers, Vodo) scroll INSIDE the panel, never the
+   page. The section it holds sheds its card chrome: the panel is the card now. */
+.settings-panel {
+  position: relative;
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg, var(--shadow));
+}
+.settings-panel-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 2;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-panel-close:hover {
+  color: var(--text);
+}
+.settings-panel-body > section {
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.settings-panel-body > section > h2:first-child {
+  margin-top: 0;
 }
 /* The window's caption buttons float over the top-right of every view, so a
    scrolling page slides its cards under the close button. The title sticks to

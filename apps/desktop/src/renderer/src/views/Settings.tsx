@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
 import type {
@@ -2290,13 +2290,82 @@ function EndpointTuning({
   );
 }
 
+/**
+ * One Settings card. Collapsed it is a uniform tile in the grid — name + a
+ * one-line live status — so the whole page fits on a screen with nothing to
+ * scroll. Clicking it opens the section's full editor in a centered panel over
+ * the grid (the tall ones — Voice, Local servers, Vodo — scroll inside the
+ * panel, never the page). The section JSX is passed as children and only
+ * mounts while open. Esc / click-away close (handled by the parent).
+ */
+function SettingsTile({
+  id,
+  name,
+  summary,
+  openTile,
+  setOpenTile,
+  children,
+}: {
+  id: string;
+  name: string;
+  summary?: string;
+  openTile: string | null;
+  setOpenTile: (id: string | null) => void;
+  children: ReactNode;
+}) {
+  const open = openTile === id;
+  return (
+    <>
+      <button
+        type="button"
+        className={`settings-tile${open ? ' active' : ''}`}
+        onClick={() => setOpenTile(id)}
+      >
+        <span className="settings-tile-name">{name}</span>
+        {summary ? <span className="settings-tile-summary">{summary}</span> : null}
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpenTile(null)}>
+          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="settings-panel-close"
+              aria-label="Close"
+              onClick={() => setOpenTile(null)}
+            >
+              ×
+            </button>
+            <div className="settings-panel-body">{children}</div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function Settings() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
+  const secretStatus = useStore((s) => s.secretStatus);
+  const mcpStatus = useStore((s) => s.mcpStatus);
   const [ollamaUrl, setOllamaUrl] = useState<string | null>(null);
   const [lmstudioUrl, setLmstudioUrl] = useState<string | null>(null);
   const [flmUrl, setFlmUrl] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
+  const [openTile, setOpenTile] = useState<string | null>(null);
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    void window.vo.appVersion().then(setVersion);
+  }, []);
+  // Esc closes the open panel — the modal convention everywhere else in the app.
+  useEffect(() => {
+    if (!openTile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenTile(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openTile]);
 
   if (!config) return <div className="empty-state">Loading…</div>;
 
@@ -2311,10 +2380,37 @@ export function Settings() {
     return `${prefix}${i}`;
   };
 
+  // One-line status per card, shown on the collapsed tile.
+  const has = (p: string): boolean => !!secretStatus[p];
+  const keyCount = ['anthropic', 'openai', 'openrouter', 'xai', 'zai', 'gemini', 'nvidia'].filter(
+    has,
+  ).length;
+  const mcpConnected = mcpStatus.filter((s) => s.connected).length;
+  const localOn = (['ollama', 'lmstudio', 'flm', 'llamacpp'] as const).filter(
+    (p) => !(config.disabledProviders ?? []).includes(p),
+  ).length;
+  const modelOf = (m?: { model?: string } | null): string | null => m?.model ?? null;
+  const voiceSummary =
+    config.voice.tts === 'none'
+      ? `${config.voice.stt} · no voice`
+      : `${config.voice.stt} · ${config.voice.tts}`;
+  const spendingSummary = config.spending.enabled
+    ? `on · $${config.spending.perTransactionMax}/$${config.spending.dailyMax}`
+    : 'off';
+  const telegramSummary =
+    (config.telegramPaired?.length ?? 0) > 0
+      ? `${config.telegramPaired.length} paired`
+      : has('telegram')
+        ? 'ready'
+        : 'off';
+  const genericSummary =
+    (config.genericDir || '').split(/[\\/]/).filter(Boolean).pop() ?? 'default';
+
   return (
     <div className="settings settings-full">
       <h1>Settings</h1>
       <div className="settings-grid">
+      <SettingsTile id="keys" name="API keys" summary={`${keyCount} configured`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>API keys</h2>
         <p className="hint">
@@ -2356,7 +2452,9 @@ export function Settings() {
         </details>
         <ClaudeCodeRow />
       </section>
+      </SettingsTile>
 
+      <SettingsTile id="local" name="Local model servers" summary={`${localOn} on`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Local model servers</h2>
         <div
@@ -2619,19 +2717,40 @@ export function Settings() {
           </p>
         </details>
       </section>
+      </SettingsTile>
 
-      <GlobalRulesSection />
-      <McpSection />
-      <SkillsSection />
-      <VisionSection />
-      <ImageModelSection />
-      <VideoModelSection />
-      <VoiceSection />
-      <SpendingSection />
-      <TelegramSection />
+      <SettingsTile id="rules" name="Your rules" summary="every agent, every turn" openTile={openTile} setOpenTile={setOpenTile}>
+        <GlobalRulesSection />
+      </SettingsTile>
+      <SettingsTile id="mcp" name="MCP servers" summary={`${mcpConnected} connected`} openTile={openTile} setOpenTile={setOpenTile}>
+        <McpSection />
+      </SettingsTile>
+      <SettingsTile id="skills" name="Skills" summary="packaged know-how" openTile={openTile} setOpenTile={setOpenTile}>
+        <SkillsSection />
+      </SettingsTile>
+      <SettingsTile id="vision" name="Vision model" summary={modelOf(config.visionModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
+        <VisionSection />
+      </SettingsTile>
+      <SettingsTile id="image" name="Image model" summary={modelOf(config.imageModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
+        <ImageModelSection />
+      </SettingsTile>
+      <SettingsTile id="video" name="Video model" summary={modelOf(config.videoModel) ?? 'off'} openTile={openTile} setOpenTile={setOpenTile}>
+        <VideoModelSection />
+      </SettingsTile>
+      <SettingsTile id="voice" name="Voice" summary={voiceSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <VoiceSection />
+      </SettingsTile>
+      <SettingsTile id="spending" name="Spending" summary={spendingSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <SpendingSection />
+      </SettingsTile>
+      <SettingsTile id="telegram" name="Telegram remote" summary={telegramSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <TelegramSection />
+      </SettingsTile>
+      <SettingsTile id="updates" name="Updates" summary={version || 'auto'} openTile={openTile} setOpenTile={setOpenTile}>
+        <UpdatesSection />
+      </SettingsTile>
 
-      <UpdatesSection />
-
+      <SettingsTile id="homelab" name="Mr Homelab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Mr Homelab</h2>
         <div className="field-row">
@@ -2660,7 +2779,9 @@ export function Settings() {
           </p>
         </details>
       </section>
+      </SettingsTile>
 
+      <SettingsTile id="generic" name="Generic folder" summary={genericSummary} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Generic folder</h2>
         <div className="field-row">
@@ -2684,7 +2805,9 @@ export function Settings() {
           projects (and every group project) still get their own folder.
         </p>
       </section>
+      </SettingsTile>
 
+      <SettingsTile id="vodo" name="Vodo (default agent)" summary={`${config.routeMode} · ${config.routeTier}`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Vodo (default agent)</h2>
         <p className="hint">
@@ -2741,7 +2864,10 @@ export function Settings() {
           Save prompt
         </button>
       </section>
-      <DisplaySection />
+      </SettingsTile>
+      <SettingsTile id="display" name="Display" summary="zoom & appearance" openTile={openTile} setOpenTile={setOpenTile}>
+        <DisplaySection />
+      </SettingsTile>
       </div>
     </div>
   );
