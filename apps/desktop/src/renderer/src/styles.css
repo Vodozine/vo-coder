@@ -659,6 +659,11 @@ button.bubble-act.danger:hover {
 .settings-panel {
   position: relative;
   width: min(760px, 94vw);
+  /* Roomy by default so a model-picker dropdown (absolute, hanging below its
+     button) is not clipped by this panel's own scroll box — the pickers all
+     sit near the top of their panel, so this height clears the list. Tall
+     editors (Voice, Local servers) still scroll past it up to the max. */
+  min-height: min(460px, 78vh);
   max-height: 86vh;
   overflow-y: auto;
   padding: 22px 24px;
