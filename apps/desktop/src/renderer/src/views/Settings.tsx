@@ -2301,6 +2301,7 @@ function EndpointTuning({
 function SettingsTile({
   id,
   name,
+  description,
   summary,
   openTile,
   setOpenTile,
@@ -2308,6 +2309,7 @@ function SettingsTile({
 }: {
   id: string;
   name: string;
+  description: string;
   summary?: string;
   openTile: string | null;
   setOpenTile: (id: string | null) => void;
@@ -2322,6 +2324,7 @@ function SettingsTile({
         onClick={() => setOpenTile(id)}
       >
         <span className="settings-tile-name">{name}</span>
+        <span className="settings-tile-desc">{description}</span>
         {summary ? <span className="settings-tile-summary">{summary}</span> : null}
       </button>
       {open && (
@@ -2410,7 +2413,7 @@ export function Settings() {
     <div className="settings settings-full">
       <h1>Settings</h1>
       <div className="settings-grid">
-      <SettingsTile id="keys" name="API keys" summary={`${keyCount} configured`} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="keys" name="API keys" description="Cloud provider keys, in your OS keychain" summary={`${keyCount} configured`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>API keys</h2>
         <p className="hint">
@@ -2445,16 +2448,15 @@ export function Settings() {
             Get a key at <code>aistudio.google.com/apikey</code> — sign in with your Google
             account and it&apos;s free (the free tier needs no card and no billing). Paste it here
             and Gemini works in agents like any other provider: it can be Vodo, coordinate
-            groups, run missions. On the free tier Google bills nothing; the usage meter still
-            shows list prices as an estimate. (Note: this is the API key, not the retired
-            &quot;sign in with Google&quot; CLI login.)
+            groups, run missions. It shows as free, since the free tier bills nothing. (Note:
+            this is the API key, not the retired &quot;sign in with Google&quot; CLI login.)
           </p>
         </details>
         <ClaudeCodeRow />
       </section>
       </SettingsTile>
 
-      <SettingsTile id="local" name="Local model servers" summary={`${localOn} on`} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="local" name="Local model servers" description="Ollama, LM Studio, llama.cpp, NPU — one row per box" summary={`${localOn} on`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Local model servers</h2>
         <div
@@ -2719,38 +2721,38 @@ export function Settings() {
       </section>
       </SettingsTile>
 
-      <SettingsTile id="rules" name="Your rules" summary="every agent, every turn" openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="rules" name="Your rules" description="Standing rules every agent obeys" summary="every agent, every turn" openTile={openTile} setOpenTile={setOpenTile}>
         <GlobalRulesSection />
       </SettingsTile>
-      <SettingsTile id="mcp" name="MCP servers" summary={`${mcpConnected} connected`} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="mcp" name="MCP servers" description="Connect tools and data over MCP" summary={`${mcpConnected} connected`} openTile={openTile} setOpenTile={setOpenTile}>
         <McpSection />
       </SettingsTile>
-      <SettingsTile id="skills" name="Skills" summary="packaged know-how" openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="skills" name="Skills" description="Packaged know-how agents read on demand" summary="packaged know-how" openTile={openTile} setOpenTile={setOpenTile}>
         <SkillsSection />
       </SettingsTile>
-      <SettingsTile id="vision" name="Vision model" summary={modelOf(config.visionModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="vision" name="Vision model" description="Describes images for text-only models" summary={modelOf(config.visionModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
         <VisionSection />
       </SettingsTile>
-      <SettingsTile id="image" name="Image model" summary={modelOf(config.imageModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="image" name="Image model" description="Generates pictures in chat" summary={modelOf(config.imageModel) ?? 'not set'} openTile={openTile} setOpenTile={setOpenTile}>
         <ImageModelSection />
       </SettingsTile>
-      <SettingsTile id="video" name="Video model" summary={modelOf(config.videoModel) ?? 'off'} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="video" name="Video model" description="Renders clips for video_generate" summary={modelOf(config.videoModel) ?? 'off'} openTile={openTile} setOpenTile={setOpenTile}>
         <VideoModelSection />
       </SettingsTile>
-      <SettingsTile id="voice" name="Voice" summary={voiceSummary} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="voice" name="Voice" description="Speech in, speech out" summary={voiceSummary} openTile={openTile} setOpenTile={setOpenTile}>
         <VoiceSection />
       </SettingsTile>
-      <SettingsTile id="spending" name="Spending" summary={spendingSummary} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="spending" name="Spending" description="Whether agents may spend, and the caps" summary={spendingSummary} openTile={openTile} setOpenTile={setOpenTile}>
         <SpendingSection />
       </SettingsTile>
-      <SettingsTile id="telegram" name="Telegram remote" summary={telegramSummary} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="telegram" name="Telegram remote" description="Talk to Vodo from your phone" summary={telegramSummary} openTile={openTile} setOpenTile={setOpenTile}>
         <TelegramSection />
       </SettingsTile>
-      <SettingsTile id="updates" name="Updates" summary={version || 'auto'} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="updates" name="Updates" description="Version and auto-update" summary={version || 'auto'} openTile={openTile} setOpenTile={setOpenTile}>
         <UpdatesSection />
       </SettingsTile>
 
-      <SettingsTile id="homelab" name="Mr Homelab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="homelab" name="Mr Homelab" description="A dedicated infrastructure agent tab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Mr Homelab</h2>
         <div className="field-row">
@@ -2781,7 +2783,7 @@ export function Settings() {
       </section>
       </SettingsTile>
 
-      <SettingsTile id="generic" name="Generic folder" summary={genericSummary} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="generic" name="Generic folder" description="Where folder-less chats write" summary={genericSummary} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Generic folder</h2>
         <div className="field-row">
@@ -2807,7 +2809,7 @@ export function Settings() {
       </section>
       </SettingsTile>
 
-      <SettingsTile id="vodo" name="Vodo (default agent)" summary={`${config.routeMode} · ${config.routeTier}`} openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="vodo" name="Vodo (default agent)" description="How Vodo routes, and his prompt" summary={`${config.routeMode} · ${config.routeTier}`} openTile={openTile} setOpenTile={setOpenTile}>
       <section>
         <h2>Vodo (default agent)</h2>
         <p className="hint">
@@ -2865,7 +2867,7 @@ export function Settings() {
         </button>
       </section>
       </SettingsTile>
-      <SettingsTile id="display" name="Display" summary="zoom & appearance" openTile={openTile} setOpenTile={setOpenTile}>
+      <SettingsTile id="display" name="Display" description="Zoom and appearance" summary="zoom & appearance" openTile={openTile} setOpenTile={setOpenTile}>
         <DisplaySection />
       </SettingsTile>
       </div>

@@ -157,6 +157,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return (
       p === 'nvidia' ||
       p === 'zai' ||
+      // Gemini's AI Studio free tier bills nothing, so treat it like NVIDIA's
+      // free endpoint: shown free, and auto-routing is not steered away from it
+      // by catalog list prices the user never actually pays.
+      p === 'gemini' ||
       p === 'claude-code' ||
       (p === 'xai' && hub.usingXaiOAuth())
     );
