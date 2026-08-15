@@ -156,6 +156,11 @@ const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'openai
 PROVIDERS.push('claude-code');
 /** Backends where becoming ready is expensive enough to be worth pre-loading. */
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp']);
+/** Backends whose first-token wait really IS a model loading onto local
+ *  silicon — the only ones the "GPU is busy" waiting copy is true for. A cloud
+ *  endpoint (Anthropic, xAI, a subscription plan, …) that is simply slow to
+ *  first token must not be described as a local GPU load. */
+const LOCAL_WAIT_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp', 'flm']);
 
 /** Inline render of a generated image — pixels come over IPC, never tokens. */
 function GeneratedImage({ path }: { path: string }) {
@@ -351,7 +356,7 @@ function RobotWalker({ walking, title }: { walking: boolean; title: string }) {
  * minutes on an older GPU. A bare "…" reads as a hang, so once the wait stops
  * looking instant, say what is happening and count.
  */
-function WaitingBubble() {
+function WaitingBubble({ local = false }: { local?: boolean }) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -362,8 +367,10 @@ function WaitingBubble() {
       <div className="bubble pulse">…</div>
       {secs >= 8 && (
         <div className="meta">
-          {secs}s — waiting for the first token. Local servers load the model and read the whole
-          prompt before answering; the GPU is busy even though nothing has arrived yet.
+          {secs}s — waiting for the first token.{' '}
+          {local
+            ? 'The local server is loading the model and reading the whole prompt before it answers; the GPU is busy even though nothing has arrived yet.'
+            : 'A large model reads the whole prompt — and, with reasoning on, thinks — before anything streams; a long or reasoning-heavy turn takes a while to start.'}
         </div>
       )}
     </>
@@ -428,7 +435,16 @@ function TurnStats({ m }: { m: UiMessage }) {
   );
 }
 
-export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking: boolean }) {
+export function AssistantBody({
+  m,
+  hideThinking,
+  local = false,
+}: {
+  m: UiMessage;
+  hideThinking: boolean;
+  /** This turn is on a local model server — tailors the waiting explanation. */
+  local?: boolean;
+}) {
   return (
     <>
       {m.routedNote && (
@@ -460,7 +476,9 @@ export function AssistantBody({ m, hideThinking }: { m: UiMessage; hideThinking:
           chars…
         </div>
       )}
-      {m.streaming && !m.writing && (m.segments ?? []).length === 0 && <WaitingBubble />}
+      {m.streaming && !m.writing && (m.segments ?? []).length === 0 && (
+        <WaitingBubble local={local} />
+      )}
       {!m.streaming &&
         !m.error &&
         !m.aborted &&
@@ -1523,6 +1541,7 @@ export function Chat() {
               <AssistantBody
                 m={m}
                 hideThinking={activeAgent?.thinkingVisibility === 'hidden'}
+                local={LOCAL_WAIT_PROVIDERS.has(activeAgent?.provider ?? config.defaultProvider)}
               />
             )}
           </div>
