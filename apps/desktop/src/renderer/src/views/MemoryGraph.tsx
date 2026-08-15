@@ -1,55 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Konva from 'konva';
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceX,
-  forceY,
-  type Simulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
-} from 'd3-force';
+import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
+import SpriteText from 'three-spritetext';
 import type { GraphNodeDto, MemGraphDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
 
 /**
- * Obsidian-style force-directed view of the project's memory map. Rendered with
- * IMPERATIVE Konva (not react-konva) driven by a d3-force simulation: a project
- * can hold hundreds of nodes, and re-rendering that many shapes through React
- * every physics tick would jank. React owns only the chrome (legend, detail
- * card); the canvas is built once per dataset and mutated in place per tick.
+ * A true 3D force-directed view of the project's memory map — a cloud of nodes
+ * in space you rotate (drag), fly into (scroll), and click to inspect. Built on
+ * react-force-graph-3d (three.js): the library owns the WebGL scene, physics,
+ * orbit camera, and picking; this component owns data, styling, and the chrome.
  *
- * Perf notes: the node layer's hit graph is disabled while the layout settles
- * (the expensive per-frame cost) and re-enabled once it freezes; labels stay
- * hidden until hover/zoom; the sim self-stops when cool, so idle CPU is zero.
+ * Labels are three-spritetext billboards at a fixed WORLD size, so they are tiny
+ * specks when the whole graph is in frame and grow readable only as you zoom in
+ * close — the "names appear on the dots" behaviour, for free.
  */
 
-type SimNode = GraphNodeDto & SimulationNodeDatum & { degree: number };
-type SimEdge = SimulationLinkDatum<SimNode> & { rel: string };
+type GNode = GraphNodeDto & { degree: number; x?: number; y?: number; z?: number };
+type GLink = { source: number; target: number; rel: string };
 
-// One colour per node type — the three semantic ones track the pill palette.
+const cssVar = (name: string, fallback: string): string =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
 function typeColors(): Record<string, string> {
-  const cs = getComputedStyle(document.documentElement);
-  const v = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb;
   return {
-    decision: v('--accent', '#e0a83a'),
-    task: v('--ok', '#3fb950'),
-    issue: v('--error', '#f85149'),
-    component: v('--accent2', '#37b8c4'),
+    decision: cssVar('--accent', '#e0a83a'),
+    task: cssVar('--ok', '#3fb950'),
+    issue: cssVar('--error', '#f85149'),
+    component: cssVar('--accent2', '#37b8c4'),
     fact: '#589bff',
     file: '#8b949e',
     preference: '#c98fd0',
   };
 }
 const COLOR_FALLBACK = '#8b949e';
-
-const DIM = 0.12; // opacity of faded (out-of-focus / non-matching) items
-const LABEL_ZOOM = 1.15; // show in-view labels once zoomed past this
 const isLive = (status: string): boolean => status === 'active' || status === 'done';
-const radiusOf = (degree: number): number => 5 + Math.min(15, Math.sqrt(degree) * 3);
+// Matches react-force-graph's default sphere sizing (radius ∝ cbrt(val), rel 4).
+const nodeRadius = (degree: number): number => Math.cbrt(1 + degree) * 4;
 
 export function MemoryGraph({
   projectId,
@@ -63,18 +49,21 @@ export function MemoryGraph({
   includeInactive: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const applyFocusRef = useRef<() => void>(() => {});
-  const fitViewRef = useRef<() => void>(() => {});
-  // Latest filter values, read by applyFocus without rebuilding the graph.
+  const detailRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<ForceGraphMethods<GNode, GLink> | undefined>(undefined);
   const queryRef = useRef(query);
   const typeRef = useRef(typeFilter);
-  const selectedRef = useRef<number | null>(null);
 
-  const [data, setData] = useState<MemGraphDto | null>(null);
+  const [size, setSize] = useState({ width: 800, height: 600 });
+  const [data, setData] = useState<{ nodes: GNode[]; links: GLink[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<GraphNodeDto | null>(null);
+  const [selected, setSelected] = useState<GNode | null>(null);
 
   const colors = useMemo(typeColors, []);
+  const bg = useMemo(() => cssVar('--bg', '#0b0e14'), []);
+  const labelColor = useMemo(() => cssVar('--text', '#e7ecf5'), []);
+  const edgeColor = useMemo(() => cssVar('--border', '#3a4152'), []);
+
   const nodeById = useMemo(
     () => new Map((data?.nodes ?? []).map((n) => [n.id, n])),
     [data],
@@ -82,13 +71,22 @@ export function MemoryGraph({
 
   const fetchGraph = useCallback(async () => {
     if (!projectId) {
-      setData({ nodes: [], edges: [] });
+      setData({ nodes: [], links: [] });
       setLoading(false);
       return;
     }
     setLoading(true);
-    const g = await window.vo.memMapGraph(projectId, { includeInactive });
-    setData(g);
+    setSelected(null);
+    const g: MemGraphDto = await window.vo.memMapGraph(projectId, { includeInactive });
+    const degree = new Map<number, number>();
+    for (const e of g.edges) {
+      degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+      degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+    }
+    setData({
+      nodes: g.nodes.map((n) => ({ ...n, degree: degree.get(n.id) ?? 0 })),
+      links: g.edges.map((e) => ({ source: e.from, target: e.to, rel: e.rel })),
+    });
     setLoading(false);
   }, [projectId, includeInactive]);
 
@@ -96,261 +94,72 @@ export function MemoryGraph({
     void fetchGraph();
   }, [fetchGraph]);
 
-  // Filter changes only re-highlight — no rebuild, no refetch.
+  // Measure the host so the canvas fills it.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const measure = () => setSize({ width: host.clientWidth, height: host.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, []);
+
+  // Search / type filter hide non-matches (layout unchanged) — refresh so the
+  // library re-reads the visibility accessors.
   useEffect(() => {
     queryRef.current = query;
     typeRef.current = typeFilter;
-    applyFocusRef.current();
+    fgRef.current?.refresh();
   }, [query, typeFilter]);
 
+  const nodeVisible = useCallback((n: GNode): boolean => {
+    const tf = typeRef.current;
+    if (tf && n.type !== tf) return false;
+    const q = queryRef.current.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      n.title.toLowerCase().includes(q) ||
+      n.body.toLowerCase().includes(q) ||
+      n.tags.toLowerCase().includes(q)
+    );
+  }, []);
+
+  const nodeColor = useCallback(
+    (n: GNode): string => (isLive(n.status) ? colors[n.type] ?? COLOR_FALLBACK : '#48506a'),
+    [colors],
+  );
+
+  const nodeThree = useCallback(
+    (n: GNode) => {
+      const label = n.title.length > 42 ? `${n.title.slice(0, 42)}…` : n.title;
+      const sprite = new SpriteText(label);
+      sprite.color = labelColor;
+      sprite.textHeight = 2.6;
+      sprite.fontFace = 'system-ui, sans-serif';
+      sprite.position.set(0, nodeRadius(n.degree) + 2.5, 0);
+      return sprite;
+    },
+    [labelColor],
+  );
+
+  // Keep the detail card pinned to the clicked node as the camera moves.
   useEffect(() => {
-    selectedRef.current = selected?.id ?? null;
-    applyFocusRef.current();
+    if (!selected) return;
+    let raf = 0;
+    const follow = () => {
+      const fg = fgRef.current;
+      const el = detailRef.current;
+      if (fg && el && selected.x != null && selected.y != null && selected.z != null) {
+        const c = fg.graph2ScreenCoords(selected.x, selected.y, selected.z);
+        el.style.left = `${c.x}px`;
+        el.style.top = `${c.y}px`;
+      }
+      raf = requestAnimationFrame(follow);
+    };
+    raf = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(raf);
   }, [selected]);
-
-  // Build the whole Konva scene + simulation once per dataset.
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !data || data.nodes.length === 0) return;
-    let width = host.clientWidth || 800;
-    let height = host.clientHeight || 600;
-    let hoverId: number | null = null;
-    let fitted = false;
-
-    const colorOf = (t: string) => colors[t] ?? COLOR_FALLBACK;
-    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e7ecf5';
-    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0e14';
-    const edgeColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || 'rgba(140,150,170,0.5)';
-
-    // ---- model: nodes, edges, adjacency, degree ----
-    const nodes: SimNode[] = data.nodes.map((n) => ({ ...n, degree: 0 }));
-    const idx = new Map<number, SimNode>(nodes.map((n) => [n.id, n]));
-    const adj = new Map<number, Set<number>>();
-    const edges: SimEdge[] = [];
-    for (const e of data.edges) {
-      const s = idx.get(e.from);
-      const t = idx.get(e.to);
-      if (!s || !t) continue;
-      s.degree++;
-      t.degree++;
-      edges.push({ source: s, target: t, rel: e.rel });
-      (adj.get(e.from) ?? adj.set(e.from, new Set()).get(e.from)!).add(e.to);
-      (adj.get(e.to) ?? adj.set(e.to, new Set()).get(e.to)!).add(e.from);
-    }
-    // Seed positions in a centred spiral so the sim settles from the middle
-    // rather than flying in from the origin.
-    nodes.forEach((n, i) => {
-      const angle = i * 2.399963;
-      const rad = 12 * Math.sqrt(i);
-      n.x = width / 2 + rad * Math.cos(angle);
-      n.y = height / 2 + rad * Math.sin(angle);
-    });
-
-    // ---- konva scene ----
-    const stage = new Konva.Stage({ container: host, width, height, draggable: true });
-    const edgeLayer = new Konva.Layer({ listening: false });
-    // Hit graph stays OFF while the layout animates — redrawing it for hundreds
-    // of shapes every frame is the settle cost. Re-enabled once the sim freezes.
-    const nodeLayer = new Konva.Layer({ listening: false });
-    const labelLayer = new Konva.Layer({ listening: false });
-    stage.add(edgeLayer, nodeLayer, labelLayer);
-
-    const nodeMap = new Map<number, Konva.Circle>();
-    const labelMap = new Map<number, Konva.Text>();
-    const lines: Array<{ line: Konva.Line; s: SimNode; t: SimNode }> = [];
-
-    for (const e of edges) {
-      const line = new Konva.Line({ points: [0, 0, 0, 0], stroke: edgeColor, strokeWidth: 1 });
-      edgeLayer.add(line);
-      lines.push({ line, s: e.source as SimNode, t: e.target as SimNode });
-    }
-
-    const labelVisible = (n: SimNode): boolean => {
-      if (hoverId != null) return n.id === hoverId || adj.get(hoverId)?.has(n.id) === true;
-      if (selectedRef.current === n.id) return true;
-      if (stage.scaleX() >= LABEL_ZOOM) {
-        const sx = (n.x ?? 0) * stage.scaleX() + stage.x();
-        const sy = (n.y ?? 0) * stage.scaleY() + stage.y();
-        return sx > -40 && sy > -20 && sx < width + 40 && sy < height + 20;
-      }
-      return false;
-    };
-
-    const applyFocus = () => {
-      const q = queryRef.current.trim().toLowerCase();
-      const tf = typeRef.current;
-      const focus = hoverId != null ? new Set<number>([hoverId, ...(adj.get(hoverId) ?? [])]) : null;
-      for (const n of nodes) {
-        const circle = nodeMap.get(n.id);
-        if (!circle) continue;
-        let op = isLive(n.status) ? 1 : 0.5;
-        const matchQ =
-          !q ||
-          n.title.toLowerCase().includes(q) ||
-          n.body.toLowerCase().includes(q) ||
-          n.tags.toLowerCase().includes(q);
-        if ((!matchQ || (tf && n.type !== tf)) || (focus && !focus.has(n.id))) op = DIM;
-        circle.opacity(op);
-      }
-      for (const { line, s, t } of lines) {
-        line.opacity(focus ? (focus.has(s.id) && focus.has(t.id) ? 0.7 : 0.04) : 0.4);
-      }
-      for (const n of nodes) labelMap.get(n.id)?.visible(labelVisible(n));
-      stage.batchDraw();
-    };
-    applyFocusRef.current = applyFocus;
-
-    for (const n of nodes) {
-      const circle = new Konva.Circle({
-        radius: radiusOf(n.degree),
-        fill: colorOf(n.type),
-        stroke: bgColor,
-        strokeWidth: 1.5,
-        draggable: true,
-        opacity: isLive(n.status) ? 1 : 0.5,
-      });
-      circle.on('mouseenter', () => {
-        hoverId = n.id;
-        host.style.cursor = 'pointer';
-        applyFocus();
-      });
-      circle.on('mouseleave', () => {
-        hoverId = null;
-        host.style.cursor = '';
-        applyFocus();
-      });
-      circle.on('click tap', (ev) => {
-        ev.cancelBubble = true;
-        setSelected(n);
-      });
-      circle.on('dragstart', () => {
-        n.fx = n.x;
-        n.fy = n.y;
-        sim.alphaTarget(0.3).restart();
-      });
-      circle.on('dragmove', () => {
-        n.fx = circle.x();
-        n.fy = circle.y();
-      });
-      circle.on('dragend', () => {
-        sim.alphaTarget(0);
-        n.fx = null;
-        n.fy = null;
-      });
-      nodeLayer.add(circle);
-      nodeMap.set(n.id, circle);
-
-      const label = new Konva.Text({
-        text: n.title,
-        fontSize: 12,
-        fontFamily: 'system-ui, sans-serif',
-        fill: textColor,
-        shadowColor: bgColor,
-        shadowBlur: 3,
-        shadowOpacity: 0.9,
-        listening: false,
-        visible: false,
-      });
-      labelLayer.add(label);
-      labelMap.set(n.id, label);
-    }
-
-    // ---- simulation ----
-    const sim: Simulation<SimNode, SimEdge> = forceSimulation<SimNode>(nodes)
-      .force('charge', forceManyBody<SimNode>().strength(-90).theta(0.9).distanceMax(450))
-      .force(
-        'link',
-        forceLink<SimNode, SimEdge>(edges)
-          .id((d) => d.id)
-          .distance(58)
-          .strength(0.35),
-      )
-      .force('center', forceCenter(width / 2, height / 2))
-      .force('collide', forceCollide<SimNode>().radius((d) => radiusOf(d.degree) + 4))
-      .force('x', forceX(width / 2).strength(0.03))
-      .force('y', forceY(height / 2).strength(0.03));
-
-    const tick = () => {
-      for (const { line, s, t } of lines) line.points([s.x ?? 0, s.y ?? 0, t.x ?? 0, t.y ?? 0]);
-      for (const n of nodes) {
-        nodeMap.get(n.id)?.position({ x: n.x ?? 0, y: n.y ?? 0 });
-        const label = labelMap.get(n.id);
-        if (label?.visible()) {
-          label.position({ x: (n.x ?? 0) + radiusOf(n.degree) + 3, y: (n.y ?? 0) - 6 });
-        }
-      }
-      stage.batchDraw();
-    };
-    sim.on('tick', tick);
-
-    // ---- view helpers: zoom at cursor, pan, fit ----
-    const clampScale = (s: number): number => Math.max(0.1, Math.min(4, s));
-    stage.on('wheel', (e) => {
-      e.evt.preventDefault();
-      const pointer = stage.getPointerPosition();
-      if (!pointer) return;
-      const old = stage.scaleX();
-      const worldX = (pointer.x - stage.x()) / old;
-      const worldY = (pointer.y - stage.y()) / old;
-      const next = clampScale(e.evt.deltaY > 0 ? old / 1.08 : old * 1.08);
-      stage.scale({ x: next, y: next });
-      stage.position({ x: pointer.x - worldX * next, y: pointer.y - worldY * next });
-      applyFocus();
-    });
-    stage.on('dragmove', applyFocus); // panning changes which labels are in view
-
-    const fitView = () => {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const n of nodes) {
-        minX = Math.min(minX, n.x ?? 0);
-        minY = Math.min(minY, n.y ?? 0);
-        maxX = Math.max(maxX, n.x ?? 0);
-        maxY = Math.max(maxY, n.y ?? 0);
-      }
-      if (!isFinite(minX)) return;
-      const pad = 60;
-      const scale = clampScale(
-        Math.min((width - pad) / Math.max(1, maxX - minX), (height - pad) / Math.max(1, maxY - minY)),
-      );
-      stage.scale({ x: scale, y: scale });
-      stage.position({
-        x: (width - (maxX + minX) * scale) / 2,
-        y: (height - (maxY + minY) * scale) / 2,
-      });
-      applyFocus();
-    };
-    fitViewRef.current = fitView;
-    // First settle: turn hit-testing back on, fit the view once (don't refit on
-    // every later drag-induced reheat).
-    sim.on('end', () => {
-      nodeLayer.listening(true);
-      if (!fitted) {
-        fitted = true;
-        fitView();
-      }
-    });
-
-    const ro = new ResizeObserver(() => {
-      width = host.clientWidth || width;
-      height = host.clientHeight || height;
-      stage.size({ width, height });
-      const c = sim.force('center') as ReturnType<typeof forceCenter> | undefined;
-      c?.x(width / 2).y(height / 2);
-      applyFocus();
-    });
-    ro.observe(host);
-
-    return () => {
-      ro.disconnect();
-      sim.stop();
-      stage.destroy();
-      applyFocusRef.current = () => {};
-      fitViewRef.current = () => {};
-    };
-  }, [data, colors]);
 
   const changeStatus = async (id: number, status: string) => {
     await window.vo.memMapSetStatus(projectId, id, status);
@@ -364,11 +173,13 @@ export function MemoryGraph({
   };
 
   const relations = useMemo(() => {
-    if (!selected || !data) return [];
+    if (!selected || !data) return [] as Array<{ rel: string; dir: '→' | '←'; other: string }>;
     const out: Array<{ rel: string; dir: '→' | '←'; other: string }> = [];
-    for (const e of data.edges) {
-      if (e.from === selected.id) out.push({ rel: e.rel, dir: '→', other: nodeById.get(e.to)?.title ?? String(e.to) });
-      else if (e.to === selected.id) out.push({ rel: e.rel, dir: '←', other: nodeById.get(e.from)?.title ?? String(e.from) });
+    for (const l of data.links) {
+      const from = typeof l.source === 'object' ? (l.source as GNode).id : l.source;
+      const to = typeof l.target === 'object' ? (l.target as GNode).id : l.target;
+      if (from === selected.id) out.push({ rel: l.rel, dir: '→', other: nodeById.get(to)?.title ?? String(to) });
+      else if (to === selected.id) out.push({ rel: l.rel, dir: '←', other: nodeById.get(from)?.title ?? String(from) });
     }
     return out.slice(0, 12);
   }, [selected, data, nodeById]);
@@ -377,7 +188,39 @@ export function MemoryGraph({
 
   return (
     <div className="mem-graph">
-      <div className="mem-graph-host" ref={hostRef} />
+      <div className="mem-graph-host" ref={hostRef}>
+        {data && data.nodes.length > 0 && (
+          <ForceGraph3D
+            ref={fgRef}
+            width={size.width}
+            height={size.height}
+            graphData={data}
+            backgroundColor={bg}
+            showNavInfo={false}
+            controlType="orbit"
+            enableNodeDrag={false}
+            nodeRelSize={4}
+            nodeResolution={8}
+            nodeVal={(n: GNode) => 1 + n.degree}
+            nodeColor={nodeColor}
+            nodeOpacity={0.92}
+            nodeLabel={(n: GNode) => `${n.type} · ${n.title}`}
+            nodeVisibility={nodeVisible}
+            nodeThreeObjectExtend
+            nodeThreeObject={nodeThree}
+            linkColor={() => edgeColor}
+            linkOpacity={0.28}
+            linkWidth={0.6}
+            linkVisibility={(l: GLink) => {
+              const s = typeof l.source === 'object' ? (l.source as GNode) : nodeById.get(l.source);
+              const t = typeof l.target === 'object' ? (l.target as GNode) : nodeById.get(l.target);
+              return !!s && !!t && nodeVisible(s) && nodeVisible(t);
+            }}
+            onNodeClick={(n: GNode) => setSelected(n)}
+            onBackgroundClick={() => setSelected(null)}
+          />
+        )}
+      </div>
 
       {loading && <div className="mem-graph-note">Loading the map…</div>}
       {empty && (
@@ -398,17 +241,18 @@ export function MemoryGraph({
           </div>
           <div className="mem-graph-tools">
             <span className="meta">
-              {data?.nodes.length ?? 0} nodes · {data?.edges.length ?? 0} links
+              {data?.nodes.length ?? 0} nodes · {data?.links.length ?? 0} links
             </span>
-            <button className="ghost" onClick={() => fitViewRef.current()}>
+            <button className="ghost" onClick={() => fgRef.current?.zoomToFit(500)}>
               Fit
             </button>
           </div>
+          <div className="mem-graph-hint">drag to rotate · scroll to fly in · click a node</div>
         </>
       )}
 
       {selected && (
-        <div className="mem-graph-detail">
+        <div className="mem-graph-detail" ref={detailRef}>
           <div className="mem-node-head">
             <span className={`mem-type t-${selected.type}`}>{selected.type}</span>
             <strong className="grow">{selected.title}</strong>
