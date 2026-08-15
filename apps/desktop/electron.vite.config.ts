@@ -23,6 +23,11 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     resolve: {
+      // react-force-graph-3d ships its own three; without this, the bundle ends
+      // up with two three instances (the app's + the graph's), and objects from
+      // one are rendered by the other's WebGLRenderer — "Multiple instances of
+      // Three.js" + a matrixWorld method mismatch that blanks the memory graph.
+      dedupe: ['three'],
       alias: {
         ...aliases,
         // Renderer-safe scaffold subset (pure questionnaire/render, no node:fs).
