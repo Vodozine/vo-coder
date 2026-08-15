@@ -16,8 +16,12 @@ import { ensureRealPngFile } from './png-alpha';
  *
  * Providers:
  *   openrouter / openai — chat/completions with modalities: ['image','text']
- *   xai / gemini        — OpenAI-style /images/generations (Grok Imagine;
- *                         Google's nano banana / gemini-*-image)
+ *   xai                 — OpenAI-style /images/generations (Grok Imagine)
+ *   gemini              — native :generateContent with an IMAGE response
+ *                         modality (nano banana / gemini-*-image). The OpenAI
+ *                         /images/generations path is Imagen-only and answers
+ *                         text-only for these models — the tool "succeeds" but
+ *                         no picture comes back — so we call generateContent.
  *
  * Note: Grok Imagine often returns JPEG bytes even when save_as ends in .png.
  * We re-encode to real PNG on save so cutout keying and imageRead work.
@@ -94,6 +98,40 @@ function extractImagesApi(json: unknown): { data: Buffer; note: string } | null 
   return null;
 }
 
+/** Pull image bytes from a native Gemini :generateContent response. */
+function extractGeminiImage(json: unknown): { data: Buffer; note: string } | null {
+  const parts =
+    (json as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }> })
+      .candidates?.[0]?.content?.parts ?? [];
+  let note = '';
+  for (const p of parts) {
+    // REST returns camelCase (inlineData); tolerate snake_case just in case.
+    const inline = (p.inlineData ?? p.inline_data) as { data?: string } | undefined;
+    if (inline?.data) return decodeImagePayload(inline.data, note);
+    if (typeof p.text === 'string' && p.text.trim()) note = p.text.trim();
+  }
+  return null;
+}
+
+/** A human reason when Gemini returns 200 but no image part (safety / text-only). */
+function geminiNoImageReason(json: unknown, model: string): string {
+  const j = json as {
+    candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>;
+    promptFeedback?: { blockReason?: string };
+  };
+  const cand = j.candidates?.[0];
+  const reason = cand?.finishReason ?? j.promptFeedback?.blockReason;
+  if (reason && /SAFETY|PROHIBITED|BLOCK/i.test(reason)) {
+    return `Gemini blocked that prompt (${reason}). Try rewording it.`;
+  }
+  const text = cand?.content?.parts?.find((p) => typeof p.text === 'string')?.text;
+  return (
+    `"${model}" returned no image` +
+    (text ? ` — it replied: "${text.slice(0, 200)}"` : '') +
+    '. Make sure the Image model is a gemini-*-image model (Nano Banana).'
+  );
+}
+
 function decodeImagePayload(urlOrB64: string, note: string): { data: Buffer; note: string } | null {
   const b64 = urlOrB64.startsWith('data:') ? urlOrB64.slice(urlOrB64.indexOf(',') + 1) : urlOrB64;
   try {
@@ -159,25 +197,12 @@ export async function executeImageTool(
   try {
     let image: { data: Buffer; note: string } | null = null;
 
-    if (provider === 'xai' || provider === 'gemini') {
-      // The classic /images/generations API, not chat modalities. Grok Imagine
-      // and Google's image models (nano banana, gemini-*-image) both serve it —
-      // only the base URL differs. Gemini's /models lists ids as "models/…";
-      // requests take the bare id, so strip the resource prefix.
-      const base =
-        provider === 'xai'
-          ? 'https://api.x.ai/v1'
-          : 'https://generativelanguage.googleapis.com/v1beta/openai';
-      const modelId = pointer.model.replace(/^models\//, '');
-      const res = await fetch(`${base}/images/generations`, {
+    if (provider === 'xai') {
+      // Grok Imagine serves the classic /images/generations API.
+      const res = await fetch('https://api.x.ai/v1/images/generations', {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: modelId,
-          prompt,
-          response_format: 'b64_json',
-          n: 1,
-        }),
+        body: JSON.stringify({ model: pointer.model, prompt, response_format: 'b64_json', n: 1 }),
         signal: ctl.signal,
       });
       if (!res.ok) {
@@ -194,6 +219,31 @@ export async function executeImageTool(
           if (buf) image = { data: buf, note: '' };
         }
       }
+    } else if (provider === 'gemini') {
+      // Nano banana renders through native :generateContent with an IMAGE
+      // response modality — the OpenAI /images path is Imagen-only and answers
+      // text-only here. /models lists ids as "models/…"; the call takes the
+      // bare id. Both TEXT and IMAGE must be requested or it defaults to text.
+      const modelId = pointer.model.replace(/^models\//, '');
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          }),
+          signal: ctl.signal,
+        },
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
+      }
+      const json = await res.json();
+      image = extractGeminiImage(json);
+      if (!image) return { content: geminiNoImageReason(json, pointer.model), isError: true };
     } else if (provider === 'openrouter' || provider === 'openai') {
       const baseUrl =
         provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1';
@@ -282,6 +332,13 @@ export function imageEditCapabilities(provider: string): {
       supported: true,
       mask: false,
       note: 'OpenRouter takes the picture as a reference image; describe the change in the prompt.',
+    };
+  }
+  if (provider === 'gemini') {
+    return {
+      supported: true,
+      mask: false,
+      note: 'Gemini (nano banana) edits by prompt with your picture as reference — describe the change rather than masking it.',
     };
   }
   return { supported: false, mask: false, note: `Editing via "${provider}" is not supported.` };
@@ -437,6 +494,40 @@ export async function editImage(
           if (bytes) image = { data: bytes, note: '' };
         }
       }
+    } else if (provider === 'gemini') {
+      // Same native :generateContent call as generation, plus the source image
+      // as an inlineData part — nano banana treats it as the picture to change.
+      const modelId = pointer.model.replace(/^models\//, '');
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: source.mime || 'image/png',
+                      data: source.buffer.toString('base64'),
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          }),
+          signal: ctl.signal,
+        },
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { ok: false, error: `Image edit returned ${res.status}: ${detail.slice(0, 300)}` };
+      }
+      image = extractGeminiImage(await res.json());
     } else {
       // OpenRouter's images endpoint takes the source as a reference image.
       const res = await fetch('https://openrouter.ai/api/v1/images', {
