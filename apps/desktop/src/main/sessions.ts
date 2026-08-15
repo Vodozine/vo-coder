@@ -380,6 +380,29 @@ export class SessionManager {
     const carriesMemory = this.specCarriesMemory(spec);
     const provider = spec.provider ?? this.deps.config.get().defaultProvider;
     if (provider === 'claude-code') {
+      // The coordinator seat of a live group is the one job a CLI brain cannot
+      // hold: commanding members takes Vo-Coder's group_* tools every turn,
+      // and a CLI runs ITS OWN tool world — seen live, a claude-code Vodo
+      // "messaged" members with the CLI's internal SendMessage, which reaches
+      // nobody here, while the real group_add never fired. The model cannot be
+      // handed the tools, so it is handed the truth to relay.
+      const bossSeat = this.deps.projects
+        .groups()
+        .some((g) => !g.endedAt && g.coordinatorId === sessionId)
+        ? '\n\nIMPORTANT — A GROUP THIS CHAT COORDINATES IS RUNNING, and you cannot command it: ' +
+          'driving the team takes Vo-Coder\'s own group tools (group_send, group_add, ' +
+          'group_status), which do not exist in your session — and your own agent/messaging ' +
+          'tools reach nobody in this app, so do not improvise with them. The members keep ' +
+          'working on their briefs regardless. When the user asks for anything about the group, ' +
+          'answer with exactly this: they should switch this chat\'s model (the dropdown above ' +
+          'the chat) to a regular provider, and coordination resumes — Claude Code agents work ' +
+          'fine as MEMBERS, just not as the boss.'
+        : spec.id === 'default' && this.teamSize() >= 2
+          ? '\n\nIf the user asks for a GROUP PROJECT (several agents working one goal): that is ' +
+            'run through Vo-Coder tools your session does not have. Say so, and tell them to ' +
+            'switch this chat\'s model (the dropdown above the chat) to a regular provider ' +
+            'first — Claude Code agents can then be seated as members.'
+          : '';
       return {
         ...spec,
         systemPrompt:
@@ -387,7 +410,8 @@ export class SessionManager {
           'You are working inside Vo-Coder, hired as one of its agents. The folder you are ' +
           'started in is the workspace — the app watches file changes live, so work is seen as ' +
           'it happens. Do the task with your own tools and finish with a compact report of what ' +
-          'you did; that report is what the coordinator and the user read.',
+          'you did; that report is what the coordinator and the user read.' +
+          bossSeat,
       };
     }
     // The folder's VO-CODER.md (when present) rides every prompt: its Rules
