@@ -405,7 +405,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         return Promise.resolve({ content: hit.content });
       }
       if (name === 'image_generate') {
-        return executeImageTool(args, config, secrets, ctxDir(), {
+        // Folder-less chats fall back to the generic folder (Documents\Vo-Coder),
+        // not the hidden userData scratch — generated pictures should land where
+        // the user can actually find them. Both roots are read-allowed for the
+        // inline preview, so this only changes WHERE, never whether it shows.
+        return executeImageTool(args, config, secrets, ctxDir() ?? config.get().genericDir, {
           xaiToken: () => xaiOauth.token(),
         }).then((res) => {
           if (res.imagePath) rememberShownInChat(res.imagePath);
@@ -425,7 +429,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           args,
           config,
           secrets,
-          ctxDir(),
+          ctxDir() ?? config.get().genericDir, // same generic-folder floor as image_generate
           { xaiToken: () => xaiOauth.token() },
           ctx?.signal,
         );

@@ -113,6 +113,23 @@ function extractGeminiImage(json: unknown): { data: Buffer; note: string } | nul
   return null;
 }
 
+/**
+ * Actionable text for a Gemini image 429. The catch that traps everyone: chat
+ * and image quotas are separate buckets, and Nano Banana PRO has a free tier of
+ * exactly zero — a free key 429s on the first call, no "credits" ever spent.
+ */
+function geminiQuotaMessage(modelId: string): string {
+  const proImage = /gemini-3.*image|image.*preview/i.test(modelId);
+  return proImage
+    ? `Gemini returned 429 (quota exceeded). "${modelId}" (Nano Banana Pro) has NO free API ` +
+        `tier — a free key gets zero image quota, so it fails on the first call even while ` +
+        `Gemini chat still works (separate bucket). In Settings → Image model, switch to ` +
+        `Nano Banana (gemini-2.5-flash-image), which has a free daily quota, or enable billing ` +
+        `on your Google AI Studio account to use this one (~$0.13/image).`
+    : `Gemini returned 429 — the free daily image quota for "${modelId}" is used up. Wait for ` +
+        `the daily reset, enable billing, or switch to another image provider (e.g. Grok Imagine).`;
+}
+
 /** A human reason when Gemini returns 200 but no image part (safety / text-only). */
 function geminiNoImageReason(json: unknown, model: string): string {
   const j = json as {
@@ -239,6 +256,7 @@ export async function executeImageTool(
       );
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
+        if (res.status === 429) return { content: geminiQuotaMessage(modelId), isError: true };
         return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
       }
       const json = await res.json();
