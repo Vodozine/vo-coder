@@ -10,6 +10,32 @@ import type {
 import { ZoomButtons } from '../components/ZoomButtons';
 import { useStore } from '../state/store';
 
+// One <id>.png per SettingsTile id (see assets/settings-icons). Static imports —
+// Vite hashes each and hands back its URL; tileIcon(id) maps a tile to its icon.
+import iconKeys from '../assets/settings-icons/keys.png';
+import iconLocal from '../assets/settings-icons/local.png';
+import iconRules from '../assets/settings-icons/rules.png';
+import iconMcp from '../assets/settings-icons/mcp.png';
+import iconSkills from '../assets/settings-icons/skills.png';
+import iconVision from '../assets/settings-icons/vision.png';
+import iconImage from '../assets/settings-icons/image.png';
+import iconVideo from '../assets/settings-icons/video.png';
+import iconVoice from '../assets/settings-icons/voice.png';
+import iconSpending from '../assets/settings-icons/spending.png';
+import iconTelegram from '../assets/settings-icons/telegram.png';
+import iconUpdates from '../assets/settings-icons/updates.png';
+import iconHomelab from '../assets/settings-icons/homelab.png';
+import iconGeneric from '../assets/settings-icons/generic.png';
+import iconVodo from '../assets/settings-icons/vodo.png';
+import iconDisplay from '../assets/settings-icons/display.png';
+const TILE_ICONS: Record<string, string> = {
+  keys: iconKeys, local: iconLocal, rules: iconRules, mcp: iconMcp, skills: iconSkills,
+  vision: iconVision, image: iconImage, video: iconVideo, voice: iconVoice,
+  spending: iconSpending, telegram: iconTelegram, updates: iconUpdates, homelab: iconHomelab,
+  generic: iconGeneric, vodo: iconVodo, display: iconDisplay,
+};
+const tileIcon = (id: string): string | undefined => TILE_ICONS[id];
+
 const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'openrouter', 'xai', 'zai', 'nvidia'];
 // Appended as a statement: the array line above may not be edited by shared
 // commits (scripts/edition-patterns.mjs scans added lines).
@@ -2323,7 +2349,14 @@ function SettingsTile({
         className={`settings-tile${open ? ' active' : ''}`}
         onClick={() => setOpenTile(id)}
       >
-        <span className="settings-tile-name">{name}</span>
+        <span className="settings-tile-head">
+          {tileIcon(id) && (
+            <span className="settings-tile-icon">
+              <img src={tileIcon(id)} alt="" draggable={false} />
+            </span>
+          )}
+          <span className="settings-tile-name">{name}</span>
+        </span>
         <span className="settings-tile-desc">{description}</span>
         {summary ? <span className="settings-tile-summary">{summary}</span> : null}
       </button>

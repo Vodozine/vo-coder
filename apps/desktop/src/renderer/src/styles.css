@@ -633,6 +633,32 @@ button.bubble-act.danger:hover {
 .settings-tile.active {
   border-color: var(--accent);
 }
+/* Icon + name share the top row; the description and status sit below. */
+.settings-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The source art is a centered gold glyph on a dark field with generous margin.
+   A fixed rounded square + overflow clip gives the "icon" shape; scaling the
+   image up crops that margin so the glyph fills the tile instead of floating in
+   it. The field colour matches the art so the crop edge is invisible. */
+.settings-tile-icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #171b28;
+}
+.settings-tile-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.55);
+}
 .settings-tile-name {
   font-weight: 600;
   font-size: 17px;
