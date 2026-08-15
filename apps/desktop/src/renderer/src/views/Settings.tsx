@@ -14,6 +14,7 @@ const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'llamacpp', 'openai', 'ope
 // Appended as a statement: the array line above may not be edited by shared
 // commits (scripts/edition-patterns.mjs scans added lines).
 PROVIDERS.push('claude-code');
+PROVIDERS.push('gemini');
 /** Providers that can be flipped off without clearing credentials. */
 const TOGGLEABLE_PROVIDERS = new Set(PROVIDERS);
 
@@ -2341,7 +2342,18 @@ export function Settings() {
             interchangeable. Vo-Coder talks to the plan&apos;s coding endpoint.
           </p>
         </details>
-        <KeyRow provider="nvidia" />
+        <KeyRow provider="gemini" placeholder="paste Google AI Studio API key" />
+        <details className="hint-more">
+          <summary>gemini: a free key from your Google account</summary>
+          <p className="hint">
+            Get a key at <code>aistudio.google.com/apikey</code> — sign in with your Google
+            account and it&apos;s free (the free tier needs no card and no billing). Paste it here
+            and Gemini works in agents like any other provider: it can be Vodo, coordinate
+            groups, run missions. On the free tier Google bills nothing; the usage meter still
+            shows list prices as an estimate. (Note: this is the API key, not the retired
+            &quot;sign in with Google&quot; CLI login.)
+          </p>
+        </details>
         <ClaudeCodeRow />
       </section>
 

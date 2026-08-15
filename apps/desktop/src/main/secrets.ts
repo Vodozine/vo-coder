@@ -77,6 +77,10 @@ export class SecretStore {
       'openai',
       'openrouter',
       'xai',
+      // zai and gemini were missing — their Settings key rows never showed the
+      // saved/Replace state because status() didn't report them.
+      'zai',
+      'gemini',
       'nvidia',
       'telegram',
       'elevenlabs',

@@ -340,6 +340,47 @@ export class ZaiProvider extends OpenAICompatibleProvider {
   }
 }
 
+/**
+ * Google Gemini via its OpenAI-compatible endpoint. A NORMAL pay-per-token
+ * cloud provider (unlike Z.ai's plan billing) — the key is a free-tier or paid
+ * key generated from a Google account at aistudio.google.com/apikey; the same
+ * Authorization: Bearer header every other compatible endpoint uses. The
+ * consumer "sign in with Google" CLI path (Gemini CLI / Code Assist) was
+ * retired in 2026; this API key is the supported way in. Models are multimodal
+ * (vision) and support tools.
+ */
+export class GeminiProvider extends OpenAICompatibleProvider {
+  constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {
+    super('gemini', {
+      ...opts,
+      baseURL: opts.baseURL ?? 'https://generativelanguage.googleapis.com/v1beta/openai',
+    });
+  }
+
+  /** The endpoint DOES serve /models, but seed the current frontier set so the
+   *  picker is never empty if the live list is slow or filtered. */
+  override async listModels(): Promise<ModelInfo[]> {
+    try {
+      const live = await super.listModels();
+      if (live.length) return live;
+    } catch {
+      /* fall through to seeds */
+    }
+    return [
+      ['gemini-3.1-pro', 'Gemini 3.1 Pro'],
+      ['gemini-3.6-flash', 'Gemini 3.6 Flash'],
+      ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
+      ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite'],
+    ].map(([id, displayName]) => ({
+      id: id!,
+      provider: this.id,
+      displayName,
+      supportsTools: true,
+      supportsVision: true,
+    }));
+  }
+}
+
 /** NVIDIA NIM cloud (build.nvidia.com) — OpenAI-compatible, keys are nvapi-…. */
 export class NvidiaProvider extends OpenAICompatibleProvider {
   constructor(opts: Omit<OpenAICompatibleOptions, 'baseURL'> & { baseURL?: string }) {

@@ -1,6 +1,7 @@
 import {
   AnthropicProvider,
   FlmProvider,
+  GeminiProvider,
   LlamaCppProvider,
   LmStudioProvider,
   NvidiaProvider,
@@ -110,6 +111,11 @@ export class ProviderHub {
     // per token — the usage meter treats it as subscription-billed.
     const zaiKey = this.secrets.get('zai');
     if (on('zai') && zaiKey) reg.register(new ZaiProvider({ apiKey: zaiKey }));
+    // Google Gemini via its OpenAI-compatible endpoint. A free AI Studio key
+    // works; billing is per-token (not a plan), so the meter prices it from the
+    // catalog like any cloud model.
+    const geminiKey = this.secrets.get('gemini');
+    if (on('gemini') && geminiKey) reg.register(new GeminiProvider({ apiKey: geminiKey }));
     // Local servers need no key; registered when enabled (they error helpfully if not running).
     if (on('ollama')) {
       reg.register(

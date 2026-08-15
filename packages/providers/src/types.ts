@@ -16,6 +16,7 @@ export type ProviderId =
   | 'ollama'
   | 'xai'
   | 'zai'
+  | 'gemini'
   | 'nvidia'
   | 'lmstudio'
   | 'llamacpp'

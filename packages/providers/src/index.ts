@@ -40,6 +40,7 @@ export {
 } from './adapters/local-fleet.js';
 export type { LocalFleetEndpoint, LocalFleetOptions } from './adapters/local-fleet.js';
 export {
+  GeminiProvider,
   NvidiaProvider,
   OpenAICompatibleProvider,
   OpenAIProvider,

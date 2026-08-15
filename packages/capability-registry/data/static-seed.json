@@ -148,6 +148,89 @@
                        "openrouterId":  "x-ai/grok-4.5"
                    },
                    {
+                       "id":  "gemini-3.1-pro",
+                       "provider":  "gemini",
+                       "displayName":  "Gemini 3.1 Pro",
+                       "contextLength":  1000000,
+                       "pricing":  {
+                                       "inputPerMTok":  2,
+                                       "outputPerMTok":  12
+                                   },
+                       "tags":  [
+                                    "reasoning",
+                                    "coding",
+                                    "tool-use",
+                                    "vision"
+                                ],
+                       "supportsTools":  true,
+                       "supportsVision":  true,
+                       "supportsThinking":  true,
+                       "quality":  9,
+                       "openrouterId":  "google/gemini-3.1-pro"
+                   },
+                   {
+                       "id":  "gemini-3.6-flash",
+                       "provider":  "gemini",
+                       "displayName":  "Gemini 3.6 Flash",
+                       "contextLength":  1000000,
+                       "pricing":  {
+                                       "inputPerMTok":  1.5,
+                                       "outputPerMTok":  7.5
+                                   },
+                       "tags":  [
+                                    "reasoning",
+                                    "coding",
+                                    "tool-use",
+                                    "vision"
+                                ],
+                       "supportsTools":  true,
+                       "supportsVision":  true,
+                       "supportsThinking":  true,
+                       "quality":  8,
+                       "openrouterId":  "google/gemini-3.6-flash"
+                   },
+                   {
+                       "id":  "gemini-3.5-flash",
+                       "provider":  "gemini",
+                       "displayName":  "Gemini 3.5 Flash",
+                       "contextLength":  1000000,
+                       "pricing":  {
+                                       "inputPerMTok":  1.5,
+                                       "outputPerMTok":  9
+                                   },
+                       "tags":  [
+                                    "reasoning",
+                                    "coding",
+                                    "tool-use",
+                                    "vision"
+                                ],
+                       "supportsTools":  true,
+                       "supportsVision":  true,
+                       "supportsThinking":  true,
+                       "quality":  8,
+                       "openrouterId":  "google/gemini-3.5-flash"
+                   },
+                   {
+                       "id":  "gemini-3.5-flash-lite",
+                       "provider":  "gemini",
+                       "displayName":  "Gemini 3.5 Flash-Lite",
+                       "contextLength":  1000000,
+                       "pricing":  {
+                                       "inputPerMTok":  0.25,
+                                       "outputPerMTok":  1.5
+                                   },
+                       "tags":  [
+                                    "coding",
+                                    "tool-use",
+                                    "vision"
+                                ],
+                       "supportsTools":  true,
+                       "supportsVision":  true,
+                       "supportsThinking":  false,
+                       "quality":  5,
+                       "openrouterId":  "google/gemini-3.5-flash-lite"
+                   },
+                   {
                        "id":  "grok-imagine-image",
                        "provider":  "xai",
                        "displayName":  "Grok Imagine (image)",
