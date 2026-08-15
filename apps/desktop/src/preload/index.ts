@@ -149,6 +149,7 @@ const api: VoApi = {
   memMapSetStatus: (projectId, nodeId, status) =>
     ipcRenderer.invoke(IPC.memMapSetStatus, projectId, nodeId, status),
   memMapDelete: (projectId, nodeId) => ipcRenderer.invoke(IPC.memMapDelete, projectId, nodeId),
+  memMapGraph: (projectId, opts) => ipcRenderer.invoke(IPC.memMapGraph, projectId, opts),
   imageRead: (path) => ipcRenderer.invoke(IPC.imageRead, path),
   videoRead: (path) => ipcRenderer.invoke(IPC.videoRead, path),
   globalRulesRead: () => ipcRenderer.invoke(IPC.globalRulesRead),

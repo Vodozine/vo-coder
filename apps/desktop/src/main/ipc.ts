@@ -2763,6 +2763,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.memMapDelete, (_e, projectId: string, nodeId: number) => {
     bank?.deleteNode(projectId, nodeId);
   });
+  ipcMain.handle(
+    IPC.memMapGraph,
+    (_e, projectId: string, opts?: { includeInactive?: boolean }) =>
+      bank ? bank.graph(projectId, opts ?? {}) : { nodes: [], edges: [] },
+  );
   // Inline display of generated/project images — reads are fenced to project
   // folders and the app's own generated dir.
   /**

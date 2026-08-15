@@ -415,6 +415,27 @@ export interface MapNodeDto {
   links: Array<{ rel: string; type: string; title: string }>;
 }
 
+/** A node in the whole-project memory graph (Memory → Graph view). */
+export interface GraphNodeDto {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  status: string;
+  tags: string;
+  updatedAt: number;
+}
+
+/**
+ * Whole-project nodes + edges for the memory graph view. Unlike MapNodeDto's
+ * digest links (outgoing-only, capped at 8, no target id), edges here carry both
+ * endpoint ids and every relation, so the renderer can draw the real graph.
+ */
+export interface MemGraphDto {
+  nodes: GraphNodeDto[];
+  edges: Array<{ from: number; rel: string; to: number }>;
+}
+
 export interface ChatSessionMeta {
   id: string;
   projectId: string;
@@ -802,6 +823,8 @@ export interface VoApi {
   ): Promise<MapNodeDto[]>;
   memMapSetStatus(projectId: string, nodeId: number, status: string): Promise<void>;
   memMapDelete(projectId: string, nodeId: number): Promise<void>;
+  /** Whole-project nodes + edges for the Memory graph view. */
+  memMapGraph(projectId: string, opts?: { includeInactive?: boolean }): Promise<MemGraphDto>;
   /** Read a generated/project image as a data URL for inline display. */
   /** The user's global VO-CODER.md (~/.vo-coder/VO-CODER.md), read and written
    *  from Settings only — agents never edit the user's own rules. */
@@ -927,6 +950,7 @@ export const IPC = {
   memMapList: 'mem:mapList',
   memMapSetStatus: 'mem:mapSetStatus',
   memMapDelete: 'mem:mapDelete',
+  memMapGraph: 'mem:mapGraph',
   imageRead: 'image:read',
   videoRead: 'video:read',
   globalRulesRead: 'rules:read',

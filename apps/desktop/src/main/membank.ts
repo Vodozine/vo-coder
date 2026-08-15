@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { HarnessMessage, ToolSpec } from '@vo-coder/providers';
-import type { MapNodeDto } from '../shared/ipc-contract';
+import type { MapNodeDto, MemGraphDto } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
 
 /**
@@ -548,6 +548,56 @@ export class MemoryBank {
       .prepare('SELECT COUNT(*) AS n FROM archive WHERE project_id = ?')
       .get(projectId) as { n: number };
     return { nodes: nodes.n, archiveTurns: turns.n };
+  }
+
+  /**
+   * The whole project as a node/edge graph for the Memory graph view. Unlike
+   * listNodes (digest-shaped: outgoing-only, capped at 8, no target id), this
+   * returns every node and every link with BOTH endpoint ids so the renderer
+   * can lay out the real graph. Edges are joined to nodes on both ends, so a
+   * link into a filtered-out (retired) node is dropped rather than dangling.
+   */
+  graph(projectId: string, opts: { includeInactive?: boolean } = {}): MemGraphDto {
+    const live = "status IN ('active', 'done')";
+    const nodeWhere = opts.includeInactive ? '' : ` AND ${live}`;
+    const nodes = this.db
+      .prepare(
+        `SELECT id, type, title, body, status, tags, updated_at
+         FROM nodes WHERE project_id = ?${nodeWhere}`,
+      )
+      .all(projectId) as Array<{
+      id: number;
+      type: string;
+      title: string;
+      body: string;
+      status: string;
+      tags: string;
+      updated_at: number;
+    }>;
+    const edgeWhere = opts.includeInactive
+      ? ''
+      : ` AND n1.${live} AND n2.${live}`;
+    const edgeRows = this.db
+      .prepare(
+        `SELECT l.from_id AS f, l.rel AS rel, l.to_id AS t
+         FROM links l
+         JOIN nodes n1 ON n1.id = l.from_id
+         JOIN nodes n2 ON n2.id = l.to_id
+         WHERE n1.project_id = ? AND n2.project_id = ?${edgeWhere}`,
+      )
+      .all(projectId, projectId) as Array<{ f: number; rel: string; t: number }>;
+    return {
+      nodes: nodes.map((r) => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        body: r.body,
+        status: r.status,
+        tags: r.tags,
+        updatedAt: r.updated_at,
+      })),
+      edges: edgeRows.map((e) => ({ from: e.f, rel: e.rel, to: e.t })),
+    };
   }
 
   /** Compact map listing the distiller sees for dedup/supersede decisions. */

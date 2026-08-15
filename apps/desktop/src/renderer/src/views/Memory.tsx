@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MapNodeDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
+import { MemoryGraph } from './MemoryGraph';
 
 const TYPES = ['file', 'component', 'decision', 'task', 'fact', 'issue', 'preference'] as const;
 const STATUSES = ['active', 'done', 'superseded', 'dropped'] as const;
@@ -72,6 +73,7 @@ export function Memory() {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [mode, setMode] = useState<'notes' | 'graph'>('notes');
 
   const effectiveId = projectId || activeProjectId || projects[0]?.id || '';
   const project = projects.find((p) => p.id === effectiveId);
@@ -107,14 +109,24 @@ export function Memory() {
   };
 
   return (
-    <div className="settings settings-full">
+    <div className={`settings settings-full${mode === 'graph' ? ' mem-graph-mode' : ''}`}>
       <h1>Memory</h1>
-      <p className="hint">
-        The project's memory map — durable knowledge distilled from your conversations. The full
-        verbatim archive sits underneath it; nothing here replaces the record.
-      </p>
+      {mode === 'notes' && (
+        <p className="hint">
+          The project's memory map — durable knowledge distilled from your conversations. The full
+          verbatim archive sits underneath it; nothing here replaces the record.
+        </p>
+      )}
 
       <div className="field-row mem-controls">
+        <div className="mem-view-toggle">
+          <button className={mode === 'notes' ? 'active' : ''} onClick={() => setMode('notes')}>
+            Notes
+          </button>
+          <button className={mode === 'graph' ? 'active' : ''} onClick={() => setMode('graph')}>
+            Graph
+          </button>
+        </div>
         <select value={effectiveId} onChange={(e) => setProjectId(e.target.value)}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -146,22 +158,31 @@ export function Memory() {
         </label>
       </div>
 
-      <div className="field-row mem-assemble">
-        <label className="checkbox" title="Requests carry the map digest + recent turns instead of replaying the whole conversation. The chat UI and archive keep everything, and archive_search reaches any of it.">
-          <input
-            type="checkbox"
-            checked={project?.assemble !== false}
-            onChange={(e) => void toggleAssemble(e.target.checked)}
-          />
-          <strong>Smart context</strong>&nbsp;— carry the briefing plus recent turns, so cost per
-          turn stays flat however long the conversation runs. Off replays everything, every turn.
-        </label>
-        <span className="meta grow" style={{ textAlign: 'right' }}>
-          {stats ? `${stats.nodes} map nodes · ${stats.archiveTurns} archived turns` : ''}
-        </span>
-      </div>
+      {mode === 'notes' && (
+        <div className="field-row mem-assemble">
+          <label className="checkbox" title="Requests carry the map digest + recent turns instead of replaying the whole conversation. The chat UI and archive keep everything, and archive_search reaches any of it.">
+            <input
+              type="checkbox"
+              checked={project?.assemble !== false}
+              onChange={(e) => void toggleAssemble(e.target.checked)}
+            />
+            <strong>Smart context</strong>&nbsp;— carry the briefing plus recent turns, so cost per
+            turn stays flat however long the conversation runs. Off replays everything, every turn.
+          </label>
+          <span className="meta grow" style={{ textAlign: 'right' }}>
+            {stats ? `${stats.nodes} map nodes · ${stats.archiveTurns} archived turns` : ''}
+          </span>
+        </div>
+      )}
 
-      {nodes.length === 0 ? (
+      {mode === 'graph' ? (
+        <MemoryGraph
+          projectId={effectiveId}
+          query={query}
+          typeFilter={typeFilter}
+          includeInactive={includeInactive}
+        />
+      ) : nodes.length === 0 ? (
         <div className="empty-state left">
           <p>
             {query || typeFilter
