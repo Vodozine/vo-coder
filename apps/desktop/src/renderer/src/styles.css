@@ -1348,6 +1348,26 @@ button.bubble-act.danger:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The agent editor reuses the Settings panel chrome (centered modal over the
+   grid). A touch wider than the Settings panel since the form is two columns. */
+.agent-edit-panel {
+  width: min(920px, 94vw);
+}
+.agent-edit-title {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Inside the panel the form is flush — the panel already draws the card, so
+   drop the form's own border/background to avoid a box within a box. */
+.settings-panel-body .agent-form {
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
 .agent-form {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

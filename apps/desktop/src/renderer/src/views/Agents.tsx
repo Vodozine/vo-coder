@@ -284,6 +284,16 @@ export function Agents() {
     clearAgentToEdit();
   }, [agentToEdit, config, clearAgentToEdit]);
 
+  // Esc closes the edit popup, matching the Settings panel.
+  useEffect(() => {
+    if (editing === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setEditing(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editing]);
+
   if (!config) return <div className="empty-state">Loading…</div>;
 
   const save = (spec: AgentSpec) => {
@@ -394,22 +404,37 @@ export function Agents() {
         </div>
       )}
 
-      {editing !== null ? (
-        <AgentForm
-          initial={editing === 'new' ? null : editing}
-          mcpServerNames={config.mcpServers.map((s) => s.name)}
-          defaultProvider={config.defaultProvider}
-          localServers={{
-            ollama: (config.ollamaExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
-            llamacpp: (config.llamacppEndpoints ?? []).map((e) => e.name).filter(Boolean),
-            lmstudio: (config.lmstudioExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
-            flm: (config.flmExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
-          }}
-          onSave={save}
-          onCancel={() => setEditing(null)}
-        />
-      ) : (
-        <button onClick={() => setEditing('new')}>+ New agent</button>
+      <button onClick={() => setEditing('new')}>+ New agent</button>
+
+      {editing !== null && (
+        <div className="modal-backdrop" onClick={() => setEditing(null)}>
+          <div className="settings-panel agent-edit-panel" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="settings-panel-close"
+              aria-label="Close"
+              onClick={() => setEditing(null)}
+            >
+              ×
+            </button>
+            <div className="settings-panel-body">
+              <h2 className="agent-edit-title">{editing === 'new' ? 'New agent' : 'Edit agent'}</h2>
+              <AgentForm
+                initial={editing === 'new' ? null : editing}
+                mcpServerNames={config.mcpServers.map((s) => s.name)}
+                defaultProvider={config.defaultProvider}
+                localServers={{
+                  ollama: (config.ollamaExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
+                  llamacpp: (config.llamacppEndpoints ?? []).map((e) => e.name).filter(Boolean),
+                  lmstudio: (config.lmstudioExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
+                  flm: (config.flmExtraEndpoints ?? []).map((e) => e.name).filter(Boolean),
+                }}
+                onSave={save}
+                onCancel={() => setEditing(null)}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
