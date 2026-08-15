@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
-import SpriteText from 'three-spritetext';
 import type { GraphNodeDto, MemGraphDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
 
@@ -34,8 +33,6 @@ function typeColors(): Record<string, string> {
 }
 const COLOR_FALLBACK = '#8b949e';
 const isLive = (status: string): boolean => status === 'active' || status === 'done';
-// Matches react-force-graph's default sphere sizing (radius ∝ cbrt(val), rel 4).
-const nodeRadius = (degree: number): number => Math.cbrt(1 + degree) * 4;
 
 export function MemoryGraph({
   projectId,
@@ -61,7 +58,6 @@ export function MemoryGraph({
 
   const colors = useMemo(typeColors, []);
   const bg = useMemo(() => cssVar('--bg', '#0b0e14'), []);
-  const labelColor = useMemo(() => cssVar('--text', '#e7ecf5'), []);
   const edgeColor = useMemo(() => cssVar('--border', '#3a4152'), []);
 
   const nodeById = useMemo(
@@ -130,19 +126,6 @@ export function MemoryGraph({
     [colors],
   );
 
-  const nodeThree = useCallback(
-    (n: GNode) => {
-      const label = n.title.length > 42 ? `${n.title.slice(0, 42)}…` : n.title;
-      const sprite = new SpriteText(label);
-      sprite.color = labelColor;
-      sprite.textHeight = 2.6;
-      sprite.fontFace = 'system-ui, sans-serif';
-      sprite.position.set(0, nodeRadius(n.degree) + 2.5, 0);
-      return sprite;
-    },
-    [labelColor],
-  );
-
   // Keep the detail card pinned to the clicked node as the camera moves.
   useEffect(() => {
     if (!selected) return;
@@ -206,8 +189,7 @@ export function MemoryGraph({
             nodeOpacity={0.92}
             nodeLabel={(n: GNode) => `${n.type} · ${n.title}`}
             nodeVisibility={nodeVisible}
-            nodeThreeObjectExtend
-            nodeThreeObject={nodeThree}
+            onEngineStop={() => fgRef.current?.zoomToFit(400, 40)}
             linkColor={() => edgeColor}
             linkOpacity={0.28}
             linkWidth={0.6}
