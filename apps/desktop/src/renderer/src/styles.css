@@ -2802,6 +2802,16 @@ input[type='radio']:focus-visible {
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
 }
+/* The topbar sits at the very top, so reserve room for the native min/max/close
+   overlay (same trick as the chat header) or Save hides under the buttons. */
+.custom-titlebar .pl-topbar {
+  padding-right: calc(156px / var(--ui-zoom, 1));
+}
+.custom-titlebar .pl-topbar button,
+.custom-titlebar .pl-topbar select,
+.custom-titlebar .pl-topbar input {
+  -webkit-app-region: no-drag;
+}
 .pl-name {
   min-width: 220px;
 }
