@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
+import SpriteText from 'three-spritetext';
 import type { GraphNodeDto, MemGraphDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
 
@@ -33,6 +34,8 @@ function typeColors(): Record<string, string> {
 }
 const COLOR_FALLBACK = '#8b949e';
 const isLive = (status: string): boolean => status === 'active' || status === 'done';
+// Matches react-force-graph's default sphere sizing (radius ∝ cbrt(val), rel 4).
+const nodeRadius = (degree: number): number => Math.cbrt(1 + degree) * 4;
 
 export function MemoryGraph({
   projectId,
@@ -58,7 +61,9 @@ export function MemoryGraph({
 
   const colors = useMemo(typeColors, []);
   const bg = useMemo(() => cssVar('--bg', '#0b0e14'), []);
-  const edgeColor = useMemo(() => cssVar('--border', '#3a4152'), []);
+  const labelColor = useMemo(() => cssVar('--text', '#e7ecf5'), []);
+  // --text-dim reads clearly over the dark 3D field; --border was too faint.
+  const edgeColor = useMemo(() => cssVar('--text-dim', '#8f9bb3'), []);
 
   const nodeById = useMemo(
     () => new Map((data?.nodes ?? []).map((n) => [n.id, n])),
@@ -126,6 +131,23 @@ export function MemoryGraph({
     [colors],
   );
 
+  // A world-sized text billboard above each node: a tiny speck with the whole
+  // cloud in frame, growing readable only as you fly in — the "names appear on
+  // the dots when zoomed close" behaviour. Safe now that three is a single
+  // instance (three-spritetext shares it).
+  const nodeThree = useCallback(
+    (n: GNode) => {
+      const label = n.title.length > 42 ? `${n.title.slice(0, 42)}…` : n.title;
+      const sprite = new SpriteText(label);
+      sprite.color = labelColor;
+      sprite.textHeight = 2.6;
+      sprite.fontFace = 'system-ui, sans-serif';
+      sprite.position.set(0, nodeRadius(n.degree) + 2.5, 0);
+      return sprite;
+    },
+    [labelColor],
+  );
+
   // Keep the detail card pinned to the clicked node as the camera moves.
   useEffect(() => {
     if (!selected) return;
@@ -189,10 +211,12 @@ export function MemoryGraph({
             nodeOpacity={0.92}
             nodeLabel={(n: GNode) => `${n.type} · ${n.title}`}
             nodeVisibility={nodeVisible}
+            nodeThreeObjectExtend
+            nodeThreeObject={nodeThree}
             onEngineStop={() => fgRef.current?.zoomToFit(400, 40)}
             linkColor={() => edgeColor}
-            linkOpacity={0.28}
-            linkWidth={0.6}
+            linkOpacity={0.5}
+            linkWidth={0.8}
             linkVisibility={(l: GLink) => {
               const s = typeof l.source === 'object' ? (l.source as GNode) : nodeById.get(l.source);
               const t = typeof l.target === 'object' ? (l.target as GNode) : nodeById.get(l.target);
