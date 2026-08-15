@@ -2787,6 +2787,51 @@ input[type='radio']:focus-visible {
   pointer-events: none;
 }
 
+/* ---- pipeline tabs (running group runs, in the chat header) ---- */
+.pipeline-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 0 4px;
+}
+.pipeline-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 210px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.pipeline-tab.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pipeline-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pipeline-tab-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.pipeline-tab-dot.working {
+  background: var(--ok);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 /* ---- pipeline editor ---- */
 .pipelines {
   display: flex;

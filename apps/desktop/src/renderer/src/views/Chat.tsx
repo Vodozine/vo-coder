@@ -4,6 +4,7 @@ import { Icon } from '../components/Icon';
 import { ModelPicker } from '../components/ModelPicker';
 import { ModeToggle } from '../components/ModeToggle';
 import { ZoomButtons } from '../components/ZoomButtons';
+import { PipelineTabs } from '../components/PipelineTabs';
 import { HOMELAB_AGENT_ID } from '../../../shared/homelab';
 import robotWalkUrl from '../assets/robot-walk.png';
 import { useStore, type Segment, type UiMessage } from '../state/store';
@@ -1458,7 +1459,7 @@ export function Chat() {
           </span>
         )}
         <ZoomButtons />
-        <div className="spacer" />
+        <PipelineTabs />
         {/* No longer gated on the roster: with nobody hired, Vodo seats
             stand-ins of himself, so the button has to be reachable. */}
         <button
