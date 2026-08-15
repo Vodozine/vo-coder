@@ -877,7 +877,7 @@ function ImageModelSection() {
   const [model, setModel] = useState<string | null>(null);
 
   if (!config) return null;
-  const IMAGE_PROVIDERS = ['xai', 'openrouter', 'openai'] as const;
+  const IMAGE_PROVIDERS = ['xai', 'gemini', 'openrouter', 'openai'] as const;
   const effProvider = provider ?? config.imageModel?.provider ?? 'xai';
   const effModel = model ?? config.imageModel?.model ?? '';
 

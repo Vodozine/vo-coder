@@ -4,6 +4,7 @@ import { app } from 'electron';
 import type { ToolSpec } from '@vo-coder/providers';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
+import { ensureRealPngFile } from './png-alpha';
 
 /**
  * image_generate: the door back in for image-OUTPUT models (which routing
@@ -15,7 +16,11 @@ import type { SecretStore } from './secrets';
  *
  * Providers:
  *   openrouter / openai — chat/completions with modalities: ['image','text']
- *   xai                 — OpenAI-style /images/generations (Grok Imagine)
+ *   xai / gemini        — OpenAI-style /images/generations (Grok Imagine;
+ *                         Google's nano banana / gemini-*-image)
+ *
+ * Note: Grok Imagine often returns JPEG bytes even when save_as ends in .png.
+ * We re-encode to real PNG on save so cutout keying and imageRead work.
  */
 
 const TIMEOUT_MS = 120_000;
@@ -154,13 +159,21 @@ export async function executeImageTool(
   try {
     let image: { data: Buffer; note: string } | null = null;
 
-    if (provider === 'xai') {
-      // Grok Imagine uses the classic images API, not chat modalities.
-      const res = await fetch('https://api.x.ai/v1/images/generations', {
+    if (provider === 'xai' || provider === 'gemini') {
+      // The classic /images/generations API, not chat modalities. Grok Imagine
+      // and Google's image models (nano banana, gemini-*-image) both serve it —
+      // only the base URL differs. Gemini's /models lists ids as "models/…";
+      // requests take the bare id, so strip the resource prefix.
+      const base =
+        provider === 'xai'
+          ? 'https://api.x.ai/v1'
+          : 'https://generativelanguage.googleapis.com/v1beta/openai';
+      const modelId = pointer.model.replace(/^models\//, '');
+      const res = await fetch(`${base}/images/generations`, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: pointer.model,
+          model: modelId,
           prompt,
           response_format: 'b64_json',
           n: 1,
@@ -201,7 +214,7 @@ export async function executeImageTool(
       image = extractChatImage(await res.json());
     } else {
       return {
-        content: `Image generation via "${provider}" is not supported yet — use xai, openrouter, or openai.`,
+        content: `Image generation via "${provider}" is not supported yet — use xai, gemini, openrouter, or openai.`,
         isError: true,
       };
     }
@@ -218,6 +231,15 @@ export async function executeImageTool(
     const target = guardedTarget(projectDir, a.save_as ? String(a.save_as) : undefined);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, image.data);
+    // Grok Imagine often returns JPEG bytes under a .png path — normalize so
+    // cutout keying and imageRead mime detection see a real PNG.
+    if (/\.png$/i.test(target)) {
+      try {
+        ensureRealPngFile(target);
+      } catch {
+        /* best-effort — ensurePngTransparency will also try on cutout */
+      }
+    }
     const where = projectDir ? relative(projectDir, target) : target;
     return {
       content:
@@ -229,6 +251,241 @@ export async function executeImageTool(
     return {
       content: `Image generation failed: ${err instanceof Error ? err.message : String(err)}`,
       isError: true,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Which editing features the configured provider actually offers. */
+export function imageEditCapabilities(provider: string): {
+  supported: boolean;
+  mask: boolean;
+  note: string;
+} {
+  if (provider === 'openai') {
+    return {
+      supported: true,
+      mask: true,
+      note: 'Masked inpainting supported. Note that GPT image models treat the mask as a soft hint and re-render the whole frame, so untouched areas can shift slightly.',
+    };
+  }
+  if (provider === 'xai') {
+    return {
+      supported: true,
+      mask: false,
+      note: 'Grok Imagine edits by prompt only — describe the change ("remove the typewriter") rather than masking it.',
+    };
+  }
+  if (provider === 'openrouter') {
+    return {
+      supported: true,
+      mask: false,
+      note: 'OpenRouter takes the picture as a reference image; describe the change in the prompt.',
+    };
+  }
+  return { supported: false, mask: false, note: `Editing via "${provider}" is not supported.` };
+}
+
+/** data:...;base64,xxx  ->  { mime, buffer } */
+/** Image mime from magic bytes — providers routinely mislabel what they send. */
+function sniffImageMime(bytes: Buffer): string {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+  if (bytes.length >= 4 && bytes.toString('ascii', 0, 4) === 'GIF8') return 'image/gif';
+  if (
+    bytes.length >= 12 &&
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return 'image/png';
+}
+
+function splitDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null {
+  const m = /^data:([^;,]+)(?:;base64)?,(.*)$/s.exec(String(dataUrl ?? ''));
+  if (!m) return null;
+  try {
+    return { mime: m[1]!, buffer: Buffer.from(m[2]!, 'base64') };
+  } catch {
+    return null;
+  }
+}
+
+export interface ImageEditRequest {
+  prompt: string;
+  /** The picture to change, as a data URL. */
+  imageDataUrl: string;
+  /** Optional PNG mask (transparent where the image should change). OpenAI only. */
+  maskDataUrl?: string;
+}
+
+/**
+ * Edit an existing image with the configured image model. Returns the new
+ * picture as a data URL — the caller decides where it lands.
+ */
+export async function editImage(
+  req: ImageEditRequest,
+  config: ConfigStore,
+  secrets: SecretStore,
+  auth: ImageToolAuth = {},
+): Promise<{ ok: true; dataUrl: string; note?: string } | { ok: false; error: string }> {
+  const prompt = String(req.prompt ?? '').trim();
+  if (!prompt) return { ok: false, error: 'No prompt given.' };
+
+  const pointer = config.get().imageModel;
+  if (!pointer) {
+    return {
+      ok: false,
+      error:
+        'No image model configured — set one under Settings → Image model (an image-output model).',
+    };
+  }
+  const provider = pointer.provider;
+  const caps = imageEditCapabilities(provider);
+  if (!caps.supported) return { ok: false, error: caps.note };
+
+  const key =
+    provider === 'xai' ? (auth.xaiToken?.() ?? secrets.get('xai')) : secrets.get(provider);
+  if (!key) {
+    return {
+      ok: false,
+      error:
+        provider === 'xai'
+          ? 'No xAI credentials — add an API key or sign in with X under Settings.'
+          : `No API key saved for ${provider}.`,
+    };
+  }
+
+  const source = splitDataUrl(req.imageDataUrl);
+  if (!source) return { ok: false, error: 'The picture could not be read.' };
+  if (source.buffer.length > MAX_IMAGE_BYTES) {
+    return { ok: false, error: 'Source image exceeds the 20 MB cap.' };
+  }
+  if (req.maskDataUrl && !caps.mask) {
+    return {
+      ok: false,
+      error: `${provider} cannot use a mask. ${caps.note}`,
+    };
+  }
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    let image: { data: Buffer; note: string } | null = null;
+
+    if (provider === 'openai') {
+      // Multipart: the only provider that takes a real inpainting mask.
+      const form = new FormData();
+      form.set('model', pointer.model);
+      form.set('prompt', prompt);
+      form.set(
+        'image',
+        new Blob([new Uint8Array(source.buffer)], { type: source.mime || 'image/png' }),
+        'image.png',
+      );
+      if (req.maskDataUrl) {
+        const mask = splitDataUrl(req.maskDataUrl);
+        if (!mask) return { ok: false, error: 'The mask could not be read.' };
+        form.set(
+          'mask',
+          new Blob([new Uint8Array(mask.buffer)], { type: 'image/png' }),
+          'mask.png',
+        );
+      }
+      const res = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}` },
+        body: form,
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { ok: false, error: `Image edit returned ${res.status}: ${detail.slice(0, 300)}` };
+      }
+      const json = (await res.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
+      image = extractImagesApi(json);
+      // dall-e-2 (and any model configured to return links) answers with a URL.
+      if (!image && json.data?.[0]?.url) {
+        const bytes = await downloadUrl(json.data[0].url!, ctl.signal);
+        if (bytes) image = { data: bytes, note: '' };
+      }
+    } else if (provider === 'xai') {
+      // JSON only — the docs are explicit that multipart is not accepted.
+      const res = await fetch('https://api.x.ai/v1/images/edits', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: pointer.model,
+          prompt,
+          image: { type: 'image_url', url: req.imageDataUrl },
+          response_format: 'b64_json',
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { ok: false, error: `Image edit returned ${res.status}: ${detail.slice(0, 300)}` };
+      }
+      const json = (await res.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
+      image = extractImagesApi(json);
+      if (!image) {
+        const url = json.data?.[0]?.url;
+        if (url) {
+          const bytes = await downloadUrl(url, ctl.signal);
+          if (bytes) image = { data: bytes, note: '' };
+        }
+      }
+    } else {
+      // OpenRouter's images endpoint takes the source as a reference image.
+      const res = await fetch('https://openrouter.ai/api/v1/images', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: pointer.model,
+          prompt,
+          input_references: [
+            { type: 'image_url', image_url: { url: req.imageDataUrl } },
+          ],
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { ok: false, error: `Image edit returned ${res.status}: ${detail.slice(0, 300)}` };
+      }
+      const json = (await res.json()) as {
+        data?: Array<{ b64_json?: string; media_type?: string; url?: string }>;
+      };
+      const first = json.data?.[0];
+      if (first?.b64_json) {
+        image = { data: Buffer.from(first.b64_json, 'base64'), note: '' };
+      } else if (first?.url) {
+        const bytes = await downloadUrl(first.url, ctl.signal);
+        if (bytes) image = { data: bytes, note: '' };
+      }
+    }
+
+    if (!image) {
+      return { ok: false, error: `"${pointer.model}" returned no image for that edit.` };
+    }
+    if (image.data.length > MAX_IMAGE_BYTES) {
+      return { ok: false, error: 'Edited image exceeds the 20 MB cap.' };
+    }
+    return {
+      ok: true,
+      // Sniffed, not assumed: Grok returns JPEG bytes for an "edit", and a
+      // data URL that lies about its type is rejected by the next provider it
+      // is fed back into.
+      dataUrl: `data:${sniffImageMime(image.data)};base64,${image.data.toString('base64')}`,
+      ...(image.note ? { note: image.note } : {}),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      error: /abort/i.test(msg) ? 'Image edit timed out.' : msg,
     };
   } finally {
     clearTimeout(timer);
