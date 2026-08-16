@@ -895,10 +895,20 @@ export const useStore = create<AppState>((set, get) => ({
     if (!sessionId) return;
     const dir = await window.vo.scaffoldPickDir();
     if (!dir) return;
-    await window.vo.sessionSetDir(sessionId, dir);
-    set((s) => ({
-      sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, dir } : m)),
-    }));
+    try {
+      const res = await window.vo.sessionSetDir(sessionId, dir);
+      if (res && res.ok === false) {
+        throw new Error(res.error || 'Could not bind that folder.');
+      }
+      set((s) => ({
+        sessionMetas: s.sessionMetas.map((m) => (m.id === sessionId ? { ...m, dir } : m)),
+      }));
+    } catch (err) {
+      // Don't leave the user staring at a picker that "did nothing".
+      window.alert(
+        `Could not attach the folder:\n${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   },
 
   async detachFolder() {

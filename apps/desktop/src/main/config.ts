@@ -62,7 +62,7 @@ export class ConfigStore {
     // in Documents so the user can find what their chats wrote. Ensured on
     // disk so a folder-less chat's very first ws_write cannot dead-end.
     if (!this.cache.genericDir) {
-      this.cache.genericDir = join(app.getPath('documents'), 'Vo-Coder');
+      this.cache.genericDir = join(this.documentsBase(), 'Vo-Coder');
     }
     if (this.genericEnsured !== this.cache.genericDir) {
       try {
@@ -73,6 +73,26 @@ export class ConfigStore {
       }
     }
     return this.cache;
+  }
+
+  /**
+   * The user's Documents folder, or a safe fallback. Electron's
+   * app.getPath('documents') THROWS when the Windows "known folder" can't be
+   * resolved — OneDrive Known Folder Move not yet provisioned, or a redirected
+   * shell folder. On a fresh install (empty genericDir) that unguarded call
+   * would crash config.get(), and — because the session:setDir handler calls
+   * config.get() — silently break "attach a folder to a project". userData
+   * never throws, so it is the last-resort floor.
+   */
+  private documentsBase(): string {
+    for (const key of ['documents', 'home'] as const) {
+      try {
+        return app.getPath(key);
+      } catch {
+        /* try the next known folder */
+      }
+    }
+    return app.getPath('userData');
   }
 
   set(patch: Partial<AppConfig>): AppConfig {

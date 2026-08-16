@@ -801,7 +801,10 @@ export interface VoApi {
   /** Delete a whole group project: coordinator chat, member chats, group record. */
   groupDelete(groupId: string): Promise<void>;
   sessionSetAgent(sessionId: string, agentId: string): Promise<void>;
-  sessionSetDir(sessionId: string, dir: string | null): Promise<void>;
+  sessionSetDir(
+    sessionId: string,
+    dir: string | null,
+  ): Promise<{ ok: boolean; error?: string }>;
   onProjectsChanged(cb: (data: ProjectsData) => void): () => void;
   usageGet(): Promise<UsageData>;
   onUsageChanged(cb: (data: UsageData) => void): () => void;
