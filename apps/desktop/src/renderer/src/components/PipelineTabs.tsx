@@ -16,7 +16,9 @@ export function PipelineTabs() {
   const activeSessionId = useStore((s) => s.activeSessionId);
   const openSession = useStore((s) => s.openSession);
 
-  const running = groups.filter((g) => !g.endedAt);
+  // Only PIPELINE runs (a deliberate saved workflow Vodo invoked) — never ad-hoc
+  // group projects or ordinary chats.
+  const running = groups.filter((g) => !g.endedAt && g.pipelineId);
 
   return (
     <div className="pipeline-tabs">
@@ -30,13 +32,13 @@ export function PipelineTabs() {
             key={g.id}
             type="button"
             className={`pipeline-tab${active ? ' active' : ''}`}
-            title={g.goal}
+            title={g.pipelineName ?? g.goal}
             onClick={() => {
               if (g.coordinatorId) void openSession(g.coordinatorId);
             }}
           >
             <span className={`pipeline-tab-dot${working ? ' working' : ''}`} />
-            <span className="pipeline-tab-label">{trunc(g.goal, 24)}</span>
+            <span className="pipeline-tab-label">{trunc(g.pipelineName ?? g.goal, 24)}</span>
           </button>
         );
       })}

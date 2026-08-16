@@ -522,6 +522,13 @@ export interface GroupRun {
    * view is left exactly where they put it.
    */
   auto?: boolean;
+  /**
+   * Set only when this run is a PIPELINE instance — a deliberate saved workflow
+   * (config.pipelines) that Vodo invoked for a specific job, not an ad-hoc group
+   * project. Only pipeline runs surface as the header's pipeline tabs.
+   */
+  pipelineId?: string;
+  pipelineName?: string;
 }
 
 export interface GroupMember {
