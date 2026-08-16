@@ -1,14 +1,21 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { ToolSpec } from '@vo-coder/providers';
 
 export interface McpServerConfig {
   /** Unique name; must not contain the namespace separator "__". */
   name: string;
-  command: string;
+  /** Local (stdio) server: the command to run. Either `command` OR `url`. */
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  /** Remote (Streamable HTTP) server URL — e.g. GitHub's hosted MCP at
+   *  https://api.githubcopilot.com/mcp/ . When set, `command` is ignored. */
+  url?: string;
+  /** HTTP headers for a remote server, e.g. { Authorization: 'Bearer <PAT>' }. */
+  headers?: Record<string, string>;
 }
 
 export interface McpServerStatus {
@@ -42,12 +49,16 @@ export class McpClientManager {
     const entry: Entry = { cfg, client: null, tools: [] };
     this.servers.set(cfg.name, entry);
     try {
-      const transport = new StdioClientTransport({
-        command: cfg.command,
-        args: cfg.args ?? [],
-        env: { ...(process.env as Record<string, string>), ...cfg.env },
-        cwd: cfg.cwd,
-      });
+      const transport = cfg.url
+        ? new StreamableHTTPClientTransport(new URL(cfg.url), {
+            requestInit: cfg.headers ? { headers: cfg.headers } : undefined,
+          })
+        : new StdioClientTransport({
+            command: cfg.command ?? '',
+            args: cfg.args ?? [],
+            env: { ...(process.env as Record<string, string>), ...cfg.env },
+            cwd: cfg.cwd,
+          });
       const client = new Client({ name: 'vo-coder', version: '0.1.0' });
       await client.connect(transport);
       const { tools } = await client.listTools();

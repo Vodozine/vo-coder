@@ -791,12 +791,22 @@ function McpSection() {
 
   const add = async () => {
     const parsed = parseEnv(env);
-    const cfg = {
-      name: name.trim(),
-      command: command.trim(),
-      args: args.trim() ? args.trim().split(/\s+/) : [],
-      ...(Object.keys(parsed).length ? { env: parsed } : {}),
-    };
+    const cmd = command.trim();
+    // A URL means a REMOTE (Streamable HTTP) server — e.g. GitHub's hosted MCP.
+    // Its KEY=VALUE lines are request headers (Authorization=Bearer <token>).
+    const remote = /^https?:\/\//i.test(cmd);
+    const cfg = remote
+      ? {
+          name: name.trim(),
+          url: cmd,
+          ...(Object.keys(parsed).length ? { headers: parsed } : {}),
+        }
+      : {
+          name: name.trim(),
+          command: cmd,
+          args: args.trim() ? args.trim().split(/\s+/) : [],
+          ...(Object.keys(parsed).length ? { env: parsed } : {}),
+        };
     await saveConfig({ mcpServers: [...config.mcpServers, cfg] });
     setName('');
     setCommand('');
@@ -807,13 +817,18 @@ function McpSection() {
 
   const saveEnv = async (serverName: string) => {
     const parsed = parseEnv(envDraft);
+    const has = Object.keys(parsed).length > 0;
     await saveConfig({
       mcpServers: config.mcpServers.map((s) =>
-        s.name === serverName ? { ...s, env: Object.keys(parsed).length ? parsed : undefined } : s,
+        s.name !== serverName
+          ? s
+          : s.url
+            ? { ...s, headers: has ? parsed : undefined } // remote → HTTP headers
+            : { ...s, env: has ? parsed : undefined }, // local → process env
       ),
     });
     setEditingEnv(null);
-    // Reconnect so the server process picks up the new environment.
+    // Reconnect so the server picks up the new environment / headers.
     await mcpDisconnect(serverName).catch(() => {});
     await mcpConnect(serverName);
   };
@@ -836,27 +851,32 @@ function McpSection() {
       <McpFinder />
       {config.mcpServers.map((s) => {
         const status = mcpStatus.find((st) => st.name === s.name);
-        const envCount = Object.keys(s.env ?? {}).length;
+        const remote = !!s.url;
+        const varCount = Object.keys((remote ? s.headers : s.env) ?? {}).length;
         return (
           <div key={s.name} className="mcp-server">
             <div className="field-row">
               <span className={`status-dot ${status?.connected ? 'on' : 'off'}`} />
               <label>{s.name}</label>
               <span className="meta grow">
-                {s.command} {s.args?.join(' ')}
-                {envCount ? ` · ${envCount} env` : ''}
+                {s.url ?? s.command} {s.args?.join(' ')}
+                {varCount ? ` · ${varCount} ${remote ? 'headers' : 'env'}` : ''}
                 {status?.connected ? ` — ${status.toolCount} tools` : ''}
                 {status?.error ? ` — ${status.error}` : ''}
               </span>
               <button
                 className={`ghost${editingEnv === s.name ? ' thinking-on' : ''}`}
-                title="Set environment variables the server needs (API keys, client id/secret)"
+                title={
+                  remote
+                    ? 'Set request headers (e.g. Authorization: Bearer <token>)'
+                    : 'Set environment variables the server needs (API keys, client id/secret)'
+                }
                 onClick={() => {
                   setEditingEnv(editingEnv === s.name ? null : s.name);
-                  setEnvDraft(envToText(s.env));
+                  setEnvDraft(envToText(remote ? s.headers : s.env));
                 }}
               >
-                Env
+                {remote ? 'Headers' : 'Env'}
               </button>
               {status?.connected ? (
                 <button className="ghost" onClick={() => void mcpDisconnect(s.name)}>
@@ -873,7 +893,11 @@ function McpSection() {
               <div className="mcp-env-edit">
                 <textarea
                   rows={3}
-                  placeholder="KEY=VALUE per line — e.g. REDDIT_CLIENT_ID=xxxxx"
+                  placeholder={
+                    remote
+                      ? 'Header=value per line — e.g. Authorization=Bearer ghp_xxxxx'
+                      : 'KEY=VALUE per line — e.g. REDDIT_CLIENT_ID=xxxxx'
+                  }
                   value={envDraft}
                   onChange={(e) => setEnvDraft(e.target.value)}
                 />
@@ -884,7 +908,9 @@ function McpSection() {
                   <button className="ghost" onClick={() => setEditingEnv(null)}>
                     Cancel
                   </button>
-                  <button onClick={() => void saveEnv(s.name)}>Save env</button>
+                  <button onClick={() => void saveEnv(s.name)}>
+                    Save {remote ? 'headers' : 'env'}
+                  </button>
                 </div>
               </div>
             )}
@@ -893,10 +919,14 @@ function McpSection() {
       })}
       <div className="field-row">
         <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="command" value={command} onChange={(e) => setCommand(e.target.value)} />
+        <input
+          placeholder="command — or a remote URL (https://…)"
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+        />
         <input
           className="grow"
-          placeholder="args"
+          placeholder="args (local command only)"
           value={args}
           onChange={(e) => setArgs(e.target.value)}
         />
@@ -907,10 +937,18 @@ function McpSection() {
       <textarea
         className="mcp-env-add"
         rows={2}
-        placeholder="env (optional) — KEY=VALUE per line, e.g. REDDIT_CLIENT_ID=…"
+        placeholder="env / headers (optional) — KEY=VALUE per line. Local: REDDIT_CLIENT_ID=… · Remote: Authorization=Bearer <token>"
         value={env}
         onChange={(e) => setEnv(e.target.value)}
       />
+      <p className="hint">
+        Remote (HTTP) servers work too — paste the server URL in the command box. Browse hundreds at{' '}
+        <a href="https://mcpservers.org/" target="_blank" rel="noreferrer">
+          mcpservers.org
+        </a>
+        . GitHub&apos;s hosted server is <code>https://api.githubcopilot.com/mcp/</code> with an{' '}
+        <code>Authorization=Bearer &lt;PAT&gt;</code> header.
+      </p>
     </section>
   );
 }
