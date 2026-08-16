@@ -564,6 +564,38 @@ export interface XaiOauthEvent {
   message?: string;
 }
 
+/** Progress of an in-app OAuth sign-in for a remote MCP server. */
+export interface McpOauthEvent {
+  serverName: string;
+  state: 'connected' | 'signed_out' | 'error';
+  message?: string;
+  toolCount?: number;
+}
+
+/**
+ * Remote MCP hosts that offer in-app OAuth sign-in ("Sign in with GitHub")
+ * instead of a pasted token. Value is the label shown on the button. The real
+ * OAuth endpoints + client id live in main (mcp-oauth.ts); this map is only for
+ * the renderer to decide whether to show a sign-in button, so it carries no
+ * secrets and both sides agree on the host set.
+ */
+export const MCP_OAUTH_HOSTS: Record<string, string> = {
+  'api.githubcopilot.com': 'GitHub',
+};
+
+/** Label for a remote MCP url's sign-in button, or null if it isn't OAuth-backed. */
+export function mcpOauthLabelForUrl(url?: string): string | null {
+  if (!url) return null;
+  try {
+    const host = new URL(url).host.toLowerCase().split(':')[0];
+    if (MCP_OAUTH_HOSTS[host]) return MCP_OAUTH_HOSTS[host];
+    if (host.endsWith('.githubcopilot.com')) return 'GitHub';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A mission: a background objective Vodo pursues in its own isolated agent
  * session — concurrent with every chat, so interactive coding is never blocked.
@@ -745,6 +777,16 @@ export interface VoApi {
   onCheckin(cb: (payload: CheckinPayload) => void): () => void;
   mcpSearch(query: string): Promise<McpRegistryEntry[]>;
   mcpAdd(config: McpServerConfig): Promise<McpServerStatus>;
+  /** Start the device-flow OAuth sign-in for a remote MCP server (e.g. GitHub). */
+  mcpOauthBegin(serverName: string): Promise<{
+    ok: boolean;
+    userCode?: string;
+    verificationUri?: string;
+    error?: string;
+  }>;
+  /** Forget an MCP server's OAuth token and drop its auth header. */
+  mcpOauthSignOut(serverName: string): Promise<void>;
+  onMcpOauth(cb: (event: McpOauthEvent) => void): () => void;
   /**
    * Skills: packaged know-how (Claude-format SKILL.md folders or bare .md)
    * the agents read on demand through skill_read. Import copies the source
@@ -944,6 +986,9 @@ export const IPC = {
   checkin: 'checkin:show',
   mcpSearch: 'mcp:search',
   mcpAdd: 'mcp:add',
+  mcpOauthBegin: 'mcpOauth:begin',
+  mcpOauthSignOut: 'mcpOauth:signOut',
+  mcpOauthEvent: 'mcpOauth:event',
   skillsList: 'skills:list',
   skillsImport: 'skills:import',
   skillsImportUrl: 'skills:import-url',

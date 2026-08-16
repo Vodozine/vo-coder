@@ -4,9 +4,11 @@ import type { McpRegistryEntry } from '@vo-coder/core';
 import type {
   AppConfig,
   LocalEndpoint,
+  McpOauthEvent,
   TelegramInfo,
   VoiceSettings,
 } from '../../../shared/ipc-contract';
+import { mcpOauthLabelForUrl } from '../../../shared/ipc-contract';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { useStore } from '../state/store';
 
@@ -782,6 +784,31 @@ function McpSection() {
   const [env, setEnv] = useState('');
   const [editingEnv, setEditingEnv] = useState<string | null>(null);
   const [envDraft, setEnvDraft] = useState('');
+  // In-app OAuth sign-in ("Sign in with GitHub"): one flow at a time, shown as a
+  // banner with the device code while we poll in the background.
+  const [oauth, setOauth] = useState<{
+    serverName: string;
+    userCode?: string;
+    verificationUri?: string;
+    busy?: boolean;
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    return window.vo.onMcpOauth((ev: McpOauthEvent) => {
+      if (ev.state === 'connected') {
+        setOauth((cur) => (cur?.serverName === ev.serverName ? null : cur));
+        void refreshMcp();
+      } else if (ev.state === 'error') {
+        setOauth((cur) =>
+          cur?.serverName === ev.serverName ? { ...cur, busy: false, error: ev.message } : cur,
+        );
+      } else if (ev.state === 'signed_out') {
+        setOauth((cur) => (cur?.serverName === ev.serverName ? null : cur));
+        void refreshMcp();
+      }
+    });
+  }, [refreshMcp]);
 
   if (!config) return null;
 
@@ -855,6 +882,37 @@ function McpSection() {
     await refreshMcp();
   };
 
+  const signIn = async (serverName: string) => {
+    setOauth({ serverName, busy: true });
+    const res = await window.vo.mcpOauthBegin(serverName);
+    if (!res.ok) {
+      setOauth({ serverName, error: res.error ?? 'Could not start sign-in.' });
+      return;
+    }
+    setOauth({ serverName, userCode: res.userCode, verificationUri: res.verificationUri, busy: true });
+  };
+
+  // One-click GitHub: add the official hosted server if it isn't there yet, then
+  // start the sign-in. No token to paste — this is the whole point of the OAuth app.
+  const connectGithub = async () => {
+    const existing = config.mcpServers.find((s) => mcpOauthLabelForUrl(s.url) === 'GitHub');
+    let serverName = existing?.name;
+    if (!serverName) {
+      const taken = new Set(config.mcpServers.map((s) => s.name));
+      serverName = 'github';
+      for (let i = 2; taken.has(serverName); i++) serverName = `github-${i}`;
+      await window.vo.mcpAdd({ name: serverName, url: 'https://api.githubcopilot.com/mcp/' });
+      await saveConfig({});
+    }
+    await signIn(serverName);
+  };
+
+  const githubConnected = config.mcpServers.some(
+    (s) =>
+      mcpOauthLabelForUrl(s.url) === 'GitHub' &&
+      !!mcpStatus.find((st) => st.name === s.name)?.connected,
+  );
+
   return (
     <section>
       <h2>MCP servers</h2>
@@ -863,9 +921,48 @@ function McpSection() {
         them for you. Advanced: add any server manually by command.
       </p>
       <McpFinder />
+      <div className="mcp-server">
+        <div className="field-row">
+          <span className={`status-dot ${githubConnected ? 'on' : 'off'}`} />
+          <label>GitHub</label>
+          <span className="meta grow">
+            Repos, issues &amp; pull requests — sign in with your GitHub account, no token to paste.
+          </span>
+          {githubConnected ? (
+            <span className="hint">✓ Signed in</span>
+          ) : (
+            <button disabled={!!oauth?.busy} onClick={() => void connectGithub()}>
+              {oauth?.busy ? 'Signing in…' : 'Sign in with GitHub'}
+            </button>
+          )}
+        </div>
+      </div>
+      {oauth && (
+        <div className="mcp-server">
+          {oauth.error ? (
+            <span className="hint error-text">{oauth.error}</span>
+          ) : oauth.userCode ? (
+            <p className="hint">
+              {oauth.verificationUri ? 'GitHub opened in your browser' : 'Opening GitHub…'} — enter
+              this code and approve, then it connects itself:{' '}
+              <code className="perm-tool">{oauth.userCode}</code>{' '}
+              <button
+                className="ghost"
+                onClick={() => void navigator.clipboard?.writeText(oauth.userCode ?? '')}
+              >
+                Copy
+              </button>{' '}
+              <span className="meta">waiting for approval…</span>
+            </p>
+          ) : (
+            <span className="hint">Starting sign-in…</span>
+          )}
+        </div>
+      )}
       {config.mcpServers.map((s) => {
         const status = mcpStatus.find((st) => st.name === s.name);
         const remote = !!s.url;
+        const oauthLabel = mcpOauthLabelForUrl(s.url);
         const varCount = Object.keys((remote ? s.headers : s.env) ?? {}).length;
         return (
           <div key={s.name} className="mcp-server">
@@ -895,6 +992,15 @@ function McpSection() {
               {status?.connected ? (
                 <button className="ghost" onClick={() => void mcpDisconnect(s.name)}>
                   Disconnect
+                </button>
+              ) : oauthLabel ? (
+                <button
+                  disabled={oauth?.serverName === s.name && oauth?.busy}
+                  onClick={() => void signIn(s.name)}
+                >
+                  {oauth?.serverName === s.name && oauth?.busy
+                    ? 'Signing in…'
+                    : `Sign in with ${oauthLabel}`}
                 </button>
               ) : (
                 <button onClick={() => void mcpConnect(s.name)}>Connect</button>

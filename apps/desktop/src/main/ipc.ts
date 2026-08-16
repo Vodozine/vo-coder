@@ -56,6 +56,7 @@ import { executeLookTool, lookToolSpecs, extractJpegPreview, RAW_EXTS } from './
 import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, insideRoot, stopLaunched, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
+import { McpOAuthManager } from './mcp-oauth';
 import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
@@ -139,6 +140,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     (modelId) => contextFit.windowFor(modelId, endpointUrlFor(config.get(), modelId)),
   );
   const mcp = new McpClientManager();
+  // "Sign in with GitHub" (and future OAuth-backed remote MCP servers): the
+  // device-flow token lands in the server's Authorization header and the bundle
+  // is kept in the encrypted secret store for background refresh.
+  const mcpOAuth = new McpOAuthManager(config, secrets, mcp, sendToWindow);
+  setInterval(() => void mcpOAuth.refreshIfNeeded(), 10 * 60_000);
+  void mcpOAuth.refreshIfNeeded();
   const projects = new ProjectStore();
   projects.ensureDefault();
   const usage = new UsageTracker(join(app.getPath('userData'), 'usage.json'), sendToWindow);
@@ -2253,6 +2260,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     config.set({ mcpServers: [...others, cfg] });
     return mcp.connect(cfg);
   });
+  ipcMain.handle(IPC.mcpOauthBegin, (_e, serverName: string) => mcpOAuth.begin(serverName));
+  ipcMain.handle(IPC.mcpOauthSignOut, (_e, serverName: string) => mcpOAuth.signOut(serverName));
   // ---- skills: packaged know-how, read on demand via skill_read ----
   ipcMain.handle(IPC.skillsList, () => listSkills(app.getPath('userData')));
   ipcMain.handle(IPC.skillsImport, async (_e, kind: 'folder' | 'file') => {
