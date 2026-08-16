@@ -2992,6 +2992,59 @@ input[type='radio']:focus-visible {
 .react-flow__minimap {
   background: var(--bg-raised);
 }
+.pl-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pl-start {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10.5px;
+  padding: 0 4px;
+}
+.pl-start.on {
+  color: var(--ok);
+  font-weight: 600;
+}
+.pl-del {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.pl-del:hover {
+  color: var(--error);
+}
+.pl-node.start {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 1px var(--ok), var(--shadow);
+}
+.pl-node--foreman {
+  border-color: color-mix(in srgb, var(--accent2) 45%, var(--border));
+}
+.pl-foreman-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* Input dots (top, cyan) vs output dots (bottom, amber); reviewer pass/fail. */
+.react-flow__handle.pl-h-in {
+  background: var(--accent2);
+}
+.react-flow__handle.pl-h-out {
+  background: var(--accent);
+}
+.react-flow__handle.pl-h-pass {
+  background: var(--ok);
+}
+.react-flow__handle.pl-h-fail {
+  background: var(--error);
+}
 
 /* ---- voice / push-to-talk ---- */
 

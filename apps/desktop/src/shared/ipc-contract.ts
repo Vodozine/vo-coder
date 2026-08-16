@@ -445,13 +445,15 @@ export interface MemGraphDto {
  */
 export interface PipelineNode {
   id: string;
-  kind: 'agent' | 'reviewer';
-  /** Which agent fills this step. 'default' = Vodo/foreman fills it. */
+  kind: 'agent' | 'reviewer' | 'foreman';
+  /** Which agent fills this step. 'default'/absent = Vodo fills it. */
   agentId?: string;
   /** Short role label, e.g. "Simplify", "Review". */
   label?: string;
   /** What this step should do — becomes the agent's task brief at run time. */
   task?: string;
+  /** The entry point — where the run begins. At most one per pipeline. */
+  start?: boolean;
   x: number;
   y: number;
 }

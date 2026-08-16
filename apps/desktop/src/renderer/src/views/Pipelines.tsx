@@ -22,12 +22,13 @@ import { useStore } from '../state/store';
 
 /**
  * The pipeline editor: draw a reusable multi-agent workflow as tiles wired
- * together — agent steps and reviewer gates whose pass/fail verdict branches the
- * flow (loops allowed). Saved to config.pipelines. Running a pipeline, invoking
+ * together — agent steps, reviewer gates whose pass/fail verdict branches the
+ * flow (loops allowed), and a foreman that runs the floor (Vodo if none). Mark
+ * one tile as the start. Saved to config.pipelines. Running a pipeline, invoking
  * it from chat, and picking it at Scaffold are follow-ups; this is the editor.
  */
 
-type StepData = { kind: 'agent' | 'reviewer'; agentId: string; label: string; task: string };
+type StepData = { kind: 'agent' | 'reviewer' | 'foreman'; agentId: string; label: string; task: string; start?: boolean };
 
 interface AgentOpt {
   id: string;
@@ -35,7 +36,7 @@ interface AgentOpt {
 }
 const AgentsCtx = createContext<AgentOpt[]>([]);
 
-function AgentSelect({ id, value }: { id: string; value: string }) {
+function AgentSelect({ id, value, emptyLabel }: { id: string; value: string; emptyLabel?: string }) {
   const agents = useContext(AgentsCtx);
   const { updateNodeData } = useReactFlow();
   return (
@@ -44,7 +45,7 @@ function AgentSelect({ id, value }: { id: string; value: string }) {
       value={value}
       onChange={(e) => updateNodeData(id, { agentId: e.target.value })}
     >
-      <option value="">(any — best fit)</option>
+      <option value="">{emptyLabel ?? '(any — best fit)'}</option>
       {agents.map((a) => (
         <option key={a.id} value={a.id}>
           {a.name}
@@ -54,13 +55,45 @@ function AgentSelect({ id, value }: { id: string; value: string }) {
   );
 }
 
+/** Shared tile header: kind label, optional start toggle, delete ×. */
+function NodeHead({ id, kind, start, canStart }: { id: string; kind: string; start?: boolean; canStart: boolean }) {
+  const { setNodes, deleteElements } = useReactFlow();
+  const setStart = () =>
+    // One start per pipeline — set this, clear the rest.
+    setNodes((ns) => ns.map((n) => ({ ...n, data: { ...(n.data as object), start: n.id === id } })));
+  return (
+    <div className="pl-node-head">
+      <span className="pl-node-kind">{kind}</span>
+      <span className="grow" />
+      {canStart && (
+        <button
+          type="button"
+          className={`pl-start${start ? ' on' : ''}`}
+          title="Mark this tile as where the pipeline starts"
+          onClick={setStart}
+        >
+          ▶ start
+        </button>
+      )}
+      <button
+        type="button"
+        className="pl-del"
+        title="Delete this tile"
+        onClick={() => void deleteElements({ nodes: [{ id }] })}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 function AgentNode({ id, data, selected }: NodeProps) {
   const d = data as unknown as StepData;
   const { updateNodeData } = useReactFlow();
   return (
-    <div className={`pl-node pl-node--agent${selected ? ' selected' : ''}`}>
-      <Handle type="target" position={Position.Top} />
-      <div className="pl-node-kind">agent</div>
+    <div className={`pl-node pl-node--agent${selected ? ' selected' : ''}${d.start ? ' start' : ''}`}>
+      <Handle type="target" position={Position.Top} className="pl-h-in" />
+      <NodeHead id={id} kind="agent" start={d.start} canStart />
       <AgentSelect id={id} value={d.agentId} />
       <input
         className="nodrag"
@@ -75,7 +108,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
         value={d.task}
         onChange={(e) => updateNodeData(id, { task: e.target.value })}
       />
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} className="pl-h-out" />
     </div>
   );
 }
@@ -84,9 +117,9 @@ function ReviewerNode({ id, data, selected }: NodeProps) {
   const d = data as unknown as StepData;
   const { updateNodeData } = useReactFlow();
   return (
-    <div className={`pl-node pl-node--reviewer${selected ? ' selected' : ''}`}>
-      <Handle type="target" position={Position.Top} />
-      <div className="pl-node-kind">reviewer · gate</div>
+    <div className={`pl-node pl-node--reviewer${selected ? ' selected' : ''}${d.start ? ' start' : ''}`}>
+      <Handle type="target" position={Position.Top} className="pl-h-in" />
+      <NodeHead id={id} kind="reviewer · gate" start={d.start} canStart />
       <AgentSelect id={id} value={d.agentId} />
       <input
         className="nodrag"
@@ -95,22 +128,36 @@ function ReviewerNode({ id, data, selected }: NodeProps) {
         onChange={(e) => updateNodeData(id, { label: e.target.value })}
       />
       <div className="pl-ports">
-        <span className="pl-port pl-port--pass">pass ↓</span>
-        <span className="pl-port pl-port--fail">fail ↓</span>
+        <span className="pl-port--pass">pass ↓</span>
+        <span className="pl-port--fail">fail ↓</span>
       </div>
-      <Handle id="pass" type="source" position={Position.Bottom} style={{ left: '28%' }} />
-      <Handle id="fail" type="source" position={Position.Bottom} style={{ left: '72%' }} />
+      <Handle id="pass" type="source" position={Position.Bottom} className="pl-h-pass" style={{ left: '28%' }} />
+      <Handle id="fail" type="source" position={Position.Bottom} className="pl-h-fail" style={{ left: '72%' }} />
     </div>
   );
 }
 
-const nodeTypes = { agent: AgentNode, reviewer: ReviewerNode };
+function ForemanNode({ id, data, selected }: NodeProps) {
+  const d = data as unknown as StepData;
+  return (
+    <div className={`pl-node pl-node--foreman${selected ? ' selected' : ''}`}>
+      <NodeHead id={id} kind="foreman" canStart={false} />
+      <AgentSelect id={id} value={d.agentId} emptyLabel="Vodo (default)" />
+      <div className="pl-foreman-note">runs the floor · reports to Vodo</div>
+    </div>
+  );
+}
+
+const nodeTypes = { agent: AgentNode, reviewer: ReviewerNode, foreman: ForemanNode };
+
+const kindOf = (t?: string): PipelineNode['kind'] =>
+  t === 'reviewer' ? 'reviewer' : t === 'foreman' ? 'foreman' : 'agent';
 
 const toFlowNode = (n: PipelineNode): Node => ({
   id: n.id,
   type: n.kind,
   position: { x: n.x, y: n.y },
-  data: { kind: n.kind, agentId: n.agentId ?? '', label: n.label ?? '', task: n.task ?? '' },
+  data: { kind: n.kind, agentId: n.agentId ?? '', label: n.label ?? '', task: n.task ?? '', start: n.start ?? false },
 });
 const toFlowEdge = (e: PipelineEdge): Edge => ({
   id: e.id,
@@ -124,10 +171,11 @@ const toSpecNode = (n: Node): PipelineNode => {
   const d = n.data as unknown as StepData;
   return {
     id: n.id,
-    kind: n.type === 'reviewer' ? 'reviewer' : 'agent',
+    kind: kindOf(n.type),
     agentId: d.agentId || undefined,
     label: d.label || undefined,
     task: d.task || undefined,
+    start: d.start || undefined,
     x: Math.round(n.position.x),
     y: Math.round(n.position.y),
   };
@@ -144,10 +192,7 @@ function PipelinesEditor() {
   const saveConfig = useStore((s) => s.saveConfig);
   const pipelines = useMemo(() => config?.pipelines ?? [], [config]);
   const agentOptions = useMemo<AgentOpt[]>(
-    () => [
-      { id: 'default', name: 'Vodo / foreman' },
-      ...(config?.agents ?? []).map((a) => ({ id: a.id, name: a.name })),
-    ],
+    () => (config?.agents ?? []).map((a) => ({ id: a.id, name: a.name })),
     [config],
   );
 
@@ -155,22 +200,27 @@ function PipelinesEditor() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [foreman, setForeman] = useState('');
+
+  const hasForeman = nodes.some((n) => n.type === 'foreman');
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((es) => addEdge({ ...c, label: c.sourceHandle ?? undefined }, es)),
     [setEdges],
   );
 
-  const addStep = (kind: 'agent' | 'reviewer') => {
+  const addStep = (kind: 'agent' | 'reviewer' | 'foreman') => {
+    if (kind === 'foreman' && nodes.some((n) => n.type === 'foreman')) return; // one foreman
     const id = crypto.randomUUID();
     setNodes((ns) => [
       ...ns,
       {
         id,
         type: kind,
-        position: { x: 120 + (ns.length % 4) * 60, y: 90 + ns.length * 40 },
-        data: { kind, agentId: '', label: '', task: '' },
+        position:
+          kind === 'foreman'
+            ? { x: 40, y: 40 }
+            : { x: 160 + (ns.length % 4) * 60, y: 120 + ns.length * 40 },
+        data: { kind, agentId: '', label: '', task: '', start: false },
       },
     ]);
   };
@@ -178,7 +228,6 @@ function PipelinesEditor() {
   const loadPipeline = (p: PipelineSpec) => {
     setCurrentId(p.id);
     setName(p.name);
-    setForeman(p.foremanAgentId ?? '');
     setNodes(p.nodes.map(toFlowNode));
     setEdges(p.edges.map(toFlowEdge));
   };
@@ -186,7 +235,6 @@ function PipelinesEditor() {
   const newPipeline = () => {
     setCurrentId(null);
     setName('');
-    setForeman('');
     setNodes([]);
     setEdges([]);
   };
@@ -195,10 +243,12 @@ function PipelinesEditor() {
     const now = Date.now();
     const id = currentId ?? crypto.randomUUID();
     const existing = pipelines.find((p) => p.id === id);
+    const foremanNode = nodes.find((n) => n.type === 'foreman');
+    const foremanAgentId = (foremanNode?.data as StepData | undefined)?.agentId || undefined;
     const spec: PipelineSpec = {
       id,
       name: name.trim() || 'Untitled pipeline',
-      foremanAgentId: foreman || undefined,
+      foremanAgentId,
       nodes: nodes.map(toSpecNode),
       edges: edges.map(toSpecEdge),
       createdAt: existing?.createdAt ?? now,
@@ -223,17 +273,6 @@ function PipelinesEditor() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <label className="pl-foreman">
-          foreman
-          <select value={foreman} onChange={(e) => setForeman(e.target.value)}>
-            <option value="">Vodo (default)</option>
-            {(config?.agents ?? []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
         <span className="grow" />
         <button className="ghost" onClick={() => addStep('agent')}>
           + Agent
@@ -241,10 +280,13 @@ function PipelinesEditor() {
         <button className="ghost" onClick={() => addStep('reviewer')}>
           + Reviewer
         </button>
+        <button className="ghost" disabled={hasForeman} title={hasForeman ? 'One foreman per pipeline' : 'Add the foreman (Vodo if none)'} onClick={() => addStep('foreman')}>
+          + Foreman
+        </button>
         <button onClick={save}>Save</button>
         {currentId && (
           <button className="ghost" onClick={remove}>
-            Delete
+            Delete pipeline
           </button>
         )}
       </div>
@@ -265,7 +307,7 @@ function PipelinesEditor() {
               onClick={() => loadPipeline(p)}
             >
               <span className="pl-list-name">{p.name}</span>
-              <span className="meta">{p.nodes.length} steps</span>
+              <span className="meta">{p.nodes.filter((n) => n.kind !== 'foreman').length} steps</span>
             </button>
           ))}
         </aside>
@@ -279,6 +321,7 @@ function PipelinesEditor() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               nodeTypes={nodeTypes}
+              deleteKeyCode={['Backspace', 'Delete']}
               fitView
               proOptions={{ hideAttribution: true }}
             >
@@ -290,9 +333,10 @@ function PipelinesEditor() {
           {nodes.length === 0 && (
             <div className="pl-empty">
               <p>
-                Add agent tiles and a reviewer gate, then wire them — drag from a tile's bottom dot
-                to another's top. Loops are allowed: send a reviewer's <em>fail</em> back to an
-                earlier step, <em>pass</em> onward.
+                Add agent tiles, a reviewer gate, and a foreman, then wire them — drag from a tile's
+                bottom dot (out) to another's top dot (in). Mark one tile <em>▶ start</em>. Loops are
+                allowed: send a reviewer's <em>fail</em> back to an earlier step, <em>pass</em>{' '}
+                onward.
               </p>
             </div>
           )}
