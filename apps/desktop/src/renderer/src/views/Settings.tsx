@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
 import type { McpRegistryEntry } from '@vo-coder/core';
+import type { AgentSpec } from '@vo-coder/providers';
+import {
+  HOMELAB_AGENT_ID,
+  HOMELAB_SYSTEM_PROMPT,
+  homelabAgentSpec,
+} from '../../../shared/homelab';
 import type {
   AppConfig,
   LocalEndpoint,
@@ -2872,6 +2878,132 @@ function SettingsTile({
   );
 }
 
+/**
+ * Mr Homelab's settings. He is hidden from the Agents list (he owns his own
+ * tab and stays out of routing), so this tile IS his editor: enable the tab,
+ * edit his master prompt, and pick which MCP servers he may drive. Edits upsert
+ * the real `homelab` agent, creating it on first change if it doesn't exist yet.
+ */
+function HomelabSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const saveAgents = useStore((s) => s.saveAgents);
+  const [prompt, setPrompt] = useState<string | null>(null);
+
+  if (!config) return null;
+  const agent = config.agents.find((a) => a.id === HOMELAB_AGENT_ID);
+  const savedPrompt = agent?.systemPrompt ?? HOMELAB_SYSTEM_PROMPT;
+  const effPrompt = prompt ?? savedPrompt;
+  const effMcp = new Set(agent?.mcpServers ?? ['infra']);
+  const memoryOn = agent?.memory !== false;
+
+  const patchHomelab = async (patch: Partial<AgentSpec>) => {
+    const exists = config.agents.some((a) => a.id === HOMELAB_AGENT_ID);
+    const agents = exists
+      ? config.agents.map((a) => (a.id === HOMELAB_AGENT_ID ? { ...a, ...patch } : a))
+      : [...config.agents, homelabAgentSpec(patch)];
+    await saveAgents(agents);
+  };
+
+  return (
+    <section>
+      <h2>Mr Homelab</h2>
+      <div className="field-row">
+        <label>tab</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={!!config.homelabEnabled}
+            onChange={(e) => void saveConfig({ homelabEnabled: e.target.checked })}
+          />
+          show the Mr Homelab tab (under Terminal)
+        </label>
+      </div>
+      <p className="hint">
+        A dedicated infrastructure agent with his own chat and his own model picker in that tab. He
+        stays out of ordinary auto-routing, but Vodo can seat him on a group project&apos;s
+        infrastructure part.
+      </p>
+
+      <div className="field-row">
+        <label>master prompt</label>
+        <span className="hint grow">what he is and how he works — his system prompt</span>
+        <button
+          className="ghost"
+          onClick={() => {
+            setPrompt(HOMELAB_SYSTEM_PROMPT);
+            void patchHomelab({ systemPrompt: HOMELAB_SYSTEM_PROMPT });
+          }}
+        >
+          Reset to default
+        </button>
+        <button
+          disabled={prompt === null || prompt === savedPrompt}
+          onClick={() => void patchHomelab({ systemPrompt: effPrompt })}
+        >
+          Save
+        </button>
+      </div>
+      <textarea
+        className="system-prompt"
+        rows={8}
+        value={effPrompt}
+        onChange={(e) => setPrompt(e.target.value)}
+      />
+
+      <div className="field-row">
+        <label>tools · mcp</label>
+        <span className="hint grow">which MCP servers he may drive</span>
+      </div>
+      {config.mcpServers.length === 0 ? (
+        <p className="hint">
+          No MCP servers yet — add some under <strong>Connections → MCP</strong>. The bundled{' '}
+          <strong>infra</strong> server covers Proxmox.
+        </p>
+      ) : (
+        <div className="homelab-tools">
+          {config.mcpServers.map((s) => (
+            <label key={s.name} className="checkbox">
+              <input
+                type="checkbox"
+                checked={effMcp.has(s.name)}
+                onChange={(e) => {
+                  const next = new Set(effMcp);
+                  if (e.target.checked) next.add(s.name);
+                  else next.delete(s.name);
+                  void patchHomelab({ mcpServers: [...next] });
+                }}
+              />
+              {s.name} <span className="meta">{s.url ?? s.command}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="hint">He also has the built-in web and workspace (ws_*) tools everywhere.</p>
+
+      <div className="field-row">
+        <label>memory</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={memoryOn}
+            onChange={(e) => void patchHomelab({ memory: e.target.checked })}
+          />
+          remember the estate between his chats (recommended)
+        </label>
+      </div>
+
+      <details className="hint-more">
+        <summary>what he covers</summary>
+        <p className="hint">
+          Hypervisors and VMs, containers, NAS and storage, networking, DNS and proxies, backups,
+          monitoring, the GPUs your local models run on.
+        </p>
+      </details>
+    </section>
+  );
+}
+
 export function Settings() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -3281,34 +3413,7 @@ export function Settings() {
       </SettingsTile>
 
       <SettingsTile id="homelab" name="Mr Homelab" description="A dedicated infrastructure agent tab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
-      <section>
-        <h2>Mr Homelab</h2>
-        <div className="field-row">
-          <label>tab</label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={!!config.homelabEnabled}
-              onChange={(e) => void saveConfig({ homelabEnabled: e.target.checked })}
-            />
-            show the Mr Homelab tab (under Terminal)
-          </label>
-        </div>
-        <p className="hint">
-          A dedicated infrastructure agent with his own chat and his own model picker in that tab.
-        </p>
-        <details className="hint-more">
-          <summary>what he covers</summary>
-          <p className="hint">
-            Hypervisors and VMs, containers, NAS and storage, networking, DNS and proxies,
-            backups, monitoring, the GPUs your local models run on. Same chat as anywhere else:
-            voice, Live, folders, attachments. Connect him to your gear with MCP servers — the
-            bundled <strong>infra</strong> server covers Proxmox. He stays out of ordinary
-            auto-routing so he never absorbs normal chat, but Vodo can put him on a{' '}
-            <strong>group project</strong> when a job has an infrastructure part.
-          </p>
-        </details>
-      </section>
+        <HomelabSection />
       </SettingsTile>
 
       <SettingsTile id="generic" name="Generic folder" description="Where folder-less chats write" summary={genericSummary} openTile={openTile} setOpenTile={setOpenTile}>

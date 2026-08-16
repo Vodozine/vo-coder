@@ -2817,6 +2817,12 @@ input[type='radio']:focus-visible {
   flex-direction: column;
   gap: 4px;
 }
+.homelab-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 0 6px;
+}
 /* Connections tile: a launcher grid of pressable connection icons. Nothing is
    expanded until a tile is pressed, which opens its controls in the drawer. */
 .conn-grid {
