@@ -765,20 +765,57 @@ function McpSection() {
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState('');
+  const [env, setEnv] = useState('');
+  const [editingEnv, setEditingEnv] = useState<string | null>(null);
+  const [envDraft, setEnvDraft] = useState('');
 
   if (!config) return null;
 
+  // env is entered as KEY=VALUE lines (like a .env file) and parsed to a record;
+  // the launcher passes it to the MCP server process (client-manager's env).
+  const parseEnv = (text: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) continue;
+      const eq = t.indexOf('=');
+      if (eq <= 0) continue;
+      out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+    }
+    return out;
+  };
+  const envToText = (e?: Record<string, string>): string =>
+    Object.entries(e ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+
   const add = async () => {
+    const parsed = parseEnv(env);
     const cfg = {
       name: name.trim(),
       command: command.trim(),
       args: args.trim() ? args.trim().split(/\s+/) : [],
+      ...(Object.keys(parsed).length ? { env: parsed } : {}),
     };
     await saveConfig({ mcpServers: [...config.mcpServers, cfg] });
     setName('');
     setCommand('');
     setArgs('');
+    setEnv('');
     await mcpConnect(cfg.name);
+  };
+
+  const saveEnv = async (serverName: string) => {
+    const parsed = parseEnv(envDraft);
+    await saveConfig({
+      mcpServers: config.mcpServers.map((s) =>
+        s.name === serverName ? { ...s, env: Object.keys(parsed).length ? parsed : undefined } : s,
+      ),
+    });
+    setEditingEnv(null);
+    // Reconnect so the server process picks up the new environment.
+    await mcpDisconnect(serverName).catch(() => {});
+    await mcpConnect(serverName);
   };
 
   const remove = async (serverName: string) => {
@@ -799,25 +836,58 @@ function McpSection() {
       <McpFinder />
       {config.mcpServers.map((s) => {
         const status = mcpStatus.find((st) => st.name === s.name);
+        const envCount = Object.keys(s.env ?? {}).length;
         return (
-          <div key={s.name} className="field-row">
-            <span className={`status-dot ${status?.connected ? 'on' : 'off'}`} />
-            <label>{s.name}</label>
-            <span className="meta grow">
-              {s.command} {s.args?.join(' ')}
-              {status?.connected ? ` — ${status.toolCount} tools` : ''}
-              {status?.error ? ` — ${status.error}` : ''}
-            </span>
-            {status?.connected ? (
-              <button className="ghost" onClick={() => void mcpDisconnect(s.name)}>
-                Disconnect
+          <div key={s.name} className="mcp-server">
+            <div className="field-row">
+              <span className={`status-dot ${status?.connected ? 'on' : 'off'}`} />
+              <label>{s.name}</label>
+              <span className="meta grow">
+                {s.command} {s.args?.join(' ')}
+                {envCount ? ` · ${envCount} env` : ''}
+                {status?.connected ? ` — ${status.toolCount} tools` : ''}
+                {status?.error ? ` — ${status.error}` : ''}
+              </span>
+              <button
+                className={`ghost${editingEnv === s.name ? ' thinking-on' : ''}`}
+                title="Set environment variables the server needs (API keys, client id/secret)"
+                onClick={() => {
+                  setEditingEnv(editingEnv === s.name ? null : s.name);
+                  setEnvDraft(envToText(s.env));
+                }}
+              >
+                Env
               </button>
-            ) : (
-              <button onClick={() => void mcpConnect(s.name)}>Connect</button>
+              {status?.connected ? (
+                <button className="ghost" onClick={() => void mcpDisconnect(s.name)}>
+                  Disconnect
+                </button>
+              ) : (
+                <button onClick={() => void mcpConnect(s.name)}>Connect</button>
+              )}
+              <button className="ghost" onClick={() => void remove(s.name)}>
+                Remove
+              </button>
+            </div>
+            {editingEnv === s.name && (
+              <div className="mcp-env-edit">
+                <textarea
+                  rows={3}
+                  placeholder="KEY=VALUE per line — e.g. REDDIT_CLIENT_ID=xxxxx"
+                  value={envDraft}
+                  onChange={(e) => setEnvDraft(e.target.value)}
+                />
+                <div className="field-row">
+                  <span className="meta grow">
+                    Stored in your local config; the server reconnects on save.
+                  </span>
+                  <button className="ghost" onClick={() => setEditingEnv(null)}>
+                    Cancel
+                  </button>
+                  <button onClick={() => void saveEnv(s.name)}>Save env</button>
+                </div>
+              </div>
             )}
-            <button className="ghost" onClick={() => void remove(s.name)}>
-              Remove
-            </button>
           </div>
         );
       })}
@@ -834,6 +904,13 @@ function McpSection() {
           Add
         </button>
       </div>
+      <textarea
+        className="mcp-env-add"
+        rows={2}
+        placeholder="env (optional) — KEY=VALUE per line, e.g. REDDIT_CLIENT_ID=…"
+        value={env}
+        onChange={(e) => setEnv(e.target.value)}
+      />
     </section>
   );
 }

@@ -2811,6 +2811,29 @@ input[type='radio']:focus-visible {
   pointer-events: none;
 }
 
+/* ---- MCP server env editor ---- */
+.mcp-server {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mcp-env-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 10px 24px;
+}
+.mcp-env-edit textarea,
+.mcp-env-add {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+.mcp-env-add {
+  margin-top: 6px;
+}
+
 /* ---- pipeline tabs (running group runs, in the chat header) ---- */
 .pipeline-tabs {
   flex: 1 1 auto;
