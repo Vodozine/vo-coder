@@ -117,6 +117,13 @@ export interface AppConfig {
   disabledProviders: string[];
   /** OAuth client id for xAI subscription sign-in (public desktop client). */
   xaiOauthClientId: string;
+  /**
+   * Bring-your-own Google OAuth desktop client id for Gmail sign-in. Empty
+   * until the user pastes their own (the matching secret lives in the encrypted
+   * secret store). Google gates Gmail scopes behind per-app verification, so
+   * each install uses its own client rather than one shipped Vo-Coder app.
+   */
+  googleOauthClientId: string;
   /** Check for and download updates automatically (manual check always works). */
   autoUpdate: boolean;
   /**
@@ -276,6 +283,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // Public client id of xAI's own CLI device flow (verified from shipping
   // open-source integrations; editable in Settings if xAI rotates it).
   xaiOauthClientId: 'b1a00492-073a-47ea-816f-4c329264a828',
+  googleOauthClientId: '',
   autoUpdate: true,
   approvalMode: 'manual',
   spending: {
@@ -561,6 +569,13 @@ export interface UsageData {
 
 export interface XaiOauthEvent {
   state: 'connected' | 'signed_out' | 'error';
+  message?: string;
+}
+
+/** Progress of the Gmail (Google) sign-in. Loopback flow — no user code. */
+export interface GoogleOauthEvent {
+  state: 'connected' | 'signed_out' | 'error';
+  email?: string;
   message?: string;
 }
 
@@ -859,6 +874,10 @@ export interface VoApi {
   }>;
   xaiOauthSignOut(): Promise<void>;
   onXaiOauth(cb: (event: XaiOauthEvent) => void): () => void;
+  googleOauthStatus(): Promise<{ connected: boolean; email?: string }>;
+  googleOauthBegin(): Promise<{ ok: boolean; error?: string }>;
+  googleOauthSignOut(): Promise<void>;
+  onGoogleOauth(cb: (event: GoogleOauthEvent) => void): () => void;
   appVersion(): Promise<string>;
   updateCheck(): Promise<UpdateEvent>;
   updateInstall(): Promise<void>;
@@ -1028,6 +1047,10 @@ export const IPC = {
   xaiOauthBegin: 'xaiOauth:begin',
   xaiOauthSignOut: 'xaiOauth:signOut',
   xaiOauthEvent: 'xaiOauth:event',
+  googleOauthStatus: 'googleOauth:status',
+  googleOauthBegin: 'googleOauth:begin',
+  googleOauthSignOut: 'googleOauth:signOut',
+  googleOauthEvent: 'googleOauth:event',
   appVersion: 'app:version',
   updateCheck: 'update:check',
   updateInstall: 'update:install',

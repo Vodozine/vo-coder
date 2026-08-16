@@ -57,6 +57,8 @@ import { executeWebTool, webToolSpecs } from './web-tools';
 import { executeWorkspaceTool, insideRoot, stopLaunched, workspaceToolSpecs } from './workspace-tools';
 import { XaiOAuth } from './xai-oauth';
 import { McpOAuthManager } from './mcp-oauth';
+import { GoogleOAuth } from './google-oauth';
+import { gmailToolSpecs, executeGmailTool, GMAIL_TOOL_NAMES } from './gmail-tools';
 import { PreviewManager, detectDevCommand, type PreviewBounds } from './preview';
 import { ProjectWatcher } from './watcher';
 import { initUpdater } from './updater';
@@ -146,6 +148,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const mcpOAuth = new McpOAuthManager(config, secrets, mcp, sendToWindow);
   setInterval(() => void mcpOAuth.refreshIfNeeded(), 10 * 60_000);
   void mcpOAuth.refreshIfNeeded();
+  // Gmail sign-in (bring-your-own Google client) — the token feeds the built-in
+  // gmail_* tools; refreshed in the background like the other OAuth logins.
+  const googleOAuth = new GoogleOAuth(config, secrets, sendToWindow);
+  setInterval(() => void googleOAuth.refreshIfNeeded(), 10 * 60_000);
+  void googleOAuth.refreshIfNeeded();
   const projects = new ProjectStore();
   projects.ensureDefault();
   const usage = new UsageTracker(join(app.getPath('userData'), 'usage.json'), sendToWindow);
@@ -263,6 +270,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const builtins = {
     specs: () => [
       ...webToolSpecs(),
+      ...(googleOAuth.status().connected ? gmailToolSpecs() : []),
       ...imageToolSpecs(),
       ...videoToolSpecs(),
       ...paymentToolSpecs(config),
@@ -443,6 +451,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       }
       if (name === 'look_at_image') {
         return executeLookTool(args, { config, hub }, ctxDir());
+      }
+      if (GMAIL_TOOL_NAMES.has(name)) {
+        return executeGmailTool(name, args, { token: () => googleOAuth.accessToken() });
       }
       // Routed from the SPEC list, not a hand-written set: group_status was
       // advertised to the model and then rejected as unknown, because adding a
@@ -1208,6 +1219,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     xaiOauth.signOut();
     invalidateXaiLiveIds();
   });
+  ipcMain.handle(IPC.googleOauthStatus, () => googleOAuth.status());
+  ipcMain.handle(IPC.googleOauthBegin, () => googleOAuth.begin());
+  ipcMain.handle(IPC.googleOauthSignOut, () => googleOAuth.signOut());
 
   // ---- projects & chat sessions ----
   const broadcastProjects = () => sendToWindow(IPC.projectsChanged, projects.list());

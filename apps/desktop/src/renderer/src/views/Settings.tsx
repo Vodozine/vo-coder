@@ -1073,6 +1073,126 @@ function McpSection() {
   );
 }
 
+function GmailSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const saveSecret = useStore((s) => s.saveSecret);
+  const secretStatus = useStore((s) => s.secretStatus);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [secret, setSecret] = useState('');
+  const [status, setStatus] = useState<{ connected: boolean; email?: string }>({ connected: false });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.vo.googleOauthStatus().then(setStatus);
+    return window.vo.onGoogleOauth((ev) => {
+      if (ev.state === 'connected') {
+        setStatus({ connected: true, email: ev.email });
+        setBusy(false);
+        setError(null);
+      } else if (ev.state === 'signed_out') {
+        setStatus({ connected: false });
+        setBusy(false);
+        if (ev.message) setError(ev.message);
+      } else if (ev.state === 'error') {
+        setBusy(false);
+        setError(ev.message ?? 'Sign-in failed.');
+      }
+    });
+  }, []);
+
+  if (!config) return null;
+  const effClientId = clientId ?? config.googleOauthClientId ?? '';
+  const secretSaved = !!secretStatus['google-oauth-secret'];
+
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    if (clientId !== null) await saveConfig({ googleOauthClientId: clientId.trim() });
+    if (secret.trim()) {
+      await saveSecret('google-oauth-secret', secret.trim());
+      setSecret('');
+    }
+    const res = await window.vo.googleOauthBegin();
+    if (!res.ok) {
+      setBusy(false);
+      setError(res.error ?? 'Could not start sign-in.');
+    }
+    // On success the browser opens; the 'connected' event flips status.
+  };
+
+  return (
+    <section>
+      <h2>Gmail</h2>
+      <p className="hint">
+        Sign in with your Google account and every agent gets real Gmail tools — search, read, send.
+        It runs in the background; connect once.
+      </p>
+      {status.connected ? (
+        <div className="field-row">
+          <span className="status-dot on" />
+          <span className="hint grow">
+            ✓ Connected{status.email ? ` as ${status.email}` : ''} — agents have gmail_search,
+            gmail_read, gmail_send.
+          </span>
+          <button className="ghost" onClick={() => void window.vo.googleOauthSignOut()}>
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="field-row">
+            <label>Client ID</label>
+            <input
+              className="grow"
+              placeholder="…apps.googleusercontent.com"
+              value={effClientId}
+              onChange={(e) => setClientId(e.target.value)}
+            />
+          </div>
+          <div className="field-row">
+            <label>Client secret</label>
+            <input
+              className="grow"
+              type="password"
+              placeholder={secretSaved ? 'saved — paste to replace' : 'GOCSPX-…'}
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+            />
+          </div>
+          <div className="field-row">
+            <span className="hint grow">
+              {error ? (
+                <span className="error-text">{error}</span>
+              ) : (
+                'Opens Google in your browser to approve.'
+              )}
+            </span>
+            <button
+              disabled={busy || !effClientId.trim() || !(secret.trim() || secretSaved)}
+              onClick={() => void connect()}
+            >
+              {busy ? 'Connecting…' : 'Connect Gmail'}
+            </button>
+          </div>
+        </>
+      )}
+      <details className="hint">
+        <summary>Where do the Client ID and secret come from?</summary>
+        <p>
+          They&apos;re your own Google OAuth <strong>Desktop</strong> client (bring-your-own, so
+          there&apos;s no shared app to verify). In Google Cloud: create a project, enable the Gmail
+          API, add yourself (and anyone else) as a <em>test user</em>, then make a Desktop OAuth
+          client and paste its ID + secret here. First sign-in shows an &quot;unverified app&quot;
+          screen — click Advanced → continue; it&apos;s your own app. While unverified, Google
+          expires the login about weekly, so you&apos;ll reconnect now and then.
+        </p>
+      </details>
+    </section>
+  );
+}
+
 function VisionSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -2628,6 +2748,14 @@ export function Settings() {
   useEffect(() => {
     void window.vo.appVersion().then(setVersion);
   }, []);
+  const [gmail, setGmail] = useState<{ connected: boolean; email?: string }>({ connected: false });
+  useEffect(() => {
+    void window.vo.googleOauthStatus().then(setGmail);
+    return window.vo.onGoogleOauth((ev) => {
+      if (ev.state === 'connected') setGmail({ connected: true, email: ev.email });
+      else if (ev.state === 'signed_out') setGmail({ connected: false });
+    });
+  }, []);
   // Esc closes the open panel — the modal convention everywhere else in the app.
   useEffect(() => {
     if (!openTile) return;
@@ -2676,6 +2804,7 @@ export function Settings() {
         : 'off';
   const genericSummary =
     (config.genericDir || '').split(/[\\/]/).filter(Boolean).pop() ?? 'default';
+  const gmailSummary = gmail.connected ? (gmail.email ?? 'connected') : 'not connected';
 
   return (
     <div className="settings settings-full">
@@ -2994,6 +3123,9 @@ export function Settings() {
       </SettingsTile>
       <SettingsTile id="mcp" name="MCP servers" description="Connect tools and data over MCP" summary={`${mcpConnected} connected`} openTile={openTile} setOpenTile={setOpenTile}>
         <McpSection />
+      </SettingsTile>
+      <SettingsTile id="gmail" name="Gmail" description="Sign in so agents can read & send email" summary={gmailSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <GmailSection />
       </SettingsTile>
       <SettingsTile id="skills" name="Skills" description="Packaged know-how agents read on demand" summary="packaged know-how" openTile={openTile} setOpenTile={setOpenTile}>
         <SkillsSection />

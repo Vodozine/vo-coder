@@ -85,6 +85,8 @@ export class SecretStore {
       'telegram',
       'elevenlabs',
       'tts-custom',
+      // Bring-your-own Google desktop client secret (Gmail sign-in).
+      'google-oauth-secret',
     ]) {
       const value = this.get(provider);
       out[provider] = value ? `…${value.slice(-4)}` : null;
