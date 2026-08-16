@@ -33,6 +33,50 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   'skill_read',
 ]);
 
+/** Names that only LOOK at agents rather than start one — these stay usable. */
+const READ_VERB = /list|get|info|status|describe|show|query|search|read|count|inspect|history|log/;
+
+/**
+ * A call that would put another agent on a job OUTSIDE the group system.
+ *
+ * Vo-Coder has exactly one way to delegate — `group_start`, plus `group_add`
+ * for one more seat — because the whole point of a group project is WATCHING
+ * it: every member gets its own pane in the split view, including the
+ * temporary stand-ins Vodo seats when the roster is thin. A model carrying
+ * another harness's habits reaches for a "Task" or "Agent" tool, and an MCP
+ * server is free to advertise one of its own; either runs the work in the
+ * background, where the user can neither see it nor steer it. That is never an
+ * option here, so these names are stripped from what a model is offered AND
+ * refused if one is called anyway — hidden and gated, the same belt-and-braces
+ * the memory-off rule uses, because hiding alone only lasts until a model
+ * guesses the name.
+ *
+ * Vo-Coder's own tools are routed by name BEFORE this is consulted, so it can
+ * only ever match a foreign or invented name. Missions are deliberately NOT
+ * caught: they are a separate feature with their own visible panel.
+ */
+export function isSubagentTool(name: string): boolean {
+  // MCP names arrive namespaced as "server__tool" — judge the tool half.
+  const sep = name.lastIndexOf('__');
+  const bare = (sep < 0 ? name : name.slice(sep + 2)).toLowerCase().replace(/[^a-z]/g, '');
+  if (bare === 'task' || bare === 'tasks') return true; // the Task tool
+  if (bare.startsWith('spawn') || bare.startsWith('delegate')) return true;
+  // Default-deny anything that names an agent. Listing spawn verbs invites the
+  // one that was not listed — `background_agent` slipped a verb-based check —
+  // and the trade is lopsided: over-blocking costs one unrelated MCP call,
+  // under-blocking costs a crew running where the user cannot see it.
+  return bare.includes('agent') && !READ_VERB.test(bare);
+}
+
+/** What the model is told instead of being allowed to fan out invisibly. */
+export const SUBAGENT_REFUSAL =
+  'There are no subagents in Vo-Coder, and this call did nothing. The ONLY way to put another ' +
+  'agent on a job is group_start (or group_add to seat one more in a group already running). ' +
+  'That is not a formality: group members appear in the split view as they work — including ' +
+  'stand-ins you seat yourself when the roster is short — and the user watches and redirects ' +
+  'them there. Work started any other way is invisible to them. Call group_start now with the ' +
+  'parts you had in mind, naming which agent takes each one.';
+
 /**
  * The opposite list: tools that a human confirms EVERY time, and that no
  * setting can wave through — not Auto mode, not a mission's autoApprove, not a

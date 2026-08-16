@@ -12,7 +12,13 @@ import { isAudioPath } from '../shared/media';
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
-import { AUTO_ALLOWED_TOOLS, MEMORY_TOOLS, permissionFor } from './tool-policy';
+import {
+  AUTO_ALLOWED_TOOLS,
+  MEMORY_TOOLS,
+  SUBAGENT_REFUSAL,
+  isSubagentTool,
+  permissionFor,
+} from './tool-policy';
 import { lookToolSpecs } from './vision-look';
 import { elideOldTraffic, planWindow, type WindowPlan } from './context-window';
 import { globalRulesNote, projectMdNote } from './project-md';
@@ -756,7 +762,12 @@ export class SessionManager {
           return [
             ...(dir ? [...workspaceToolSpecs(dir), ...lookToolSpecs()] : []),
             ...builtins,
-            ...this.deps.mcp.toolsFor(this.agentSpecSafe(sessionId)?.mcpServers),
+            // An MCP server may advertise its own Task/Agent tool. Delegation
+            // that does not seat the worker in the group view is not on offer
+            // here, so it never reaches the model's tool list.
+            ...this.deps.mcp
+              .toolsFor(this.agentSpecSafe(sessionId)?.mcpServers)
+              .filter((t) => !isSubagentTool(t.name)),
           ];
         },
         execute: (name, args, signal) =>
@@ -845,6 +856,16 @@ export class SessionManager {
         // video_generate polls for minutes — Stop has to reach it.
         ...(signal ? { signal } : {}),
       });
+    }
+    // Everything Vo-Coder owns has been routed by name above, so anything
+    // still here is an MCP tool or one the model invented. Either way, a name
+    // that means "run another agent" is refused rather than passed on: hiding
+    // the spec only holds until a model guesses the name from another
+    // harness's habits, and the invented call would otherwise come back as
+    // "Malformed tool name" — which reads as a glitch, not as "you have not
+    // started anything", so the model believes it delegated and stops.
+    if (isSubagentTool(name)) {
+      return Promise.resolve({ content: SUBAGENT_REFUSAL, isError: true });
     }
     return this.deps.mcp.call(name, args);
   }

@@ -734,6 +734,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // push exactly one follow-up telling Vodo to call the tool or explicitly
       // decline. One retry, then it stays the user's move.
       if (event.type === 'status' && event.status === 'idle') {
+        // The button path arms this through noRoute, but a group asked for in
+        // plain chat ("put the team on this") never did — so the whole
+        // follow-through below could not fire on the one route users actually
+        // take, and a stated plan ended the turn with nothing running. Arm it
+        // from the model's own last turn instead of from the entry point.
+        if (!pendingGroupPlans.has(sessionId) && statedGroupPlan(sessionId)) {
+          pendingGroupPlans.set(sessionId, { retried: false });
+        }
         const pending = pendingGroupPlans.get(sessionId);
         if (pending) {
           const started = projects
@@ -1427,6 +1435,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const recentAgents = new Map<string, string[]>();
   /** Planning turns awaiting their group_start call — see onEvent. */
   const pendingGroupPlans = new Map<string, { retried: boolean }>();
+  /** "I'm calling group_start…" as intent, not as a mention of the tool. */
+  const INTENDS_GROUP_START =
+    /\b(?:now|next|then|let me|i'?ll|i'?m|going to|about to|ready to|will|use|using|call|calling|start|starting)\b[^.\n]{0,60}group_start/i;
+  /**
+   * Did the newest assistant turn SAY it was splitting the job? Read off the
+   * model's own words because the intent can arrive by any route — the Group
+   * project button, or simply asking Vodo to put the team on something — and
+   * only the button ever set a flag up front. A turn that actually emitted the
+   * call is not a plan awaiting one: it either started a group (caught by the
+   * `started` check) or was declined, and re-nudging a declined call would
+   * argue with the user's own answer.
+   */
+  const statedGroupPlan = (sessionId: string): boolean => {
+    const history = sessions.historyOf(sessionId);
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i];
+      if (m.role !== 'assistant') continue;
+      if (m.content.some((p) => p.type === 'tool_call' && p.name === 'group_start')) return false;
+      const text = m.content
+        .map((p) => (p.type === 'text' || p.type === 'thinking' ? p.text : ''))
+        .join('\n');
+      // The escape hatch the nudge itself offers has to be honoured here too.
+      if (/\bnot splitting\b/i.test(text)) return false;
+      return INTENDS_GROUP_START.test(text);
+    }
+    return false;
+  };
   /** Consecutive failed tool calls per group member — 2 in a row earns a nudge. */
   const memberErrors = new Map<string, number>();
   /** Members whose next idle is the RESPONSE to a review — reviewed work, not re-reviewed. */
