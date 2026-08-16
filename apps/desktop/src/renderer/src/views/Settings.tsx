@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/ipc-contract';
 import { mcpOauthLabelForUrl } from '../../../shared/ipc-contract';
 import { ZoomButtons } from '../components/ZoomButtons';
+import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
 
 // One <id>.png per SettingsTile id (see assets/settings-icons). Static imports —
@@ -31,7 +32,7 @@ import iconGeneric from '../assets/settings-icons/generic.png';
 import iconVodo from '../assets/settings-icons/vodo.png';
 import iconDisplay from '../assets/settings-icons/display.png';
 const TILE_ICONS: Record<string, string> = {
-  keys: iconKeys, local: iconLocal, rules: iconRules, mcp: iconMcp, skills: iconSkills,
+  keys: iconKeys, local: iconLocal, rules: iconRules, mcp: iconMcp, connections: iconMcp, skills: iconSkills,
   vision: iconVision, image: iconImage, video: iconVideo, voice: iconVoice,
   spending: iconSpending, telegram: iconTelegram, updates: iconUpdates, homelab: iconHomelab,
   generic: iconGeneric, vodo: iconVodo, display: iconDisplay,
@@ -771,7 +772,7 @@ function SkillsSection() {
   );
 }
 
-function McpSection() {
+function McpSection({ embedded }: { embedded?: boolean } = {}) {
   const config = useStore((s) => s.config);
   const mcpStatus = useStore((s) => s.mcpStatus);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -915,11 +916,15 @@ function McpSection() {
 
   return (
     <section>
-      <h2>MCP servers</h2>
-      <p className="hint">
-        Tools for your agents — search below and add with one click; the harness runs and connects
-        them for you. Advanced: add any server manually by command.
-      </p>
+      {!embedded && (
+        <>
+          <h2>MCP servers</h2>
+          <p className="hint">
+            Tools for your agents — search below and add with one click; the harness runs and
+            connects them for you. Advanced: add any server manually by command.
+          </p>
+        </>
+      )}
       <McpFinder />
       <div className="mcp-server">
         <div className="field-row">
@@ -1073,7 +1078,60 @@ function McpSection() {
   );
 }
 
-function GmailSection() {
+/**
+ * The Connections tile: everything that hands an agent an outside account or
+ * tool, split into two honest kinds — Vo-Coder built-ins (native, e.g. Gmail
+ * and Telegram) and MCP servers. The MCP-backed featured connections (GitHub,
+ * engine bridges) live under the MCP group, so they read as what they are.
+ */
+function ConnCard({ icon, name, tag, children }: {
+  icon: IconName;
+  name: string;
+  tag: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="conn-card">
+      <div className="conn-card-head">
+        <span className="conn-icon">
+          <Icon name={icon} size={20} />
+        </span>
+        <span className="conn-card-name">{name}</span>
+        <span className="conn-tag">{tag}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ConnectionsSection() {
+  return (
+    <section className="connections">
+      <h2>Connections</h2>
+      <p className="hint">
+        Accounts and tools your agents can use. Some are built into Vo-Coder; the rest connect over
+        MCP.
+      </p>
+
+      <div className="conn-group-label">
+        <Icon name="check" size={14} /> Vo-Coder built-in
+      </div>
+      <ConnCard icon="mail" name="Gmail" tag="Built-in">
+        <GmailSection embedded />
+      </ConnCard>
+      <ConnCard icon="send" name="Telegram" tag="Built-in">
+        <TelegramSection embedded />
+      </ConnCard>
+
+      <div className="conn-group-label">
+        <Icon name="plug" size={14} /> MCP — servers &amp; hosted tools
+      </div>
+      <McpSection embedded />
+    </section>
+  );
+}
+
+function GmailSection({ embedded }: { embedded?: boolean } = {}) {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
   const saveSecret = useStore((s) => s.saveSecret);
@@ -1122,9 +1180,8 @@ function GmailSection() {
     // On success the browser opens; the 'connected' event flips status.
   };
 
-  return (
-    <section>
-      <h2>Gmail</h2>
+  const body = (
+    <>
       <p className="hint">
         Sign in with your Google account and every agent gets real Gmail tools — search, read, send.
         It runs in the background; connect once.
@@ -1189,6 +1246,14 @@ function GmailSection() {
           expires the login about weekly, so you&apos;ll reconnect now and then.
         </p>
       </details>
+    </>
+  );
+  return embedded ? (
+    body
+  ) : (
+    <section>
+      <h2>Gmail</h2>
+      {body}
     </section>
   );
 }
@@ -2215,7 +2280,7 @@ function VoiceSection() {
 }
 
 /** Remote control: talk to Vodo (and run missions) from your phone. */
-function TelegramSection() {
+function TelegramSection({ embedded }: { embedded?: boolean } = {}) {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
   const [info, setInfo] = useState<TelegramInfo | null>(null);
@@ -2228,9 +2293,8 @@ function TelegramSection() {
 
   if (!config) return null;
 
-  return (
-    <section>
-      <h2>Telegram remote</h2>
+  const body = (
+    <>
       <p className="hint">
         Talk to Vodo from your phone: ask anything, start missions, approve tool calls with buttons.
         Create a bot with Telegram's @BotFather (send it /newbot), paste the token here, then pair
@@ -2286,6 +2350,14 @@ function TelegramSection() {
           that chat.
         </p>
       )}
+    </>
+  );
+  return embedded ? (
+    body
+  ) : (
+    <section>
+      <h2>Telegram remote</h2>
+      {body}
     </section>
   );
 }
@@ -2796,15 +2868,11 @@ export function Settings() {
   const spendingSummary = config.spending.enabled
     ? `on · $${config.spending.perTransactionMax}/$${config.spending.dailyMax}`
     : 'off';
-  const telegramSummary =
-    (config.telegramPaired?.length ?? 0) > 0
-      ? `${config.telegramPaired.length} paired`
-      : has('telegram')
-        ? 'ready'
-        : 'off';
   const genericSummary =
     (config.genericDir || '').split(/[\\/]/).filter(Boolean).pop() ?? 'default';
-  const gmailSummary = gmail.connected ? (gmail.email ?? 'connected') : 'not connected';
+  const builtinOn =
+    (gmail.connected ? 1 : 0) + ((config.telegramPaired?.length ?? 0) > 0 ? 1 : 0);
+  const connectionsSummary = `${builtinOn} built-in · ${mcpConnected} MCP`;
 
   return (
     <div className="settings settings-full">
@@ -3121,11 +3189,8 @@ export function Settings() {
       <SettingsTile id="rules" name="Your rules" description="Standing rules every agent obeys" summary="every agent, every turn" openTile={openTile} setOpenTile={setOpenTile}>
         <GlobalRulesSection />
       </SettingsTile>
-      <SettingsTile id="mcp" name="MCP servers" description="Connect tools and data over MCP" summary={`${mcpConnected} connected`} openTile={openTile} setOpenTile={setOpenTile}>
-        <McpSection />
-      </SettingsTile>
-      <SettingsTile id="gmail" name="Gmail" description="Sign in so agents can read & send email" summary={gmailSummary} openTile={openTile} setOpenTile={setOpenTile}>
-        <GmailSection />
+      <SettingsTile id="connections" name="Connections" description="Accounts & tools your agents can use — Gmail, Telegram, MCP" summary={connectionsSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <ConnectionsSection />
       </SettingsTile>
       <SettingsTile id="skills" name="Skills" description="Packaged know-how agents read on demand" summary="packaged know-how" openTile={openTile} setOpenTile={setOpenTile}>
         <SkillsSection />
@@ -3144,9 +3209,6 @@ export function Settings() {
       </SettingsTile>
       <SettingsTile id="spending" name="Spending" description="Whether agents may spend, and the caps" summary={spendingSummary} openTile={openTile} setOpenTile={setOpenTile}>
         <SpendingSection />
-      </SettingsTile>
-      <SettingsTile id="telegram" name="Telegram remote" description="Talk to Vodo from your phone" summary={telegramSummary} openTile={openTile} setOpenTile={setOpenTile}>
-        <TelegramSection />
       </SettingsTile>
       <SettingsTile id="updates" name="Updates" description="Version and auto-update" summary={version || 'auto'} openTile={openTile} setOpenTile={setOpenTile}>
         <UpdatesSection />

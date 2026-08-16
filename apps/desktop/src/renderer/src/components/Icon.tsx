@@ -23,6 +23,9 @@ export type IconName =
   | 'search'
   | 'copy'
   | 'check'
+  | 'mail'
+  | 'send'
+  | 'plug'
   | 'chevron-down';
 
 const PATHS: Record<IconName, JSX.Element> = {
@@ -128,6 +131,26 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   check: <path d="M20 6L9 17l-5-5" />,
+  mail: (
+    <>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M22 7l-10 6L2 7" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M22 2L11 13" />
+      <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+    </>
+  ),
+  plug: (
+    <>
+      <path d="M9 2v6" />
+      <path d="M15 2v6" />
+      <path d="M6 8h12v3a6 6 0 0 1-12 0V8z" />
+      <path d="M12 17v5" />
+    </>
+  ),
   'chevron-down': <path d="M6 9l6 6 6-6" />,
 };
 
