@@ -2,7 +2,7 @@
   "name": "vo-coder",
   "version": "0.1.0",
   "private": true,
-  "description": "Provider-agnostic LLM agent harness \u2014 the tool shed. Electron desktop app bundling a markdown scaffolding system and a universal infrastructure MCP.",
+  "description": "Provider-agnostic LLM agent harness — the tool shed. Electron desktop app bundling a markdown scaffolding system and a universal infrastructure MCP.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "workspaces": [
