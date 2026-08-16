@@ -4,7 +4,6 @@ import { app } from 'electron';
 import type { ToolSpec } from '@vo-coder/providers';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
-import { ensureRealPngFile } from './png-alpha';
 
 /**
  * image_generate: the door back in for image-OUTPUT models (which routing
@@ -299,15 +298,6 @@ export async function executeImageTool(
     const target = guardedTarget(projectDir, a.save_as ? String(a.save_as) : undefined);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, image.data);
-    // Grok Imagine often returns JPEG bytes under a .png path — normalize so
-    // cutout keying and imageRead mime detection see a real PNG.
-    if (/\.png$/i.test(target)) {
-      try {
-        ensureRealPngFile(target);
-      } catch {
-        /* best-effort — ensurePngTransparency will also try on cutout */
-      }
-    }
     const where = projectDir ? relative(projectDir, target) : target;
     return {
       content:
