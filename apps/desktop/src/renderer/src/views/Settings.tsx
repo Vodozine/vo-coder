@@ -258,22 +258,27 @@ function RegistryResult({ entry, taken }: { entry: McpRegistryEntry; taken: stri
   const [detail, setDetail] = useState('');
 
   const add = async () => {
-    if (!entry.install) return;
-    const required = entry.install.envVars.filter((v) => v.isRequired);
+    if (!entry.install && !entry.remoteUrl) return;
+    const required = (entry.install?.envVars ?? []).filter((v) => v.isRequired);
     if (required.some((v) => !envValues[v.name]?.trim()) && !envOpen) {
       setEnvOpen(true);
       return;
     }
     setState('adding');
     const name = suggestName(entry, taken);
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(envValues)) if (v.trim()) env[k] = v.trim();
-    const status = await window.vo.mcpAdd({
-      name,
-      command: entry.install.command,
-      args: entry.install.args,
-      ...(Object.keys(env).length ? { env } : {}),
-    });
+    const vars: Record<string, string> = {};
+    for (const [k, v] of Object.entries(envValues)) if (v.trim()) vars[k] = v.trim();
+    // Remote (HTTP) entry → add by url; local entry → add by command. Any typed
+    // values are HTTP headers for a remote server, process env for a local one.
+    const cfg = entry.remoteUrl
+      ? { name, url: entry.remoteUrl, ...(Object.keys(vars).length ? { headers: vars } : {}) }
+      : {
+          name,
+          command: entry.install!.command,
+          args: entry.install!.args,
+          ...(Object.keys(vars).length ? { env: vars } : {}),
+        };
+    const status = await window.vo.mcpAdd(cfg);
     await saveConfig({}); // re-pull config (mcpAdd wrote the server list in main)
     await refreshMcp();
     if (status.connected) {
@@ -281,7 +286,12 @@ function RegistryResult({ entry, taken }: { entry: McpRegistryEntry; taken: stri
       setDetail(`connected as "${name}" — ${status.toolCount} tools`);
     } else {
       setState('failed');
-      setDetail(status.error ?? 'could not connect (it stays in your server list to retry)');
+      setDetail(
+        status.error ??
+          (entry.remoteUrl
+            ? `added as "${name}" — if it needs a token, hit Headers on its row and add Authorization=Bearer <token>, then Connect`
+            : 'could not connect (it stays in your server list to retry)'),
+      );
     }
   };
 
@@ -291,13 +301,15 @@ function RegistryResult({ entry, taken }: { entry: McpRegistryEntry; taken: stri
         <div className="registry-info">
           <strong>{entry.displayName}</strong>
           <span className="meta">{entry.description || entry.name}</span>
-          {entry.install && (
+          {entry.install ? (
             <code className="registry-cmd">
               {entry.install.command} {entry.install.args.join(' ')}
             </code>
-          )}
+          ) : entry.remoteUrl ? (
+            <code className="registry-cmd">remote · {entry.remoteUrl}</code>
+          ) : null}
         </div>
-        {entry.install ? (
+        {entry.install || entry.remoteUrl ? (
           <button
             className={state === 'added' ? 'ghost' : 'send'}
             disabled={state === 'adding' || state === 'added'}
@@ -306,13 +318,15 @@ function RegistryResult({ entry, taken }: { entry: McpRegistryEntry; taken: stri
             {state === 'adding' ? 'Adding…' : state === 'added' ? 'Added ✓' : 'Add'}
           </button>
         ) : (
-          <button
-            className="ghost"
-            title="Remote-hosted server — open its page (remote connections land in a later phase)"
-            onClick={() => entry.homepage && void window.vo.openExternal(entry.homepage)}
-          >
-            remote ↗
-          </button>
+          entry.homepage && (
+            <button
+              className="ghost"
+              title="Open the server's page"
+              onClick={() => entry.homepage && void window.vo.openExternal(entry.homepage)}
+            >
+              page ↗
+            </button>
+          )
         )}
       </div>
       {envOpen && entry.install && entry.install.envVars.length > 0 && (
