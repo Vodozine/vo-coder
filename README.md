@@ -117,6 +117,8 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 ## What's new
 
+**1.2.33** — **The memory graph stays put when you pick a node, and the nodes look like moons, planets, and suns.** Selecting a point no longer zooms the camera all the way out; a leader line runs from the popup to the selected body. Glow scales with size — the biggest node on the current map glows most, and there is no size cap. Settings is a one-screen grid of cards. Gemini is a provider (chat and image gen). Pipelines is a new tab for drawing saved multi-agent workflows.
+
 **1.2.32** — **The chat lands on the newest message, and stops mistaking your words for an image request.** Leaving a group, switching chats and other returns used to drop you at the *top* of a long conversation; the view now opens on the latest message, with a **jump-to-newest button** when you scroll up. And describing reference photos no longer fires the image generator: "I'll make a folder and put some pictures of boats there" was matching *make* + *pictures* and forcing an `image_generate` call — the make-verb now has to actually govern the image noun, and "I will send/attach/put pictures" is read as *you* providing them. The "writing a tool call — 0 chars…" line that lingered on a keep-alive signal is gone too — it only shows once the model is really composing a call.
 
 **1.2.31** — **Fix: `look_at_image` works again.** 1.2.30's new by-name tool routing orphaned exactly one tool — `look_at_image` is advertised separately (folder-backed chats only) but executed by the builtin executor, so every look errored "Malformed tool name". Both dispatch sites now derive membership from the live spec lists, so it cannot drift again.
