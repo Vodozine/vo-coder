@@ -1079,54 +1079,120 @@ function McpSection({ embedded }: { embedded?: boolean } = {}) {
 }
 
 /**
- * The Connections tile: everything that hands an agent an outside account or
- * tool, split into two honest kinds — Vo-Coder built-ins (native, e.g. Gmail
- * and Telegram) and MCP servers. The MCP-backed featured connections (GitHub,
- * engine bridges) live under the MCP group, so they read as what they are.
+ * The Connections tile: a launcher grid of pressable icons — one per outside
+ * account or tool an agent can use. Nothing is expanded by default; pressing a
+ * tile opens just that connection's controls in the drawer below. Two honest
+ * kinds, shown by a corner tag: Vo-Coder built-in (Gmail, Telegram) and MCP.
  */
-function ConnCard({ icon, name, tag, children }: {
-  icon: IconName;
+interface ConnTile {
+  id: string;
   name: string;
+  icon: IconName;
   tag: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="conn-card">
-      <div className="conn-card-head">
-        <span className="conn-icon">
-          <Icon name={icon} size={20} />
-        </span>
-        <span className="conn-card-name">{name}</span>
-        <span className="conn-tag">{tag}</span>
-      </div>
-      {children}
-    </div>
-  );
+  on: boolean;
+  sub: string;
+  detail: ReactNode;
 }
 
 function ConnectionsSection() {
+  const config = useStore((s) => s.config);
+  const mcpStatus = useStore((s) => s.mcpStatus);
+  const [open, setOpen] = useState<string | null>(null);
+  const [gmail, setGmail] = useState<{ connected: boolean; email?: string }>({ connected: false });
+  const [tg, setTg] = useState<TelegramInfo | null>(null);
+
+  useEffect(() => {
+    void window.vo.googleOauthStatus().then(setGmail);
+    return window.vo.onGoogleOauth((ev) => {
+      if (ev.state === 'connected') setGmail({ connected: true, email: ev.email });
+      else if (ev.state === 'signed_out') setGmail({ connected: false });
+    });
+  }, []);
+  useEffect(() => {
+    void window.vo.telegramInfo().then(setTg);
+    return window.vo.onTelegramChanged(setTg);
+  }, []);
+
+  if (!config) return null;
+  const mcpCount = mcpStatus.filter((s) => s.connected).length;
+  const tgOn = !!tg?.polling || (tg?.paired?.length ?? 0) > 0;
+
+  const tiles: ConnTile[] = [
+    {
+      id: 'gmail',
+      name: 'Gmail',
+      icon: 'mail',
+      tag: 'Built-in',
+      on: gmail.connected,
+      sub: gmail.connected ? (gmail.email ?? 'connected') : 'connect',
+      detail: <GmailSection embedded />,
+    },
+    {
+      id: 'telegram',
+      name: 'Telegram',
+      icon: 'send',
+      tag: 'Built-in',
+      on: tgOn,
+      sub: tg?.polling ? 'connected' : (config.telegramPaired?.length ? 'paired' : 'connect'),
+      detail: <TelegramSection embedded />,
+    },
+    {
+      id: 'mcp',
+      name: 'MCP servers',
+      icon: 'plug',
+      tag: 'MCP',
+      on: mcpCount > 0,
+      sub: mcpCount > 0 ? `${mcpCount} connected` : 'add tools',
+      detail: <McpSection embedded />,
+    },
+  ];
+  const active = tiles.find((t) => t.id === open);
+
   return (
     <section className="connections">
       <h2>Connections</h2>
       <p className="hint">
-        Accounts and tools your agents can use. Some are built into Vo-Coder; the rest connect over
-        MCP.
+        Accounts and tools your agents can use. Press one to connect it or manage it.
       </p>
-
-      <div className="conn-group-label">
-        <Icon name="check" size={14} /> Vo-Coder built-in
+      <div className="conn-grid">
+        {tiles.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`conn-tile${open === t.id ? ' active' : ''}${t.on ? ' on' : ''}`}
+            onClick={() => setOpen(open === t.id ? null : t.id)}
+          >
+            <span className="conn-tile-tag">{t.tag}</span>
+            <span className="conn-tile-icon">
+              <Icon name={t.icon} size={24} />
+            </span>
+            <span className="conn-tile-name">{t.name}</span>
+            <span className="conn-tile-sub">
+              {t.on && <span className="conn-dot" />}
+              {t.sub}
+            </span>
+          </button>
+        ))}
       </div>
-      <ConnCard icon="mail" name="Gmail" tag="Built-in">
-        <GmailSection embedded />
-      </ConnCard>
-      <ConnCard icon="send" name="Telegram" tag="Built-in">
-        <TelegramSection embedded />
-      </ConnCard>
-
-      <div className="conn-group-label">
-        <Icon name="plug" size={14} /> MCP — servers &amp; hosted tools
-      </div>
-      <McpSection embedded />
+      {active && (
+        <div className="conn-detail">
+          <div className="conn-detail-head">
+            <span className="conn-icon">
+              <Icon name={active.icon} size={18} />
+            </span>
+            <strong>{active.name}</strong>
+            <button
+              type="button"
+              className="ghost conn-detail-close"
+              aria-label="Close"
+              onClick={() => setOpen(null)}
+            >
+              ×
+            </button>
+          </div>
+          {active.detail}
+        </div>
+      )}
     </section>
   );
 }

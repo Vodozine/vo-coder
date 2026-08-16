@@ -2817,57 +2817,105 @@ input[type='radio']:focus-visible {
   flex-direction: column;
   gap: 4px;
 }
-/* Connections tile: grouped built-in + MCP cards. */
-.conn-group-label {
+/* Connections tile: a launcher grid of pressable connection icons. Nothing is
+   expanded until a tile is pressed, which opens its controls in the drawer. */
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 14px 0 4px;
+}
+.conn-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.conn-tile:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.conn-tile.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.conn-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.conn-tile.on .conn-tile-icon {
+  background: var(--accent);
+  color: var(--bg);
+}
+.conn-tile-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.conn-tile-sub {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 20px 0 10px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #46d58a;
+  flex: none;
+}
+.conn-tile-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 9px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-dim);
-}
-.conn-group-label:first-of-type {
-  margin-top: 8px;
-}
-.conn-card {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  background: var(--bg-raised);
+  border-radius: 999px;
+  padding: 1px 7px;
 }
-.conn-card-head {
+.conn-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.conn-detail-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
-.conn-icon {
+.conn-detail-head .conn-icon {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
   flex: none;
 }
-.conn-card-name {
-  font-weight: 600;
-  color: var(--text);
-}
-.conn-tag {
+.conn-detail-close {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 18px;
+  line-height: 1;
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 .mcp-env-edit {
   display: flex;
