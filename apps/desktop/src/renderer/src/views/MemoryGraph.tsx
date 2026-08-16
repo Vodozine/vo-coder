@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D, { type ForceGraphMethods } from 'react-force-graph-3d';
-import SpriteText from 'three-spritetext';
 import type { GraphNodeDto, MemGraphDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
+import { createCelestialNode, nodeValOf } from './memoryGraphBodies';
 
 /**
  * A true 3D force-directed view of the project's memory map — a cloud of nodes
@@ -34,8 +34,8 @@ function typeColors(): Record<string, string> {
 }
 const COLOR_FALLBACK = '#8b949e';
 const isLive = (status: string): boolean => status === 'active' || status === 'done';
-// Matches react-force-graph's default sphere sizing (radius ∝ cbrt(val), rel 4).
-const nodeRadius = (degree: number): number => Math.cbrt(1 + degree) * 4;
+/** Gap between the selected node and the detail card, so the leader line is visible. */
+const CARD_GAP = 36;
 
 export function MemoryGraph({
   projectId,
@@ -50,9 +50,20 @@ export function MemoryGraph({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
+  const leaderLineRef = useRef<SVGLineElement>(null);
+  const leaderHaloRef = useRef<SVGLineElement>(null);
+  const leaderDotRef = useRef<SVGCircleElement>(null);
   const fgRef = useRef<ForceGraphMethods<GNode, GLink> | undefined>(undefined);
   const queryRef = useRef(query);
   const typeRef = useRef(typeFilter);
+  // Fit-to-extents is a one-shot after the first layout (and after a new graph
+  // load). Selecting a node re-renders this component; without the guard,
+  // onEngineStop would fire zoomToFit again and yank the camera out.
+  const initialFitDone = useRef(false);
+  // Live mean/max for moon/planet/sun class + glow. Kept in a ref so the
+  // nodeThreeObject factory identity does not change on select (a new factory
+  // would remake every mesh and can resume the sim -> zoomToFit).
+  const sizeStatsRef = useRef({ mean: 1, max: 1 });
 
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [data, setData] = useState<{ nodes: GNode[]; links: GLink[] } | null>(null);
@@ -70,6 +81,24 @@ export function MemoryGraph({
     [data],
   );
 
+  // Recompute relative size stats whenever the graph payload changes — not on
+  // select / filter. Filters only hide nodes; class + glow stay map-relative.
+  useMemo(() => {
+    const nodes = data?.nodes ?? [];
+    if (nodes.length === 0) {
+      sizeStatsRef.current = { mean: 1, max: 1 };
+      return;
+    }
+    let sum = 0;
+    let max = 0;
+    for (const n of nodes) {
+      const s = nodeValOf(n.degree);
+      sum += s;
+      if (s > max) max = s;
+    }
+    sizeStatsRef.current = { mean: sum / nodes.length, max };
+  }, [data]);
+
   const fetchGraph = useCallback(async () => {
     if (!projectId) {
       setData({ nodes: [], links: [] });
@@ -78,6 +107,7 @@ export function MemoryGraph({
     }
     setLoading(true);
     setSelected(null);
+    initialFitDone.current = false;
     const g: MemGraphDto = await window.vo.memMapGraph(projectId, { includeInactive });
     const degree = new Map<number, number>();
     for (const e of g.edges) {
@@ -126,39 +156,107 @@ export function MemoryGraph({
     );
   }, []);
 
-  const nodeColor = useCallback(
-    (n: GNode): string => (isLive(n.status) ? colors[n.type] ?? COLOR_FALLBACK : '#48506a'),
-    [colors],
+  const nodeVal = useCallback((n: GNode) => nodeValOf(n.degree), []);
+  const linkColorFn = useCallback(() => edgeColor, [edgeColor]);
+  const linkVisible = useCallback(
+    (l: GLink) => {
+      const s = typeof l.source === 'object' ? (l.source as GNode) : nodeById.get(l.source);
+      const t = typeof l.target === 'object' ? (l.target as GNode) : nodeById.get(l.target);
+      return !!s && !!t && nodeVisible(s) && nodeVisible(t);
+    },
+    [nodeById, nodeVisible],
   );
+  const onNodeClick = useCallback((n: GNode) => setSelected(n), []);
+  const onBackgroundClick = useCallback(() => setSelected(null), []);
+  const fitCamera = useCallback(() => {
+    fgRef.current?.zoomToFit(500);
+  }, []);
+  // First engine stop after a graph load frames the cloud. Later stops (a
+  // select re-render can resume-then-immediately-stop the sim) must not Fit.
+  const onEngineStop = useCallback(() => {
+    if (initialFitDone.current) return;
+    initialFitDone.current = true;
+    fgRef.current?.zoomToFit(400, 40);
+  }, []);
 
-  // A world-sized text billboard above each node: a tiny speck with the whole
-  // cloud in frame, growing readable only as you fly in — the "names appear on
-  // the dots when zoomed close" behaviour. Safe now that three is a single
-  // instance (three-spritetext shares it).
+  // Custom moon/planet/sun group (body + glow sprite + label). Identity is
+  // stable across select: stats are read from sizeStatsRef, not closed over.
+  // nodeThreeObjectExtend is false so we do not also draw the default sphere.
   const nodeThree = useCallback(
     (n: GNode) => {
-      const label = n.title.length > 42 ? `${n.title.slice(0, 42)}…` : n.title;
-      const sprite = new SpriteText(label);
-      sprite.color = labelColor;
-      sprite.textHeight = 2.6;
-      sprite.fontFace = 'system-ui, sans-serif';
-      sprite.position.set(0, nodeRadius(n.degree) + 2.5, 0);
-      return sprite;
+      const { mean, max } = sizeStatsRef.current;
+      return createCelestialNode({
+        title: n.title,
+        type: n.type,
+        degree: n.degree,
+        color: isLive(n.status) ? colors[n.type] ?? COLOR_FALLBACK : '#48506a',
+        live: isLive(n.status),
+        mean,
+        max,
+        labelColor,
+      });
     },
-    [labelColor],
+    [colors, labelColor],
   );
 
-  // Keep the detail card pinned to the clicked node as the camera moves.
+  // Keep the detail card and leader line pinned to the clicked node as the camera moves.
   useEffect(() => {
     if (!selected) return;
     let raf = 0;
     const follow = () => {
       const fg = fgRef.current;
       const el = detailRef.current;
-      if (fg && el && selected.x != null && selected.y != null && selected.z != null) {
+      const host = hostRef.current;
+      const line = leaderLineRef.current;
+      const halo = leaderHaloRef.current;
+      const dot = leaderDotRef.current;
+      if (fg && el && host && selected.x != null && selected.y != null && selected.z != null) {
         const c = fg.graph2ScreenCoords(selected.x, selected.y, selected.z);
-        el.style.left = `${c.x}px`;
-        el.style.top = `${c.y}px`;
+        if (Number.isFinite(c.x) && Number.isFinite(c.y)) {
+          const hostW = host.clientWidth;
+          const hostH = host.clientHeight;
+          const cardW = el.offsetWidth;
+          const cardH = el.offsetHeight;
+          let placeRight = c.x + CARD_GAP + cardW <= hostW - 8;
+          if (!placeRight && c.x - CARD_GAP - cardW < 8) {
+            placeRight = c.x < hostW / 2;
+          }
+          let top = c.y;
+          const half = cardH / 2;
+          if (top - half < 8) top = 8 + half;
+          if (top + half > hostH - 8) top = Math.max(8 + half, hostH - 8 - half);
+
+          el.style.left = `${c.x}px`;
+          el.style.top = `${top}px`;
+          el.style.transform = placeRight
+            ? `translate(${CARD_GAP}px, -50%)`
+            : `translate(calc(-100% - ${CARD_GAP}px), -50%)`;
+
+          const attachX = placeRight ? c.x + CARD_GAP : c.x - CARD_GAP;
+          const attachY = top;
+          const x1 = String(c.x);
+          const y1 = String(c.y);
+          const x2 = String(attachX);
+          const y2 = String(attachY);
+          if (line) {
+            line.setAttribute('x1', x1);
+            line.setAttribute('y1', y1);
+            line.setAttribute('x2', x2);
+            line.setAttribute('y2', y2);
+          }
+          if (halo) {
+            halo.setAttribute('x1', x1);
+            halo.setAttribute('y1', y1);
+            halo.setAttribute('x2', x2);
+            halo.setAttribute('y2', y2);
+          }
+          if (dot) {
+            dot.setAttribute('cx', x1);
+            dot.setAttribute('cy', y1);
+          }
+          const svg = line?.ownerSVGElement ?? halo?.ownerSVGElement;
+          if (svg) svg.style.visibility = 'visible';
+        }
       }
       raf = requestAnimationFrame(follow);
     };
@@ -205,25 +303,18 @@ export function MemoryGraph({
             controlType="orbit"
             enableNodeDrag={false}
             nodeRelSize={4}
-            nodeResolution={8}
-            nodeVal={(n: GNode) => 1 + n.degree}
-            nodeColor={nodeColor}
-            nodeOpacity={0.92}
+            nodeVal={nodeVal}
             nodeLabel={(n: GNode) => `${n.type} · ${n.title}`}
             nodeVisibility={nodeVisible}
-            nodeThreeObjectExtend
+            nodeThreeObjectExtend={false}
             nodeThreeObject={nodeThree}
-            onEngineStop={() => fgRef.current?.zoomToFit(400, 40)}
-            linkColor={() => edgeColor}
+            onEngineStop={onEngineStop}
+            linkColor={linkColorFn}
             linkOpacity={0.5}
             linkWidth={0.8}
-            linkVisibility={(l: GLink) => {
-              const s = typeof l.source === 'object' ? (l.source as GNode) : nodeById.get(l.source);
-              const t = typeof l.target === 'object' ? (l.target as GNode) : nodeById.get(l.target);
-              return !!s && !!t && nodeVisible(s) && nodeVisible(t);
-            }}
-            onNodeClick={(n: GNode) => setSelected(n)}
-            onBackgroundClick={() => setSelected(null)}
+            linkVisibility={linkVisible}
+            onNodeClick={onNodeClick}
+            onBackgroundClick={onBackgroundClick}
           />
         )}
       </div>
@@ -249,7 +340,7 @@ export function MemoryGraph({
             <span className="meta">
               {data?.nodes.length ?? 0} nodes · {data?.links.length ?? 0} links
             </span>
-            <button className="ghost" onClick={() => fgRef.current?.zoomToFit(500)}>
+            <button className="ghost" onClick={fitCamera}>
               Fit
             </button>
           </div>
@@ -258,7 +349,13 @@ export function MemoryGraph({
       )}
 
       {selected && (
-        <div className="mem-graph-detail" ref={detailRef}>
+        <>
+          <svg className="mem-graph-connector" aria-hidden style={{ visibility: 'hidden' }}>
+            <line ref={leaderHaloRef} className="mem-graph-leader-halo" />
+            <line ref={leaderLineRef} className="mem-graph-leader" />
+            <circle ref={leaderDotRef} className="mem-graph-leader-dot" r="5" />
+          </svg>
+          <div className="mem-graph-detail" ref={detailRef}>
           <div className="mem-node-head">
             <span className={`mem-type t-${selected.type}`}>{selected.type}</span>
             <strong className="grow">{selected.title}</strong>
@@ -293,7 +390,8 @@ export function MemoryGraph({
             </div>
           )}
           {selected.tags && <div className="meta">#{selected.tags}</div>}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

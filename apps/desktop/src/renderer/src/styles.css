@@ -2753,13 +2753,37 @@ input[type='radio']:focus-visible {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
 }
+.mem-graph-connector {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+.mem-graph-leader-halo {
+  stroke: var(--bg);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.mem-graph-leader {
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+.mem-graph-leader-dot {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
 /* Anchored to the clicked node's screen position (left/top set imperatively as
    the camera moves); the transform floats it just beside the node. */
 .mem-graph-detail {
   position: absolute;
   left: 0;
   top: 0;
-  transform: translate(16px, -50%);
+  transform: translate(36px, -50%);
   width: min(320px, 42%);
   max-height: 70%;
   overflow-y: auto;
