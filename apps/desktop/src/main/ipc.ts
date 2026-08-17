@@ -14,9 +14,9 @@ import {
 import { userDataDir } from './paths';
 import { edition } from './edition';
 import type { RemoteSettings } from '../shared/ipc-contract';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   addressedByName,
   EmotionalMiddleware,
@@ -49,6 +49,8 @@ import {
   isAllowedMediaType,
   MAX_ATTACHMENT_BYTES,
   type AppConfig,
+  type HostFsEntry,
+  type HostFsListing,
   type MissionAction,
   type MissionCreateInput,
 } from '../shared/ipc-contract';
@@ -2432,6 +2434,91 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   registerHandler(IPC.permissionRespond, (_e, requestId: string, decision: 'allow' | 'deny') =>
     sessions.respondPermission(requestId, decision),
   );
+
+  /**
+   * Browse the host's disk for the remote picker.
+   *
+   * Deliberately not fenced to the allowed roots that guard media reads. Those
+   * exist so a front end cannot turn a path into BYTES it was never offered;
+   * this is a person choosing where their next project lives, and a picker
+   * that cannot leave four folders is not a picker. Anything holding the key
+   * can already open a terminal here, so listing names grants nothing new —
+   * and reading a file still goes through its own check.
+   */
+  registerHandler(IPC.hostFsList, (_e, path?: string): HostFsListing => {
+    const entry = (full: string, name: string): HostFsEntry | null => {
+      try {
+        const st = statSync(full);
+        return {
+          name,
+          path: full,
+          dir: st.isDirectory(),
+          size: st.isDirectory() ? 0 : st.size,
+          modified: st.mtimeMs,
+        };
+      } catch {
+        // A drive with no disc, a permission-denied folder, a broken link:
+        // skipped rather than failing the whole listing around it.
+        return null;
+      }
+    };
+
+    // No path means "where would you like to start" — drives and the folders
+    // this app already lives in, rather than dumping the user at C:\.
+    if (!path) {
+      const starts = [
+        ...new Set(
+          [
+            config.get().genericDir,
+            ...projects.list().projects.flatMap((p) => (p.dir ? [p.dir] : [])),
+            (() => {
+              try {
+                return app.getPath('documents');
+              } catch {
+                return '';
+              }
+            })(),
+            (() => {
+              try {
+                return app.getPath('home');
+              } catch {
+                return '';
+              }
+            })(),
+            ...(process.platform === 'win32'
+              ? 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((d) => `${d}:\\`)
+              : ['/']),
+          ].filter(Boolean),
+        ),
+      ];
+      const entries = starts
+        .map((p) => entry(p, basename(p) || p))
+        .filter((e): e is HostFsEntry => e !== null && e.dir);
+      return { ok: true, path: '', parent: null, entries };
+    }
+
+    try {
+      const dir = resolve(path);
+      const entries = readdirSync(dir)
+        .map((name) => entry(join(dir, name), name))
+        .filter((e): e is HostFsEntry => e !== null)
+        // Folders first, then names — the order every file dialog uses, and
+        // the one a person scanning for a folder expects.
+        .sort((a, b) =>
+          a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1,
+        );
+      const up = dirname(dir);
+      return { ok: true, path: dir, parent: up === dir ? null : up, entries };
+    } catch (err) {
+      return {
+        ok: false,
+        path: String(path),
+        parent: null,
+        entries: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
 
   registerHandler(IPC.scaffoldPickDir, async () => {
     const win = getWindow();

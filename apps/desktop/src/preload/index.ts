@@ -117,6 +117,7 @@ const api: VoApi = {
   },
   permissionRespond: (requestId, decision) =>
     bridge.invoke(IPC.permissionRespond, requestId, decision),
+  hostFsList: (path) => bridge.invoke(IPC.hostFsList, path),
   scaffoldPickDir: () => bridge.invoke(IPC.scaffoldPickDir),
   scaffoldDetect: (dir) => bridge.invoke(IPC.scaffoldDetect, dir),
   scaffoldGenerate: (dir, answers, force) =>

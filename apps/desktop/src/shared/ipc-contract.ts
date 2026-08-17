@@ -84,6 +84,26 @@ export interface CrewUser {
   createdAt: number;
 }
 
+/** One entry in a host folder listing. */
+export interface HostFsEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size: number;
+  /** Epoch ms, for sorting by recency in the picker. */
+  modified: number;
+}
+
+export interface HostFsListing {
+  ok: boolean;
+  /** Empty at the top level, where the entries are drives and known folders. */
+  path: string;
+  /** Null when there is nowhere further up. */
+  parent: string | null;
+  entries: HostFsEntry[];
+  error?: string;
+}
+
 export interface RemoteSettings {
   role: 'local' | 'host' | 'client';
   /**
@@ -875,6 +895,15 @@ export interface VoApi {
   mcpDisconnect(name: string): Promise<void>;
   onPermissionRequest(cb: (prompt: PermissionPrompt) => void): () => void;
   permissionRespond(requestId: string, decision: 'allow' | 'deny'): Promise<void>;
+  /**
+   * List a folder on the machine Vodo runs on. A remote front end cannot show
+   * a native file dialog for the host — the host may have no screen at all —
+   * so the picker is drawn here and reads through this.
+   *
+   * Pass no path for the starting points: drives, home, and the folders the
+   * app already works in.
+   */
+  hostFsList(path?: string): Promise<HostFsListing>;
   scaffoldPickDir(): Promise<string | null>;
   scaffoldDetect(dir: string): Promise<Detection>;
   scaffoldGenerate(dir: string, answers: ProjectAnswers, force?: boolean): Promise<InjectResult>;
@@ -1094,6 +1123,7 @@ export const IPC = {
   mcpDisconnect: 'mcp:disconnect',
   permissionRequest: 'permission:request',
   permissionRespond: 'permission:respond',
+  hostFsList: 'hostfs:list',
   scaffoldPickDir: 'scaffold:pickDir',
   scaffoldDetect: 'scaffold:detect',
   scaffoldGenerate: 'scaffold:generate',
