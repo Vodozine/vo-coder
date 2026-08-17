@@ -182,9 +182,8 @@ export function Projects() {
     return projects
       .filter(
         (p) =>
-          p.kind !== 'design-library' &&
-          p.id !== 'design_library' &&
-          p.id !== HOMELAB_PROJECT_ID,
+          // (No Design suite in the Free edition — the id guard is enough.)
+          p.id !== 'design_library' && p.id !== HOMELAB_PROJECT_ID,
       )
       .map((p) => ({
         project: p,

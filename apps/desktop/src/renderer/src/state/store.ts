@@ -138,6 +138,20 @@ export type View =
 
 const emptySession = (): SessionUi => ({ messages: [], streaming: false });
 
+/**
+ * Design studio chats (Pro edition) live in their own suite, not the Chat
+ * sidebar or the Projects grid. The Free edition has no Design view, so this
+ * only ever matches a stray session left by a Pro install sharing the profile —
+ * kept in sync with the Pro store so the shared views filter identically.
+ */
+export function isDesignSessionMeta(
+  meta: { title?: string; projectId?: string } | null | undefined,
+): boolean {
+  if (!meta) return false;
+  if (meta.projectId === 'design_library') return true;
+  return !!meta.title && /^Design\s*[·•-]/.test(meta.title);
+}
+
 /** Mr Homelab's chats belong to his own tab — never the main Chat sidebar. */
 export function isHomelabSessionMeta(
   meta: { title?: string } | null | undefined,
@@ -846,8 +860,9 @@ export const useStore = create<AppState>((set, get) => ({
     set({ view: 'chat' });
     const desc = description.trim();
     // Seed the conversation with the description so "describe and start" actually
-    // starts — the agent opens on it, no questionnaire in between.
-    if (sessionId && desc) await get().sendToSession(sessionId, desc);
+    // starts — the agent opens on it, no questionnaire in between. The session
+    // was just opened, so it is the active one send() targets.
+    if (sessionId && desc) await get().send(desc);
     return null;
   },
 
