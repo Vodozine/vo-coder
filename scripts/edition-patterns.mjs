@@ -56,8 +56,18 @@ export const PRO_TOOLING_PATHS = /^scripts\/sync-free\.mjs$|^docs\/EDITIONS\.md$
  * about what the Free edition carries, so the guard has to hold it: without
  * this the next sync would helpfully put them back.
  */
-export const PRO_ONLY_PATHS = /^apps\/desktop\/src\/main\/engine-bridges\.ts$/;
-export const PRO_ONLY_MARKERS = /bridgeInstall|bridgeInstalled|bridgeConfig|ENGINE_BRIDGES|EngineBridgeCard|IPC\.bridge|bridges:(status|install|bind)/;
+export const PRO_ONLY_PATHS =
+  /^apps\/desktop\/src\/main\/engine-bridges\.ts$|^apps\/desktop\/src\/main\/video-(hub|render|project-store|ffmpeg)\.ts$|^apps\/desktop\/src\/shared\/video-document\.ts$|^apps\/desktop\/src\/renderer\/src\/video\/|^apps\/desktop\/src\/renderer\/src\/video-editor\.css$/;
+/**
+ * The video EDITOR is Pro-only (timeline, mp4 render, continuation, mixer).
+ * Note what is deliberately NOT here: video-gen.ts and IPC.videoRead are the
+ * shared chat-side video_generate tool and its inline player, which the Free
+ * edition has and keeps. The channel/tool names are therefore listed one by
+ * one rather than as `IPC\.video` — a blanket match would block every future
+ * shared change that merely touches videoRead.
+ */
+export const PRO_ONLY_MARKERS =
+  /bridgeInstall|bridgeInstalled|bridgeConfig|ENGINE_BRIDGES|EngineBridgeCard|IPC\.bridge|bridges:(status|install|bind)|VideoHub|videoHub|VIDEO_SYSTEM_PROMPT|video-document|Video(Project|Clip|Track|Op|Editor|Timeline|Preview|Properties|Mixer|Start|EventPayload|ImportedFile|RenderProgress|SceneState|ProjectStore)\b|isVideoSession|video-(hub|render|project-store|ffmpeg)|renderVideoProject|compositeOnFrame|probeImageSize|extractFrame|supportsSeedImage|seedFrame|seedImage|video_(get_timeline|generate_clip|continue_clip|generate_story|add_text|update_clip|remove_clip|set_output|look_at_clip|place_product)|video(Sync|Restore|Flush|New|SaveAs|OpenPath|EnsureProject|ImportPaths|Render|RenderCancel|RenderProgress|ContinueClip|CanContinue|PickFolder|DefaultRoot|RevealPath|Event|List)\b|video:(sync|restore|flush|new|save|saveAs|open|openPath|list|ensureProject|import|importPaths|render|renderCancel|renderProgress|continueClip|canContinue|pickFolder|defaultRoot|revealPath|event|pathForFile)/;
 
 /**
  * First reason this CHANGE cannot go to the Free edition, or null. Identity
