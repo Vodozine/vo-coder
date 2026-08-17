@@ -3766,3 +3766,39 @@ input[type='radio']:focus-visible {
   background: var(--ok);
   box-shadow: 0 0 8px rgba(111, 194, 118, 0.55);
 }
+
+/* The host file picker: a file dialog drawn in the page, because the machine
+   Vodo runs on may have no screen to draw one on. Sized so the list is the
+   thing you look at, with the path and the buttons pinned around it. */
+.host-picker {
+  min-height: min(520px, 80vh);
+}
+.host-picker-list {
+  flex: 1;
+  min-height: 260px;
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+.host-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.host-picker-row:hover {
+  background: var(--hover, rgba(255, 255, 255, 0.06));
+}
+.host-picker-row.active {
+  background: var(--accent-soft, rgba(90, 140, 255, 0.22));
+}

@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
+import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import { networkInterfaces } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { emitToSinks, handle as registerHandler } from './ipc-registry';
@@ -11,6 +11,7 @@ import {
   startRemoteHost,
   stopRemoteHost,
 } from './remote-server';
+import { hostDialog } from './host-dialog';
 import { userDataDir } from './paths';
 import { edition } from './edition';
 import type { RemoteSettings } from '../shared/ipc-contract';
@@ -2374,7 +2375,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   registerHandler(IPC.skillsImport, async (_e, kind: 'folder' | 'file') => {
     const win = getWindow();
     if (!win) return { ok: false, error: 'No window.' };
-    const picked = await dialog.showOpenDialog(
+    const picked = await hostDialog.showOpenDialog(
       win,
       kind === 'folder'
         ? { title: 'Pick a skill folder (SKILL.md inside)', properties: ['openDirectory'] }
@@ -2523,7 +2524,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   registerHandler(IPC.scaffoldPickDir, async () => {
     const win = getWindow();
     if (!win) return null;
-    const result = await dialog.showOpenDialog(win, {
+    const result = await hostDialog.showOpenDialog(win, {
       title: 'Choose a project folder',
       properties: ['openDirectory', 'createDirectory'],
     });

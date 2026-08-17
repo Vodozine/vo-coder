@@ -855,6 +855,16 @@ export interface VoApi {
   /** Is this window driving another machine? Answered without a round trip. */
   isRemote(): boolean;
 
+  /**
+   * Draw the host's file dialog HERE, on the machine with the person at it.
+   * The renderer registers its picker once at startup; the host calls it when
+   * a handler needs a file chosen and the screen is somewhere else.
+   *
+   * Answers use Electron's own dialog shapes, so nothing downstream needs to
+   * know which machine drew it: { canceled, filePaths } / { canceled, filePath }.
+   */
+  setHostPicker(fn: (kind: string, payload: unknown) => Promise<unknown>): void;
+  isRemote(): boolean;
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
   /** Apply UI zoom to this window (webFrame, synchronous — no IPC round trip). */

@@ -12,7 +12,7 @@ import type {
   TermExit,
   VoApi,
 } from '../shared/ipc-contract';
-import { localBridge, remoteBridge, type Bridge } from './bridge';
+import { localBridge, remoteBridge, setHostAsk, type Bridge } from './bridge';
 
 /**
  * Which end of the wire this window is, asked synchronously because
@@ -79,6 +79,7 @@ const api: VoApi = {
   // Answered without a round trip: it is a fact about this window, and the
   // renderer asks it while deciding what to draw.
   isRemote: () => remote.role === 'client' && !!remote.connect.url,
+  setHostPicker: (fn) => setHostAsk(fn),
   getConfig: () => bridge.invoke(IPC.getConfig),
   setConfig: (patch: Partial<AppConfig>) => bridge.invoke(IPC.setConfig, patch),
   // Zoom is per-WebContents, so setting it from the preload's isolated world

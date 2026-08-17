@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './components/Icon';
+import { HostPicker } from './components/HostPicker';
 import { VodoMark } from './components/VodoMark';
 import { useStore, type View } from './state/store';
 import { HOMELAB_PROJECT_ID } from '../../shared/homelab';
@@ -561,6 +562,9 @@ export function App() {
           <TerminalTabs active={view === 'console'} />
         </div>
       </main>
+      {/* Draws a file dialog for the machine Vodo runs on, when that is not
+          this one. Renders nothing at all in normal use. */}
+      <HostPicker />
     </div>
   );
 }
