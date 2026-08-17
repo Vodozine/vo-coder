@@ -235,6 +235,16 @@ interface AppState {
   newProjectIn(name: string, parentDir: string): Promise<string | null>;
   /** Attach any existing folder as a project, open a chat, and auto-run intake (no questionnaire). */
   openExistingProject(): Promise<string | null>;
+  /** Create-or-attach a project for a folder WITHOUT any auto-intake. Idempotent by path. */
+  attachProjectForFolder(dir: string): Promise<{ project?: ProjectInfo; error?: string }>;
+  /** Open a project from the overview: its most recent chat, or a fresh one, then show Chat. */
+  openProject(projectId: string): Promise<void>;
+  /**
+   * The "just describe and start" path — no questionnaire, no PROJECT_CONFIG.
+   * Attaches the folder as a project, opens/creates a chat, and seeds it with
+   * the description so the agent picks up immediately. Returns an error or null.
+   */
+  startSimpleProject(dir: string, description: string): Promise<string | null>;
   /** One-shot handoff to the Scaffold view: the folder to set up. */
   scaffoldTarget: string | null;
   consumeScaffoldTarget(): string | null;
@@ -788,6 +798,56 @@ export const useStore = create<AppState>((set, get) => ({
       void get().send(intake);
     }
     set({ view: 'chat' });
+    return null;
+  },
+
+  async attachProjectForFolder(dir) {
+    const result = await window.vo.projectOpenExisting(dir);
+    if (!result.ok || !result.project) {
+      return { error: result.error ?? 'Could not create the project.' };
+    }
+    const project = result.project;
+    set((s) => ({
+      projects: s.projects.some((p) => p.id === project.id)
+        ? s.projects.map((p) => (p.id === project.id ? project : p))
+        : [...s.projects, project],
+      activeProjectId: project.id,
+    }));
+    return { project };
+  },
+
+  async openProject(projectId) {
+    const normal = get().sessionMetas.find(
+      (m) =>
+        m.projectId === projectId && !isDesignSessionMeta(m) && !isHomelabSessionMeta(m),
+    );
+    if (normal) await get().openSession(normal.id);
+    else await get().newSession(projectId);
+    set({ view: 'chat' });
+  },
+
+  async startSimpleProject(dir, description) {
+    const { project, error } = await get().attachProjectForFolder(dir);
+    if (error || !project) return error ?? 'Could not create the project.';
+    // Reuse a normal chat already in this project (e.g. one made by the sidebar
+    // handoff), otherwise start a fresh one — never a second empty chat.
+    const normal = get().sessionMetas.find(
+      (m) =>
+        m.projectId === project.id && !isDesignSessionMeta(m) && !isHomelabSessionMeta(m),
+    );
+    let sessionId: string | null;
+    if (normal) {
+      await get().openSession(normal.id);
+      sessionId = normal.id;
+    } else {
+      await get().newSession(project.id);
+      sessionId = get().activeSessionId;
+    }
+    set({ view: 'chat' });
+    const desc = description.trim();
+    // Seed the conversation with the description so "describe and start" actually
+    // starts — the agent opens on it, no questionnaire in between.
+    if (sessionId && desc) await get().sendToSession(sessionId, desc);
     return null;
   },
 

@@ -1626,6 +1626,223 @@ input[type='radio']:focus-visible {
   margin-bottom: 12px;
 }
 
+/* ---- Projects tab: overview grid + create flow ---- */
+/* The header row owns the sticky bleed (title left, actions right); the inner
+   h1 drops its own sticky styling so the two never fight. */
+.projects-view .projects-head-row {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -32px 8px;
+  padding: 24px 32px 12px;
+  background: var(--ambient);
+  background-attachment: fixed;
+}
+.projects-view .projects-head-row h1 {
+  position: static;
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+.projects-head-actions {
+  display: flex;
+  gap: 8px;
+}
+.projects-head-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+  padding-bottom: 12px;
+}
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 118px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    transform 0.06s,
+    box-shadow 0.12s;
+}
+.project-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-lg, var(--shadow));
+}
+.project-card:active {
+  transform: translateY(1px);
+}
+.project-card-name {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+.project-card-path {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-card-path svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.project-card-meta {
+  margin-top: auto;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.project-card-dot {
+  margin: 0 6px;
+}
+/* The "＋ New project" card leads the grid — dashed and accented so it reads as
+   an action, not a project. */
+.project-card-new {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--accent);
+}
+.project-card-new .project-card-name {
+  color: var(--text);
+}
+.project-card-plus {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--accent);
+}
+.projects-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 24px 0;
+}
+
+/* Folder banner shown on every step of the create flow once a folder is set. */
+.create-folderbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.create-folderbar .grow {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.create-detect {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Coding / Other type choice. */
+.type-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  max-width: 680px;
+}
+.type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px 20px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--border-soft), transparent 40%), var(--bg-raised);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    transform 0.06s,
+    box-shadow 0.12s;
+}
+.type-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-lg, var(--shadow));
+}
+.type-card:active {
+  transform: translateY(1px);
+}
+.type-card svg {
+  color: var(--accent);
+}
+.type-card-name {
+  font-weight: 600;
+  font-size: 16px;
+}
+.type-card-desc {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.coding-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.coding-head h2 {
+  margin: 0;
+}
+.describe-box {
+  display: block;
+  width: 100%;
+  max-width: 680px;
+  min-height: 110px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  line-height: 1.5;
+}
+.projects-view .modal-actions {
+  max-width: 680px;
+  margin-top: 6px;
+}
+
 /* ---- suggest panel ---- */
 .suggest-panel {
   margin: 8px 16px 0;

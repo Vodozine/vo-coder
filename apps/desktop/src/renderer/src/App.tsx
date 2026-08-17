@@ -9,7 +9,7 @@ import { TerminalTabs } from './views/Console';
 import { Memory } from './views/Memory';
 import { Missions } from './views/Missions';
 import { Preview } from './views/Preview';
-import { Scaffold } from './views/Scaffold';
+import { Projects } from './views/Projects';
 import { Pipelines } from './views/Pipelines';
 import { Settings } from './views/Settings';
 
@@ -19,7 +19,7 @@ const NAV = [
   { id: 'missions', label: 'Missions', enabled: true },
   { id: 'pipelines', label: 'Pipelines', enabled: true },
   { id: 'memory', label: 'Memory', enabled: true },
-  { id: 'scaffold', label: 'Scaffold', enabled: true },
+  { id: 'scaffold', label: 'Projects', enabled: true },
   { id: 'preview', label: 'Preview', enabled: true },
   { id: 'console', label: 'Terminal', enabled: true },
   { id: 'settings', label: 'Settings', enabled: true },
@@ -550,7 +550,7 @@ export function App() {
         ) : view === 'memory' ? (
           <Memory />
         ) : view === 'scaffold' ? (
-          <Scaffold />
+          <Projects />
         ) : view === 'preview' ? (
           <Preview />
         ) : view === 'console' ? null : (
