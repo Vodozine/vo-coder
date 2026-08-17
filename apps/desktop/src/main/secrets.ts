@@ -89,6 +89,9 @@ export class SecretStore {
       'google-oauth-secret',
       // Custom image endpoint (any OpenAI-images-compatible provider).
       'image-custom',
+      // Model aggregators (image + video): fal.ai and Replicate.
+      'fal',
+      'replicate',
     ]) {
       const value = this.get(provider);
       out[provider] = value ? `…${value.slice(-4)}` : null;

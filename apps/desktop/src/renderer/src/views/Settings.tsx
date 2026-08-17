@@ -1391,6 +1391,8 @@ function VisionSection() {
 const IMAGE_PROVIDER_LABELS: Record<string, string> = {
   custom: 'custom (OpenAI-image API)',
   a1111: 'local (A1111 / Forge / SD.Next)',
+  fal: 'fal.ai (aggregator)',
+  replicate: 'Replicate (aggregator)',
 };
 
 function ImageModelSection() {
@@ -1401,31 +1403,42 @@ function ImageModelSection() {
   const [provider, setProvider] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
-  const [customKey, setCustomKey] = useState('');
+  const [keyInput, setKeyInput] = useState('');
 
   if (!config) return null;
-  const IMAGE_PROVIDERS = ['xai', 'gemini', 'openrouter', 'openai', 'custom', 'a1111'] as const;
+  const IMAGE_PROVIDERS = ['xai', 'gemini', 'openrouter', 'openai', 'custom', 'a1111', 'fal', 'replicate'] as const;
   const effProvider = provider ?? config.imageModel?.provider ?? 'xai';
   const effModel = model ?? config.imageModel?.model ?? '';
   const isCustom = effProvider === 'custom';
   const isLocal = effProvider === 'a1111';
-  const endpoint = isCustom || isLocal;
-  const effBase =
-    baseUrl ?? config.imageModel?.baseUrl ?? (isLocal ? 'http://127.0.0.1:7860' : '');
-  const customKeySaved = !!secretStatus['image-custom'];
+  const isAgg = effProvider === 'fal' || effProvider === 'replicate';
+  const hasBase = isCustom || isLocal;
+  const needsKey = isCustom || isAgg;
+  const freeModel = hasBase || isAgg;
+  const keyName = isCustom ? 'image-custom' : effProvider;
+  const effBase = baseUrl ?? config.imageModel?.baseUrl ?? (isLocal ? 'http://127.0.0.1:7860' : '');
+  const keySaved = !!secretStatus[keyName];
   const shouldSave = isLocal ? !!effBase : isCustom ? !!effBase && !!effModel : !!effModel;
 
   const save = async () => {
-    if (isCustom && customKey.trim()) {
-      await saveSecret('image-custom', customKey.trim());
-      setCustomKey('');
+    if (needsKey && keyInput.trim()) {
+      await saveSecret(keyName, keyInput.trim());
+      setKeyInput('');
     }
     await saveConfig({
       imageModel: shouldSave
-        ? { provider: effProvider, model: effModel, ...(endpoint && effBase ? { baseUrl: effBase } : {}) }
+        ? { provider: effProvider, model: effModel, ...(hasBase && effBase ? { baseUrl: effBase } : {}) }
         : null,
     });
   };
+
+  const modelPlaceholder = isLocal
+    ? 'model / checkpoint (optional)'
+    : effProvider === 'fal'
+      ? 'fal model, e.g. fal-ai/flux/schnell'
+      : effProvider === 'replicate'
+        ? 'replicate model, e.g. black-forest-labs/flux-schnell'
+        : 'model id (e.g. black-forest-labs/FLUX.1-schnell)';
 
   return (
     <section>
@@ -1438,14 +1451,13 @@ function ImageModelSection() {
         <summary>which one to pick</summary>
         <p className="hint">
           Label art: Google&apos;s <strong>Nano Banana</strong> family on OpenRouter —{' '}
-          <code>google/gemini-3-pro-image-preview</code> (Pro; best detail, by far the best at
-          readable lettering) or <code>google/gemini-3.1-flash-image</code> (nearly as good, much
-          cheaper). <strong>OpenAI gpt-image-1</strong> is the closest alternative;{' '}
-          <strong>Flux</strong> suits painterly ornament; <strong>Grok Imagine</strong> comes free
-          with a Grok subscription but is weakest on fine detail and text. Want a specific host or
-          your own GPU? Pick <strong>custom</strong> (any OpenAI-images endpoint — Together,
-          DeepInfra, LocalAI) or <strong>local</strong> (your own Stable Diffusion). Switching costs
-          nothing.
+          <code>google/gemini-3-pro-image-preview</code> (Pro; best detail, best at readable
+          lettering) or <code>google/gemini-3.1-flash-image</code> (nearly as good, cheaper).{' '}
+          <strong>gpt-image-1</strong> is the closest alternative; <strong>Flux</strong> suits
+          painterly ornament; <strong>Grok Imagine</strong> is free with a Grok subscription. Bring
+          your own host with <strong>custom</strong> (any OpenAI-images endpoint),{' '}
+          <strong>local</strong> (your own Stable Diffusion), or the <strong>fal.ai</strong> /{' '}
+          <strong>Replicate</strong> aggregators (FLUX, SDXL and hundreds more, by model id).
         </p>
       </details>
       <div className="field-row">
@@ -1464,12 +1476,10 @@ function ImageModelSection() {
             </option>
           ))}
         </select>
-        {endpoint ? (
+        {freeModel ? (
           <input
             className="grow"
-            placeholder={
-              isLocal ? 'model / checkpoint (optional)' : 'model id (e.g. black-forest-labs/FLUX.1-schnell)'
-            }
+            placeholder={modelPlaceholder}
             value={effModel}
             onChange={(e) => setModel(e.target.value)}
           />
@@ -1486,7 +1496,7 @@ function ImageModelSection() {
           Save
         </button>
       </div>
-      {endpoint && (
+      {hasBase && (
         <div className="field-row">
           <label>{isLocal ? 'server URL' : 'base URL'}</label>
           <input
@@ -1497,23 +1507,25 @@ function ImageModelSection() {
           />
         </div>
       )}
-      {isCustom && (
+      {needsKey && (
         <div className="field-row">
           <label>API key</label>
           <input
             className="grow"
             type="password"
-            placeholder={customKeySaved ? 'saved — paste to replace' : 'endpoint API key'}
-            value={customKey}
-            onChange={(e) => setCustomKey(e.target.value)}
+            placeholder={keySaved ? 'saved — paste to replace' : `${effProvider} API key`}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
           />
         </div>
       )}
-      {endpoint && (
+      {(hasBase || isAgg) && (
         <p className="hint">
           {isLocal
             ? 'Point at a local Stable Diffusion server started with --api (AUTOMATIC1111, Forge or SD.Next) — no key needed.'
-            : 'Any OpenAI-images-compatible endpoint (Together AI, DeepInfra, LocalAI, an OpenAI proxy). Base URL is the …/v1 root.'}
+            : isCustom
+              ? 'Any OpenAI-images-compatible endpoint (Together AI, DeepInfra, LocalAI, an OpenAI proxy). Base URL is the …/v1 root.'
+              : 'Paste a model id from the provider — they host hundreds (FLUX, SDXL, Ideogram, Recraft…). Your key is on their dashboard.'}
         </p>
       )}
     </section>
@@ -1528,24 +1540,52 @@ function ImageModelSection() {
  */
 const VIDEO_MODELS: Record<string, Array<{ id: string; note: string }>> = {
   xai: [{ id: 'grok-imagine-video-1.5', note: 'Grok Imagine — 1-15s, up to 1080p, comes with a Grok subscription' }],
-  openai: [
-    { id: 'sora-2', note: 'Sora 2 — fast, for iterating' },
-    { id: 'sora-2-pro', note: 'Sora 2 Pro — slower, higher fidelity' },
+  veo: [
+    { id: 'veo-3.1-generate-preview', note: 'Veo 3.1 — newest; runs on your Gemini key' },
+    { id: 'veo-3.0-generate-001', note: 'Veo 3 — stable; runs on your Gemini key' },
   ],
+  fal: [],
+  replicate: [],
+  openai: [
+    { id: 'sora-2', note: 'Sora 2 — fast, for iterating (API ends 24 Sep 2026)' },
+    { id: 'sora-2-pro', note: 'Sora 2 Pro — higher fidelity (API ends 24 Sep 2026)' },
+  ],
+};
+const VIDEO_PROVIDER_LABELS: Record<string, string> = {
+  veo: 'Google Veo (Gemini key)',
+  fal: 'fal.ai (aggregator)',
+  replicate: 'Replicate (aggregator)',
+  openai: 'OpenAI Sora (ends Sep 2026)',
 };
 
 function VideoModelSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
+  const saveSecret = useStore((s) => s.saveSecret);
+  const secretStatus = useStore((s) => s.secretStatus);
   const [provider, setProvider] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState('');
 
   if (!config) return null;
   const effProvider = provider ?? config.videoModel?.provider ?? 'xai';
   const known = VIDEO_MODELS[effProvider] ?? [];
+  const isAgg = effProvider === 'fal' || effProvider === 'replicate';
   const effModel = model ?? config.videoModel?.model ?? known[0]?.id ?? '';
+  const keySaved = !!secretStatus[effProvider];
   const dirty =
     effProvider !== (config.videoModel?.provider ?? '') || effModel !== (config.videoModel?.model ?? '');
+  const canSave = !!effModel && (dirty || (isAgg && !!keyInput.trim()));
+
+  const save = async () => {
+    if (isAgg && keyInput.trim()) {
+      await saveSecret(effProvider, keyInput.trim());
+      setKeyInput('');
+    }
+    await saveConfig({
+      videoModel: effModel ? { provider: effProvider, model: effModel } : null,
+    });
+  };
 
   return (
     <section>
@@ -1557,10 +1597,11 @@ function VideoModelSection() {
       <details className="hint-more">
         <summary>which one to pick</summary>
         <p className="hint">
-          <strong>Grok Imagine</strong> is the cheap one and it is included with a Grok
-          subscription, so if you signed in with X it costs nothing extra. <strong>Sora 2</strong>{' '}
-          bills per second and needs an OpenAI key — and OpenAI has announced the Videos API shuts
-          down on <strong>24 September 2026</strong>, so treat it as the short-term option.
+          <strong>Grok Imagine</strong> is cheap and free with a Grok subscription.{' '}
+          <strong>Veo 3</strong> runs on your existing Gemini key — no extra signup. The{' '}
+          <strong>fal.ai</strong> and <strong>Replicate</strong> aggregators reach Kling, Luma,
+          Hunyuan, Wan, Pika and more by model id. <strong>Sora 2</strong> needs an OpenAI key and
+          its API shuts down <strong>24 September 2026</strong> — treat it as end-of-life.
         </p>
       </details>
       <div className="field-row">
@@ -1574,29 +1615,34 @@ function VideoModelSection() {
         >
           {Object.keys(VIDEO_MODELS).map((p) => (
             <option key={p} value={p}>
-              {p}
+              {VIDEO_PROVIDER_LABELS[p] ?? p}
             </option>
           ))}
         </select>
-        <select className="grow" value={effModel} onChange={(e) => setModel(e.target.value)}>
-          {known.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.id}
-            </option>
-          ))}
-          {/* A model id we do not know about yet still has to be selectable. */}
-          {!known.some((m) => m.id === effModel) && effModel && (
-            <option value={effModel}>{effModel}</option>
-          )}
-        </select>
-        <button
-          disabled={!dirty}
-          onClick={() =>
-            void saveConfig({
-              videoModel: effModel ? { provider: effProvider, model: effModel } : null,
-            })
-          }
-        >
+        {isAgg ? (
+          <input
+            className="grow"
+            placeholder={
+              effProvider === 'fal'
+                ? 'fal model, e.g. fal-ai/kling-video/v2/master/text-to-video'
+                : 'replicate model, e.g. kwaivgi/kling-v2.1'
+            }
+            value={effModel}
+            onChange={(e) => setModel(e.target.value)}
+          />
+        ) : (
+          <select className="grow" value={effModel} onChange={(e) => setModel(e.target.value)}>
+            {known.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
+              </option>
+            ))}
+            {!known.some((m) => m.id === effModel) && effModel && (
+              <option value={effModel}>{effModel}</option>
+            )}
+          </select>
+        )}
+        <button disabled={!canSave} onClick={() => void save()}>
           Save
         </button>
         {config.videoModel && (
@@ -1605,9 +1651,25 @@ function VideoModelSection() {
           </button>
         )}
       </div>
+      {isAgg && (
+        <div className="field-row">
+          <label>API key</label>
+          <input
+            className="grow"
+            type="password"
+            placeholder={keySaved ? 'saved — paste to replace' : `${effProvider} API key`}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+          />
+        </div>
+      )}
       <p className="hint">
-        {known.find((m) => m.id === effModel)?.note ??
-          (config.videoModel ? '' : 'Off — video_generate will tell the agent to come here first.')}
+        {isAgg
+          ? 'Paste a text-to-video model id from the provider; your key is on their dashboard.'
+          : effProvider === 'veo'
+            ? 'Veo uses your Gemini key (Settings → API keys) — no extra signup.'
+            : (known.find((m) => m.id === effModel)?.note ??
+              (config.videoModel ? '' : 'Off — video_generate will tell the agent to come here first.'))}
       </p>
     </section>
   );

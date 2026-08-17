@@ -4,6 +4,7 @@ import { app } from 'electron';
 import type { ToolSpec } from '@vo-coder/providers';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
+import { falRun, replicateRun } from './media-aggregators';
 
 /**
  * image_generate: the door back in for image-OUTPUT models (which routing
@@ -336,9 +337,13 @@ export async function executeImageTool(
       if (b64) {
         image = { data: Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64'), note: '' };
       }
+    } else if (provider === 'fal') {
+      image = { data: await falRun(pointer.model, { prompt }, key ?? '', ctl.signal), note: '' };
+    } else if (provider === 'replicate') {
+      image = { data: await replicateRun(pointer.model, { prompt }, key ?? '', ctl.signal), note: '' };
     } else {
       return {
-        content: `Image generation via "${provider}" is not supported yet — use xai, gemini, openrouter, openai, custom, or a1111.`,
+        content: `Image generation via "${provider}" is not supported yet — use xai, gemini, openrouter, openai, custom, a1111, fal, or replicate.`,
         isError: true,
       };
     }
