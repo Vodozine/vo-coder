@@ -65,6 +65,12 @@ import { initUpdater } from './updater';
 import { endpointUrlFor, endpointVramBytes, ProviderHub } from './providers';
 import { ContextFitStore } from './context-fit';
 import { HOMELAB_AGENT_ID } from '../shared/homelab';
+import {
+  AUTO_AGENT_MAX_CAP,
+  isAutoAgent,
+  makeAutoAgent,
+  nextAutoAgentName,
+} from '../shared/auto-agents';
 import { audioMimeFor } from '../shared/media';
 import { executeGroupTool, groupToolSpecs } from './groups';
 import {
@@ -248,6 +254,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   } catch (err) {
     console.error('[membank] disabled:', err);
   }
+
+  /**
+   * Hiring. Vodo must never be stuck for hands: when a group needs more people
+   * than the user has built, it hires one here — a REAL agent persisted to the
+   * agent list, named from the pioneer pool, wearing the user's auto-agent
+   * defaults. Its role is not baked in; it arrives in the task it is given,
+   * which is what makes hiring a single cheap decision.
+   *
+   * Returns undefined when the cap is reached or the name pool is exhausted —
+   * the caller then re-tasks an idle member instead.
+   */
+  const autoAgentLimit = (): number =>
+    Math.max(0, Math.min(config.get().autoAgents.max, AUTO_AGENT_MAX_CAP));
+  const hireAutoAgent = (): AgentSpec | undefined => {
+    const cfg = config.get();
+    const existing = cfg.agents.filter(isAutoAgent);
+    if (existing.length >= autoAgentLimit()) return undefined;
+    const name = nextAutoAgentName(cfg.agents.map((a) => a.name));
+    if (!name) return undefined;
+    const hire = makeAutoAgent(name, cfg.autoAgents);
+    config.set({ agents: [...cfg.agents, hire] });
+    sendToWindow(IPC.configChanged, config.get());
+    return hire;
+  };
 
   // Built-in tools every agent session carries: web access, mission control,
   // and memory. Mission tools resolve through a late ref — MissionManager
@@ -502,6 +532,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
             return config.get().agents.filter((a) => !busy.has(a.id));
           },
+          hire: hireAutoAgent,
+          autoAgentCount: () => config.get().agents.filter(isAutoAgent).length,
+          autoAgentMax: () => autoAgentLimit(),
           // The same held agents, by name — so a refused seat names the mission
           // instead of claiming the agent does not exist.
           onMission: () => {

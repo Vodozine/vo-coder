@@ -3,32 +3,24 @@ import { join } from 'node:path';
 import { assignTasks } from '@vo-coder/core';
 import type { TaskRequest } from '@vo-coder/core';
 import type { AgentSpec, ToolSpec } from '@vo-coder/providers';
-import { HOMELAB_AGENT_ID } from '../shared/homelab';
+import { HOMELAB_AGENT_ID, HOMELAB_AGENT_NAME } from '../shared/homelab';
 import type { GroupMember, GroupRun } from '../shared/ipc-contract';
 
 /** More than this and nobody can follow what is happening. */
 export const MAX_GROUP_MEMBERS = 8;
 
 /**
- * Does this task read as INFRASTRUCTURE work, measured by Mr Homelab's own
- * routing hints? Whole words only, and callers require TWO independent
- * signals (INFRA_SIGNALS_MIN): his hints contain everyday dev words
- * ("server", "network"), and a single substring hit inside ordinary copy
- * kept conscripting him — seen live: the infra specialist spent a whole
- * group run generating website images because a part said "preview server".
+ * Mr Homelab is NOT a group resource. He owns his own tab and his own estate
+ * knowledge, and every heuristic that tried to let him in "when the part is
+ * genuinely infrastructure" leaked: hint scoring conscripted him into website
+ * groups, and the deliberate door let a coordinator do the same by name. When
+ * a group needs another pair of hands it HIRES one (see auto-agents) — an
+ * unlimited, disposable resource — instead of borrowing the specialist.
  */
-export function infraSignals(routingHints: string | undefined, task: string): number {
-  const hints = (routingHints ?? '')
-    .split(/[,;]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s.length > 1);
-  const hay = task.toLowerCase();
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return hints.filter((h) => new RegExp(`(^|\\W)${esc(h)}(\\W|$)`).test(hay)).length;
-}
-
-/** Seats and group_add both demand this many distinct hint matches. */
-export const INFRA_SIGNALS_MIN = 2;
+export const HOMELAB_NOT_FOR_GROUPS =
+  `${HOMELAB_AGENT_NAME} does not join group projects — he has his own tab and his own estate ` +
+  'memory. Hire a helper instead (group_add with any name; one is created if the roster is ' +
+  'short), or ask the user to take it to his tab if it is genuinely infrastructure work.';
 
 export interface GroupDeps {
   agents: () => AgentSpec[];
@@ -84,6 +76,17 @@ export interface GroupDeps {
   hasProjectMd?: (dir: string) => boolean;
   /** Persist a changed group (a member joined mid-run) and refresh the UI. */
   updateGroup?: (group: GroupRun) => void;
+  /**
+   * Hire one auto agent — a real, persisted agent named from the pioneer pool
+   * and built from the user's auto-agent defaults. Returns undefined when the
+   * pool is exhausted (the cap, or every name used). This is what makes "not
+   * enough agents" a non-problem: the group hires instead of borrowing the
+   * user's specialists.
+   */
+  hire?: () => AgentSpec | undefined;
+  /** How many auto agents exist / are allowed — for the "pool full" message. */
+  autoAgentCount?: () => number;
+  autoAgentMax?: () => number;
 }
 
 /**
@@ -395,20 +398,28 @@ export async function executeGroupTool(
       };
     }
     const norm = (s: string) => s.toLowerCase();
-    // Off-duty agents stay off duty — but Mr Homelab CAN be seated here: an
-    // explicit named request from the coordinator is a deliberate choice, not
-    // the accidental auto-seating the group_start filter guards against.
-    const roster = deps.agents().filter((ag) => ag.enabled !== false);
+    // Off-duty agents stay off duty, and Mr Homelab is never seatable — the
+    // group's answer to "we need another pair of hands" is to HIRE one.
+    const roster = deps
+      .agents()
+      .filter((ag) => ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID);
     // An agent on a mission is off the roster for the duration — one model on
     // one GPU, already working. Named outright, it is refused by NAME and by
     // reason: the exact-name case skips the roster lookup so a partial match on
     // someone else cannot quietly stand in for the person actually asked for.
     const onMission = deps.onMission?.() ?? [];
     const heldExact = onMission.find((h) => norm(h.name) === norm(agentName));
-    const agent = heldExact
+    let agent = heldExact
       ? undefined
       : (roster.find((ag) => norm(ag.name) === norm(agentName)) ??
         roster.find((ag) => norm(ag.name).includes(norm(agentName))));
+    // Asked for by NAME, not resolved by id: he is already off the roster, so
+    // without this the request would fall through to hiring and quietly seat a
+    // stranger under the coordinator's nose.
+    if (!agent && norm(agentName).includes('homelab')) {
+      return { content: HOMELAB_NOT_FOR_GROUPS, isError: true };
+    }
+    let hiredNote = '';
     if (!agent) {
       const held = heldExact ?? onMission.find((h) => norm(h.name).includes(norm(agentName)));
       if (held) {
@@ -420,29 +431,25 @@ export async function executeGroupTool(
           isError: true,
         };
       }
-      return {
-        content:
-          `No enabled agent matches "${agentName}". Roster: ` +
-          `${roster.map((ag) => ag.name).join(', ') || '(empty)'}.`,
-        isError: true,
-      };
+      // Nobody by that name — hire one rather than refuse. Running short of
+      // hands is not a reason to stop working.
+      const hire = deps.hire?.();
+      if (!hire) {
+        return {
+          content:
+            `No enabled agent matches "${agentName}", and the hire pool is full ` +
+            `(${deps.autoAgentCount?.() ?? 0} of ${deps.autoAgentMax?.() ?? 0} helpers already ` +
+            'exist). Re-task an idle member with group_send, or raise the limit in ' +
+            'Settings → Auto agents.',
+          isError: true,
+        };
+      }
+      agent = hire;
+      hiredNote = ` (hired — the roster had no "${agentName}")`;
     }
     if (group.members.some((m) => m.agentId === agent.id)) {
       return {
         content: `${agent.name} is already in the group — reach them with group_send.`,
-        isError: true,
-      };
-    }
-    // The deliberate door gets the same test as the automatic seat: Mr
-    // Homelab takes INFRASTRUCTURE work only. Seen live: he was summoned by
-    // name into a website group and spent the run generating images.
-    if (agent.id === HOMELAB_AGENT_ID && infraSignals(agent.routingHints, task) < INFRA_SIGNALS_MIN) {
-      return {
-        content:
-          'Mr Homelab only takes INFRASTRUCTURE work — VMs, containers, networking, backups ' +
-          '(the task must match his routing hints at least twice, whole words). This task does ' +
-          'not read as infra: hand it to another member, or restate it with the actual infra ' +
-          'terms if it truly is.',
         isError: true,
       };
     }
@@ -471,9 +478,10 @@ export async function executeGroupTool(
     );
     return {
       content:
-        `${agent.name} joined the group (${updated.members.length}/${MAX_GROUP_MEMBERS} seats) ` +
-        'and received the task. They work in their own chat now — reach them again with ' +
-        'group_send; you will be woken when the group goes quiet.',
+        `${agent.name} joined the group${hiredNote} ` +
+        `(${updated.members.length}/${MAX_GROUP_MEMBERS} seats) and received the task. They work ` +
+        'in their own chat now — reach them again with group_send; you will be woken when the ' +
+        'group goes quiet.',
     };
   }
   const a = (args ?? {}) as { goal?: unknown; parts?: unknown };
@@ -657,35 +665,38 @@ export async function startGroup(
     }
   | { ok: false; error: string }
 > {
-  // Mr Homelab joins a group only when a part is GENUINELY about
-  // infrastructure — he owns his own tab, and on a small roster he would
-  // otherwise be handed "write the About page" just to fill a seat. The test
-  // is his ROUTING HINTS with whole-word matching and a two-signal minimum:
-  // his hints carry everyday dev words ("server", "network"), and one
-  // substring hit in ordinary copy kept conscripting him anyway.
-  // An agent taken off duty is not on the team for this run either.
   // A part is either bare text or text plus the agent the coordinator picked.
   // Everything below works on the normalized form so the "who does this" answer
   // has exactly one shape.
   const parts: TaskRequest[] = rawParts.map((p) => (typeof p === 'string' ? { task: p } : p));
-  const allAgents = deps.agents().filter((a) => a.enabled !== false);
-  const homelab = allAgents.find((a) => a.id === HOMELAB_AGENT_ID);
-  const infraScore = (task: string): number => infraSignals(homelab?.routingHints, task);
-  const roster = allAgents.filter((a) => a.id !== HOMELAB_AGENT_ID);
+  // An agent taken off duty is not on the team for this run, and Mr Homelab is
+  // never on it at all (see HOMELAB_NOT_FOR_GROUPS) — a group short of hands
+  // HIRES rather than borrowing the user's specialist.
+  const roster = deps
+    .agents()
+    .filter((a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID);
   if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
-  // An empty roster is not a dead end: Vodo clones HIMSELF for the run. The
-  // 'default' id resolves to his own spec (the user's system prompt, the
-  // default provider/model), so each helper is another instance of him with
-  // its own chat and its own part — parallel work without making the user
-  // invent specialists first. Nothing is written to the agent list; these
-  // exist for this group only.
-  const temps: AgentSpec[] = roster.length
+  // Too few agents for the work is not a dead end and not a reason to double up:
+  // hire until there is one pair of hands per part (up to the seat limit and the
+  // user's auto-agent cap). Each hire is a REAL agent — pioneer name, the user's
+  // auto-agent defaults — whose role arrives in the part it is given.
+  const wanted = Math.min(MAX_GROUP_MEMBERS, parts.length);
+  const hired: AgentSpec[] = [];
+  while (roster.length + hired.length < wanted) {
+    const h = deps.hire?.();
+    if (!h) break;
+    hired.push(h);
+  }
+  const pool = [...roster, ...hired];
+  // Last resort — hiring is off AND the user has no agents: Vodo clones HIMSELF
+  // for the run. The 'default' id resolves to his own spec, so each helper is
+  // another instance of him with its own chat and its own part. Nothing is
+  // written to the agent list; these exist for this group only.
+  const temps: AgentSpec[] = pool.length
     ? []
-    : parts
-        .slice(0, MAX_GROUP_MEMBERS - (homelab ? 1 : 0))
-        .map((_, i) => ({ id: 'default', name: `Vodo ${i + 1}` }));
-  const agents = roster.length ? roster : temps;
-  if (!agents.length && !homelab) {
+    : parts.slice(0, MAX_GROUP_MEMBERS).map((_, i) => ({ id: 'default', name: `Vodo ${i + 1}` }));
+  const agents = pool.length ? pool : temps;
+  if (!agents.length) {
     return {
       ok: false,
       error:
@@ -694,45 +705,25 @@ export async function startGroup(
     };
   }
 
-  // Mr Homelab takes the most infrastructure-shaped part directly — his seat
-  // is decided by his hints, not by a general ranking that can be swayed by
-  // prose — and the rest are spread across the other agents.
-  let homelabPart: TaskRequest | undefined;
-  if (homelab) {
-    let best = INFRA_SIGNALS_MIN - 1;
-    for (const p of parts) {
-      const s = infraScore(p.task);
-      if (s > best) {
-        best = s;
-        homelabPart = p;
-      }
-    }
-  }
-  const rest = parts.filter((p) => p !== homelabPart);
   // Never more parts than people: a second task for the same agent runs in a
   // second session, which is not parallelism — and on a local box it is two
   // requests fighting over one GPU.
-  const seats = Math.min(MAX_GROUP_MEMBERS - (homelabPart ? 1 : 0), agents.length);
+  const seats = Math.min(MAX_GROUP_MEMBERS, agents.length);
   // Stand-ins are paired to parts positionally: they share the 'default' id
   // (that is what makes each one Vodo), and assignTasks dedupes by id — it
   // would hand every part to the same stand-in. There is nothing to rank
   // anyway, since none of them has routing hints.
   const plan = temps.length
-    ? rest.slice(0, seats).map((p, i) => ({
+    ? parts.slice(0, seats).map((p, i) => ({
         task: p.task,
         agent: temps[i]!,
         matched: ['Vodo stand-in'],
       }))
-    : agents.length
-      ? assignTasks(rest.slice(0, seats), agents, { qualityOf: deps.qualityOf })
-      : [];
+    : assignTasks(parts.slice(0, seats), agents, { qualityOf: deps.qualityOf });
   // Parts beyond the seats used to be dropped SILENTLY — six blocks on three
   // agents lost three blocks and nobody was told. They queue instead: the
   // result names them, and the boss group_sends each as members go idle.
-  const queued = rest.slice(seats).map((p) => p.task);
-  if (homelabPart && homelab) {
-    plan.push({ task: homelabPart.task, agent: homelab, matched: ['infrastructure'] });
-  }
+  const queued = parts.slice(seats).map((p) => p.task);
   // A part addressed to an agent a mission is holding: the name simply does not
   // resolve (they are not in the pool), so assignTasks falls back to ranking and
   // the part lands elsewhere. That is the right outcome and the wrong silence —

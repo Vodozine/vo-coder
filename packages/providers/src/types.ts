@@ -234,4 +234,10 @@ export interface AgentSpec {
    * coordinator's job, not the worker's.
    */
   memory?: boolean;
+  /**
+   * Hired by Vodo rather than built by the user (an "auto agent"): named from
+   * the pioneer pool, settings from the auto-agent defaults, role given in the
+   * task. Marked so the UI can badge them and the pool can be capped/reused.
+   */
+  auto?: boolean;
 }

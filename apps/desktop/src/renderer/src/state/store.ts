@@ -441,6 +441,9 @@ export const useStore = create<AppState>((set, get) => ({
       window.vo.onUpdateEvent((event) => set({ updateInfo: event }));
       window.vo.onUsageChanged((data) => set({ usage: data }));
       window.vo.onMissionsChanged((missions) => set({ missions }));
+      // Main can change config on its own — Vodo hiring an agent mid-run is the
+      // live case; without this the Agents list showed a stale roster.
+      window.vo.onConfigChanged((config) => set({ config }));
       // Grok login (OAuth) is first-class xAI auth — refresh status + model lists.
       window.vo.onXaiOauth((event) => {
         if (event.state === 'connected') {

@@ -12,6 +12,7 @@ import type {
   SessionEvent,
 } from '@vo-coder/core';
 import type { ProjectAnswers } from '@vo-coder/project-config';
+import { DEFAULT_AUTO_AGENTS, type AutoAgentDefaults } from './auto-agents';
 import type { Detection, InjectResult } from '@vo-coder/scaffold';
 import type {
   FitVerdict,
@@ -180,6 +181,12 @@ export interface AppConfig {
    * an always-present tab for everyone else is clutter.
    */
   homelabEnabled: boolean;
+  /**
+   * Defaults for the agents Vodo hires on demand, so he never runs out of hands.
+   * He picks the NAME from the pioneer pool and writes the ROLE into the task;
+   * everything else about the hire comes from here.
+   */
+  autoAgents: AutoAgentDefaults;
   /** Telegram remote control: talk to Vodo, start missions, approve tool calls. */
   telegramEnabled: boolean;
   /** Chats allowed to talk to this Vo-Coder instance (paired via one-time code). */
@@ -314,6 +321,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   projectGateOffered: [],
   disabledSkills: [],
   homelabEnabled: false,
+  autoAgents: DEFAULT_AUTO_AGENTS,
   telegramEnabled: false,
   telegramPaired: [],
   uiZoom: 1,
@@ -888,6 +896,8 @@ export interface VoApi {
   }>;
   xaiOauthSignOut(): Promise<void>;
   onXaiOauth(cb: (event: XaiOauthEvent) => void): () => void;
+  /** Main changed the config itself (e.g. Vodo hired an agent) — re-render. */
+  onConfigChanged(cb: (config: AppConfig) => void): () => void;
   googleOauthStatus(): Promise<{ connected: boolean; email?: string }>;
   googleOauthBegin(): Promise<{ ok: boolean; error?: string }>;
   googleOauthSignOut(): Promise<void>;
@@ -977,6 +987,7 @@ export interface CatalogInfo {
 export const IPC = {
   getConfig: 'config:get',
   setConfig: 'config:set',
+  configChanged: 'config:changed',
   setSecret: 'secrets:set',
   secretStatus: 'secrets:status',
   listModels: 'models:list',

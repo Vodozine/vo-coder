@@ -7,6 +7,7 @@ import {
   HOMELAB_SYSTEM_PROMPT,
   homelabAgentSpec,
 } from '../../../shared/homelab';
+import { AUTO_AGENT_MAX_CAP, DEFAULT_AUTO_AGENT_PROMPT } from '../../../shared/auto-agents';
 import type {
   AppConfig,
   LocalEndpoint,
@@ -3008,6 +3009,160 @@ function SettingsTile({
 }
 
 /**
+ * Auto agents — the hands Vodo hires when a group needs more people than the
+ * user has built. He picks the NAME (pioneer pool) and writes the ROLE into the
+ * task; everything else about a hire is set here, once.
+ */
+function AutoAgentsSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  const saveAgents = useStore((s) => s.saveAgents);
+  const [prompt, setPrompt] = useState<string | null>(null);
+
+  if (!config) return null;
+  const d = config.autoAgents;
+  const hires = config.agents.filter((a) => a.auto);
+  const effPrompt = prompt ?? d.systemPrompt;
+  const patch = (p: Partial<typeof d>) => void saveConfig({ autoAgents: { ...d, ...p } });
+
+  return (
+    <section>
+      <h2>Auto agents</h2>
+      <p className="hint">
+        When a group needs more hands than you have agents, Vodo hires one instead of stopping.
+        Each hire is named after a computing pioneer, built from the defaults below, and told its
+        role in the task he writes — so he never runs out of people.
+      </p>
+
+      <div className="field-row">
+        <label>limit</label>
+        <input
+          type="number"
+          min={0}
+          max={AUTO_AGENT_MAX_CAP}
+          value={d.max}
+          onChange={(e) => patch({ max: Math.max(0, Math.min(AUTO_AGENT_MAX_CAP, Number(e.target.value) || 0)) })}
+        />
+        <span className="hint grow">
+          most hires that may exist at once (0 turns hiring off, max {AUTO_AGENT_MAX_CAP}) —{' '}
+          {hires.length} hired now
+        </span>
+        {hires.length > 0 && (
+          <button
+            className="ghost"
+            title="Delete every hired agent (their chats stay)"
+            onClick={() => void saveAgents(config.agents.filter((a) => !a.auto))}
+          >
+            Release all
+          </button>
+        )}
+      </div>
+
+      <div className="field-row">
+        <label>model</label>
+        <select
+          value={d.provider}
+          onChange={(e) => patch({ provider: e.target.value, model: '' })}
+        >
+          <option value="">(let Vodo route)</option>
+          {PROVIDERS.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        {d.provider ? (
+          <ModelPicker
+            provider={d.provider}
+            value={d.model}
+            onChange={(m) => patch({ model: m })}
+            placeholder="pick a model for hires"
+          />
+        ) : (
+          <span className="hint grow">
+            no fixed model — each hire is routed like any agent without one
+          </span>
+        )}
+      </div>
+
+      <div className="field-row">
+        <label>master prompt</label>
+        <span className="hint grow">who a hire is before it gets its role</span>
+        <button
+          className="ghost"
+          onClick={() => {
+            setPrompt(DEFAULT_AUTO_AGENT_PROMPT);
+            patch({ systemPrompt: DEFAULT_AUTO_AGENT_PROMPT });
+          }}
+        >
+          Reset to default
+        </button>
+        <button
+          disabled={prompt === null || prompt === d.systemPrompt}
+          onClick={() => patch({ systemPrompt: effPrompt })}
+        >
+          Save
+        </button>
+      </div>
+      <textarea
+        className="system-prompt"
+        rows={6}
+        value={effPrompt}
+        onChange={(e) => setPrompt(e.target.value)}
+      />
+
+      <div className="field-row">
+        <label>memory</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={d.memory}
+            onChange={(e) => patch({ memory: e.target.checked })}
+          />
+          give hires the project memory (off = they work from the brief they are given)
+        </label>
+      </div>
+
+      <div className="field-row">
+        <label>tools · mcp</label>
+        <span className="hint grow">which MCP servers a hire may drive</span>
+      </div>
+      {config.mcpServers.length === 0 ? (
+        <p className="hint">
+          No MCP servers yet — add some under <strong>Connections</strong>. Hires always have the
+          built-in web and workspace (ws_*) tools.
+        </p>
+      ) : (
+        <div className="homelab-tools">
+          {config.mcpServers.map((s) => (
+            <label key={s.name} className="checkbox">
+              <input
+                type="checkbox"
+                checked={d.mcpServers.includes(s.name)}
+                onChange={(e) =>
+                  patch({
+                    mcpServers: e.target.checked
+                      ? [...d.mcpServers, s.name]
+                      : d.mcpServers.filter((n) => n !== s.name),
+                  })
+                }
+              />
+              {s.name} <span className="meta">{s.url ?? s.command}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      {hires.length > 0 && (
+        <p className="hint">
+          Hired so far: {hires.map((a) => a.name).join(', ')}. They are ordinary agents — edit or
+          delete any of them in the Agents tab.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * Mr Homelab's settings. He is hidden from the Agents list (he owns his own
  * tab and stays out of routing), so this tile IS his editor: enable the tab,
  * edit his master prompt, and pick which MCP servers he may drive. Edits upsert
@@ -3200,6 +3355,9 @@ export function Settings() {
   const builtinOn =
     (gmail.connected ? 1 : 0) + ((config.telegramPaired?.length ?? 0) > 0 ? 1 : 0);
   const connectionsSummary = `${builtinOn} built-in · ${mcpConnected} MCP`;
+  const autoAgentSummary = config.autoAgents.max
+    ? `${config.agents.filter((a) => a.auto).length} of ${config.autoAgents.max} hired`
+    : 'hiring off';
 
   return (
     <div className="settings settings-full">
@@ -3541,6 +3699,9 @@ export function Settings() {
         <UpdatesSection />
       </SettingsTile>
 
+      <SettingsTile id="autoagents" name="Auto agents" description="The hands Vodo hires when a group needs more people" summary={autoAgentSummary} openTile={openTile} setOpenTile={setOpenTile}>
+        <AutoAgentsSection />
+      </SettingsTile>
       <SettingsTile id="homelab" name="Mr Homelab" description="A dedicated infrastructure agent tab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
         <HomelabSection />
       </SettingsTile>

@@ -127,6 +127,7 @@ const api: VoApi = {
   xaiOauthBegin: () => ipcRenderer.invoke(IPC.xaiOauthBegin),
   xaiOauthSignOut: () => ipcRenderer.invoke(IPC.xaiOauthSignOut),
   onXaiOauth: subscribe(IPC.xaiOauthEvent),
+  onConfigChanged: subscribe<AppConfig>(IPC.configChanged),
   googleOauthStatus: () => ipcRenderer.invoke(IPC.googleOauthStatus),
   googleOauthBegin: () => ipcRenderer.invoke(IPC.googleOauthBegin),
   googleOauthSignOut: () => ipcRenderer.invoke(IPC.googleOauthSignOut),

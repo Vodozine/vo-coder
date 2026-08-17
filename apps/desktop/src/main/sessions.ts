@@ -9,6 +9,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { AgentSpec, BoundModel, HarnessMessage, ToolSpec, UserPart } from '@vo-coder/providers';
 import { IPC, type PermissionPrompt, type SendResult } from '../shared/ipc-contract';
 import { isAudioPath } from '../shared/media';
+import { HOMELAB_AGENT_ID } from '../shared/homelab';
 import type { ConfigStore } from './config';
 import type { ProjectStore } from './projects';
 import type { ProviderHub } from './providers';
@@ -276,8 +277,20 @@ export class SessionManager {
    * needing a tool went to someone who does not have it.
    */
   private rosterNote(): string {
-    const agents = this.deps.config.get().agents.filter((a) => a.enabled !== false);
-    if (agents.length < 2) return '';
+    // Mr Homelab is NOT on the team. He was listed here, so the coordinator kept
+    // seating the infrastructure specialist on website work — the seat guards
+    // refused him downstream, but only after the plan had already counted on
+    // him. He is not advertised at all now; hiring covers the missing hands.
+    const cfg = this.deps.config.get();
+    const agents = cfg.agents.filter((a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID);
+    const hireRoom = Math.max(0, cfg.autoAgents.max - agents.filter((a) => a.auto).length);
+    const hiring = hireRoom
+      ? '\n\nYou are never short of people: group_add with any name HIRES a new helper when the ' +
+        `roster cannot cover the work (${hireRoom} more available). A hire arrives named after a ` +
+        'computing pioneer with no specialism of its own — the role you write in its task IS its ' +
+        'job description, so say what it is and what "done" looks like.'
+      : '';
+    if (agents.length < 2) return hiring;
     const band = (q: number | undefined): string =>
       q === undefined ? 'unrated' : q >= 9 ? 'top' : q >= 7 ? 'strong' : q >= 5 ? 'mid' : 'small';
     const onMission = this.deps.busyAgents?.() ?? new Map<string, string>();
@@ -320,7 +333,8 @@ export class SessionManager {
       'earlier"; write the decision out. It will ask you when something is missing, and answering ' +
       'that is your job.\n' +
       'When the user names one of these agents while talking to YOU, that is an instruction to you ' +
-      'about that agent — they did not hear it. Carry it out: brief them and start the work.'
+      'about that agent — they did not hear it. Carry it out: brief them and start the work.' +
+      hiring
     );
   }
 
