@@ -12,6 +12,7 @@ import {
   stopRemoteHost,
 } from './remote-server';
 import { hostDialog } from './host-dialog';
+import { runOauthLoopback } from './oauth-loopback';
 import { userDataDir } from './paths';
 import { edition } from './edition';
 import type { RemoteSettings } from '../shared/ipc-contract';
@@ -2446,6 +2447,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    * can already open a terminal here, so listing names grants nothing new —
    * and reading a file still goes through its own check.
    */
+  // Always local (see CLIENT_CHANNELS): a sign-in redirects to 127.0.0.1,
+  // which is whichever machine the browser is on — this one.
+  registerHandler(IPC.oauthLoopback, (_e, authUrlTemplate: string) =>
+    runOauthLoopback(String(authUrlTemplate ?? '')),
+  );
+
   registerHandler(IPC.hostFsList, (_e, path?: string): HostFsListing => {
     const entry = (full: string, name: string): HostFsEntry | null => {
       try {

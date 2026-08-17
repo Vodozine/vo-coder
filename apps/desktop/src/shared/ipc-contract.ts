@@ -863,6 +863,14 @@ export interface VoApi {
    * Answers use Electron's own dialog shapes, so nothing downstream needs to
    * know which machine drew it: { canceled, filePaths } / { canceled, filePath }.
    */
+  /**
+   * Run the OAuth loopback HERE — the browser opens on the machine with the
+   * person at it, so 127.0.0.1 must be that machine too. The host mints the
+   * URL and does the token exchange; only the code comes back over the wire.
+   */
+  oauthLoopback(
+    authUrlTemplate: string,
+  ): Promise<{ ok: boolean; code?: string; redirectUri?: string; error?: string }>;
   setHostPicker(fn: (kind: string, payload: unknown) => Promise<unknown>): void;
   isRemote(): boolean;
   getConfig(): Promise<AppConfig>;
@@ -1133,6 +1141,7 @@ export const IPC = {
   mcpDisconnect: 'mcp:disconnect',
   permissionRequest: 'permission:request',
   permissionRespond: 'permission:respond',
+  oauthLoopback: 'oauth:loopback',
   hostFsList: 'hostfs:list',
   scaffoldPickDir: 'scaffold:pickDir',
   scaffoldDetect: 'scaffold:detect',
@@ -1255,6 +1264,10 @@ export const CLIENT_CHANNELS: ReadonlySet<string> = new Set<string>([
   // The preview pane is a WebContentsView laid over this window at pixel
   // coordinates. The dev server behind it is host work; the viewport is local
   // chrome.
+  // A sign-in redirects to 127.0.0.1, which is the machine running the
+  // BROWSER. Done on the host it would open a consent screen nobody can see
+  // and listen on a loopback port the person never reaches.
+  IPC.oauthLoopback,
   IPC.previewOpen,
   IPC.previewClose,
   IPC.previewHide,

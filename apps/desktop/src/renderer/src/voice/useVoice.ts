@@ -9,6 +9,29 @@ import { MicCapture } from './capture';
 export type LiveState = 'off' | 'listening' | 'processing' | 'speaking';
 
 /**
+ * Speak with THIS computer's own voice, for when the machine running Vodo has
+ * no one sitting at it. Chromium carries the same OS voices the main process
+ * would have used, so the words come out where the person is and sound the
+ * same as they always did.
+ *
+ * Resolves when the speaking stops, however it stops — the queue behind this
+ * only moves when a clip finishes, so an error that never resolved would
+ * silence every reply after it.
+ */
+function speakWithBrowserVoice(text: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.onend = () => resolve();
+      utterance.onerror = () => resolve();
+      speechSynthesis.speak(utterance);
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
  * Push-to-talk + live chat, both built on the same 16 kHz capture.
  * Live chat is half-duplex: the mic goes deaf while our own TTS plays (no
  * echo-cancellation exists for system TTS, which plays outside Chromium), so
@@ -45,6 +68,18 @@ export function useVoice(appendToInput: (text: string) => void) {
   const canPrefetchRef = useRef(false);
   canPrefetchRef.current = useStore(
     (s) => s.config?.voice.tts !== 'system' && s.config?.voice.tts !== 'none',
+  );
+  /**
+   * The system voice speaks from the main process — on the machine Vodo runs
+   * on. That is fine when it is this one, and useless when it is not: the
+   * desktop in the other room would talk to an empty chair while the laptop
+   * sat silent. When the engine is the OS voice AND this window is a front
+   * end, the browser's own speech is used instead, which puts the words where
+   * the person is. Every other engine hands back audio and already plays here.
+   */
+  const speakHereRef = useRef(false);
+  speakHereRef.current = useStore(
+    (s) => s.config?.voice.tts === 'system' && window.vo.isRemote(),
   );
   /** How far into the current assistant message we've already spoken. */
   const spokenPosRef = useRef<{ id: number; chars: number }>({ id: 0, chars: 0 });
@@ -86,6 +121,14 @@ export function useVoice(appendToInput: (text: string) => void) {
   const stopPlayback = useCallback(() => {
     audioRef.current?.pause();
     audioRef.current = null;
+    // Cancel both ends: the host may be mid-sentence on its own voice, and
+    // this window may be mid-sentence on the browser's. Stopping only one
+    // leaves the other talking over whatever comes next.
+    try {
+      speechSynthesis.cancel();
+    } catch {
+      /* no speech synthesis here — nothing to stop */
+    }
     void window.vo.voiceStopSpeak();
   }, []);
 
@@ -202,6 +245,10 @@ export function useVoice(appendToInput: (text: string) => void) {
         if ((liveStateRef.current as LiveState) === 'off') return;
         setLiveState('speaking');
         const chunk = speakQueueRef.current.shift()!;
+        if (speakHereRef.current) {
+          await speakWithBrowserVoice(chunk);
+          continue;
+        }
         const result = await (prefetched ?? window.vo.voiceSpeak(chunk));
         prefetched = null;
         // Start the next one now, so it is ready when this clip ends.

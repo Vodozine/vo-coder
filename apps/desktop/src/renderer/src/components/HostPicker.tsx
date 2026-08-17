@@ -54,12 +54,19 @@ export function HostPicker(): React.ReactElement | null {
   // sitting on, so it must settle exactly once, on cancel as well as choose.
   useEffect(() => {
     if (!window.vo.isRemote()) return;
-    window.vo.setHostPicker(
-      (kind, payload) =>
-        new Promise((resolve) => {
-          setReq({ kind: kind as Request['kind'], options: (payload ?? {}) as OpenOptions, resolve });
-        }),
-    );
+    window.vo.setHostPicker(async (kind, payload) => {
+      // A sign-in redirects to 127.0.0.1, which is this machine because this
+      // is where the browser opens. Handled here rather than in its own
+      // listener because this is already the one place the host can reach.
+      if (kind === 'oauth:loopback') {
+        const { authUrlTemplate } = (payload ?? {}) as { authUrlTemplate?: string };
+        if (!authUrlTemplate) return { ok: false, error: 'No sign-in address arrived.' };
+        return await window.vo.oauthLoopback(authUrlTemplate);
+      }
+      return await new Promise((resolve) => {
+        setReq({ kind: kind as Request['kind'], options: (payload ?? {}) as OpenOptions, resolve });
+      });
+    });
   }, []);
 
   const browse = useCallback(async (path?: string) => {

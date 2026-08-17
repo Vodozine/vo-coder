@@ -3,6 +3,8 @@ import { createServer, type Server } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { IPC, type GoogleOauthEvent } from '../shared/ipc-contract';
 import type { ConfigStore } from './config';
+import { currentCaller } from './ipc-registry';
+import { PORT_PLACEHOLDER } from './oauth-loopback';
 import type { SecretStore } from './secrets';
 
 /**
@@ -124,6 +126,48 @@ export class GoogleOAuth {
     const challenge = base64url(createHash('sha256').update(verifier).digest());
     const state = base64url(randomBytes(16));
 
+    const params = (redirectUri: string): string =>
+      new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: SCOPES,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        access_type: 'offline',
+        prompt: 'consent',
+        state,
+        include_granted_scopes: 'true',
+      }).toString();
+
+    /**
+     * Driven from another machine: the browser is over there, so 127.0.0.1 is
+     * over there too, and a listener opened here would catch nothing. The
+     * front end opens the port and the browser; only the code comes back, and
+     * the exchange still happens here so the refresh token never leaves.
+     */
+    const caller = currentCaller();
+    if (caller) {
+      const template = `${AUTH_URL}?${params(`http://127.0.0.1:${PORT_PLACEHOLDER}`)}`;
+      void (async () => {
+        const answer = (await caller.ask('oauth:loopback', { authUrlTemplate: template })) as {
+          ok?: boolean;
+          code?: string;
+          redirectUri?: string;
+          error?: string;
+        } | null;
+        if (!answer?.ok || !answer.code || !answer.redirectUri) {
+          this.notify({
+            state: 'error',
+            message: answer?.error ?? 'Sign-in did not finish on the other machine.',
+          });
+          return;
+        }
+        await this.exchange(answer.code, verifier, answer.redirectUri);
+      })();
+      return { ok: true };
+    }
+
     let port: number;
     try {
       port = await new Promise<number>((resolvePort, reject) => {
@@ -173,18 +217,7 @@ export class GoogleOAuth {
     }, FLOW_TIMEOUT_MS);
 
     const authUrl = new URL(AUTH_URL);
-    authUrl.search = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: `http://127.0.0.1:${port}`,
-      response_type: 'code',
-      scope: SCOPES,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      access_type: 'offline',
-      prompt: 'consent',
-      state,
-      include_granted_scopes: 'true',
-    }).toString();
+    authUrl.search = params(`http://127.0.0.1:${port}`);
     void shell.openExternal(authUrl.toString());
     return { ok: true };
   }
