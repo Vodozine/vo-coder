@@ -26,6 +26,20 @@ export interface VisionPointer {
 }
 
 /**
+ * Image/video model pointer. Unlike VisionPointer (always a real LLM provider),
+ * these providers include image/video-only backends — 'custom' (any
+ * OpenAI-images-compatible endpoint), 'a1111' (local Stable Diffusion), 'fal',
+ * 'replicate', 'veo' — so the provider is a free string and a base URL rides
+ * along for the custom/local ones.
+ */
+export interface MediaPointer {
+  provider: string;
+  model: string;
+  /** Base URL for custom (OpenAI-images) or local (A1111) endpoints. */
+  baseUrl?: string;
+}
+
+/**
  * A named extra local model server (one per GPU/box on the LAN). The name
  * becomes the "@name" suffix in that endpoint's model ids, which is how an
  * agent pins its model to a specific machine.
@@ -82,9 +96,9 @@ export interface AppConfig {
   mcpServers: McpServerConfig[];
   visionModel: VisionPointer | null;
   /** Model used by the image_generate tool (an image-OUTPUT model). */
-  imageModel: VisionPointer | null;
-  /** video_generate's model — a video-OUTPUT model (Grok Imagine, Sora). */
-  videoModel: VisionPointer | null;
+  imageModel: MediaPointer | null;
+  /** video_generate's model — a video-OUTPUT model (Grok Imagine, Veo, fal…). */
+  videoModel: MediaPointer | null;
   /** Extended thinking for the Default agent (per-agent specs set their own). */
   thinkingDefault: boolean;
   voice: VoiceSettings;

@@ -194,16 +194,21 @@ export async function executeImageTool(
   }
 
   const provider = pointer.provider;
+  const needsKey = provider !== 'a1111'; // a local Stable Diffusion server has no auth
   const key =
     provider === 'xai'
       ? (auth.xaiToken?.() ?? secrets.get('xai'))
-      : secrets.get(provider);
-  if (!key) {
+      : provider === 'custom'
+        ? secrets.get('image-custom')
+        : secrets.get(provider);
+  if (needsKey && !key) {
     return {
       content:
         provider === 'xai'
           ? 'No xAI credentials — add an API key or sign in with X under Settings.'
-          : `No API key saved for ${provider}.`,
+          : provider === 'custom'
+            ? 'No key saved for the custom image endpoint — add it under Settings → Image model.'
+            : `No API key saved for ${provider}.`,
       isError: true,
     };
   }
@@ -245,7 +250,7 @@ export async function executeImageTool(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`,
         {
           method: 'POST',
-          headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+          headers: { 'x-goog-api-key': key ?? '', 'content-type': 'application/json' },
           body: JSON.stringify({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
@@ -279,9 +284,61 @@ export async function executeImageTool(
         return { content: `Image model returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
       }
       image = extractChatImage(await res.json());
+    } else if (provider === 'custom') {
+      // Any OpenAI-images-compatible endpoint (Together, DeepInfra, LocalAI,
+      // self-hosted, an OpenAI proxy). Base URL is the ".../v1" root.
+      const base = (pointer.baseUrl ?? '').replace(/\/+$/, '');
+      if (!base) {
+        return { content: 'Set the base URL for the custom image endpoint in Settings.', isError: true };
+      }
+      const res = await fetch(`${base}/images/generations`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: pointer.model, prompt, response_format: 'b64_json', n: 1 }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return { content: `Image endpoint returned ${res.status}: ${detail.slice(0, 300)}`, isError: true };
+      }
+      const json = await res.json();
+      image = extractImagesApi(json);
+      if (!image) {
+        const url = (json as { data?: Array<{ url?: string }> }).data?.[0]?.url;
+        if (url) {
+          const buf = await downloadUrl(url, ctl.signal);
+          if (buf) image = { data: buf, note: '' };
+        }
+      }
+    } else if (provider === 'a1111') {
+      // Local Stable Diffusion — AUTOMATIC1111 / Forge / SD.Next share this API.
+      // One synchronous call; the image comes back base64 in images[0].
+      const base = (pointer.baseUrl ?? 'http://127.0.0.1:7860').replace(/\/+$/, '');
+      const res = await fetch(`${base}/sdapi/v1/txt2img`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          steps: 28,
+          ...(pointer.model ? { override_settings: { sd_model_checkpoint: pointer.model } } : {}),
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return {
+          content: `Local image server returned ${res.status}: ${detail.slice(0, 200)} — is Stable Diffusion running with --api at ${base}?`,
+          isError: true,
+        };
+      }
+      const json = (await res.json()) as { images?: string[] };
+      const b64 = json.images?.[0];
+      if (b64) {
+        image = { data: Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64'), note: '' };
+      }
     } else {
       return {
-        content: `Image generation via "${provider}" is not supported yet — use xai, gemini, openrouter, or openai.`,
+        content: `Image generation via "${provider}" is not supported yet — use xai, gemini, openrouter, openai, custom, or a1111.`,
         isError: true,
       };
     }
@@ -510,7 +567,7 @@ export async function editImage(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`,
         {
           method: 'POST',
-          headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+          headers: { 'x-goog-api-key': key ?? '', 'content-type': 'application/json' },
           body: JSON.stringify({
             contents: [
               {

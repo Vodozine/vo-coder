@@ -87,6 +87,8 @@ export class SecretStore {
       'tts-custom',
       // Bring-your-own Google desktop client secret (Gmail sign-in).
       'google-oauth-secret',
+      // Custom image endpoint (any OpenAI-images-compatible provider).
+      'image-custom',
     ]) {
       const value = this.get(provider);
       out[provider] = value ? `…${value.slice(-4)}` : null;

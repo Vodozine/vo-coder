@@ -1388,16 +1388,44 @@ function VisionSection() {
 }
 
 /** The image_generate tool's model — an image-OUTPUT model. */
+const IMAGE_PROVIDER_LABELS: Record<string, string> = {
+  custom: 'custom (OpenAI-image API)',
+  a1111: 'local (A1111 / Forge / SD.Next)',
+};
+
 function ImageModelSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
+  const saveSecret = useStore((s) => s.saveSecret);
+  const secretStatus = useStore((s) => s.secretStatus);
   const [provider, setProvider] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [baseUrl, setBaseUrl] = useState<string | null>(null);
+  const [customKey, setCustomKey] = useState('');
 
   if (!config) return null;
-  const IMAGE_PROVIDERS = ['xai', 'gemini', 'openrouter', 'openai'] as const;
+  const IMAGE_PROVIDERS = ['xai', 'gemini', 'openrouter', 'openai', 'custom', 'a1111'] as const;
   const effProvider = provider ?? config.imageModel?.provider ?? 'xai';
   const effModel = model ?? config.imageModel?.model ?? '';
+  const isCustom = effProvider === 'custom';
+  const isLocal = effProvider === 'a1111';
+  const endpoint = isCustom || isLocal;
+  const effBase =
+    baseUrl ?? config.imageModel?.baseUrl ?? (isLocal ? 'http://127.0.0.1:7860' : '');
+  const customKeySaved = !!secretStatus['image-custom'];
+  const shouldSave = isLocal ? !!effBase : isCustom ? !!effBase && !!effModel : !!effModel;
+
+  const save = async () => {
+    if (isCustom && customKey.trim()) {
+      await saveSecret('image-custom', customKey.trim());
+      setCustomKey('');
+    }
+    await saveConfig({
+      imageModel: shouldSave
+        ? { provider: effProvider, model: effModel, ...(endpoint && effBase ? { baseUrl: effBase } : {}) }
+        : null,
+    });
+  };
 
   return (
     <section>
@@ -1414,7 +1442,10 @@ function ImageModelSection() {
           readable lettering) or <code>google/gemini-3.1-flash-image</code> (nearly as good, much
           cheaper). <strong>OpenAI gpt-image-1</strong> is the closest alternative;{' '}
           <strong>Flux</strong> suits painterly ornament; <strong>Grok Imagine</strong> comes free
-          with a Grok subscription but is weakest on fine detail and text. Switching costs nothing.
+          with a Grok subscription but is weakest on fine detail and text. Want a specific host or
+          your own GPU? Pick <strong>custom</strong> (any OpenAI-images endpoint — Together,
+          DeepInfra, LocalAI) or <strong>local</strong> (your own Stable Diffusion). Switching costs
+          nothing.
         </p>
       </details>
       <div className="field-row">
@@ -1424,31 +1455,67 @@ function ImageModelSection() {
           onChange={(e) => {
             setProvider(e.target.value);
             setModel('');
+            setBaseUrl(null);
           }}
         >
           {IMAGE_PROVIDERS.map((p) => (
             <option key={p} value={p}>
-              {p}
+              {IMAGE_PROVIDER_LABELS[p] ?? p}
             </option>
           ))}
         </select>
-        <ModelPicker
-          provider={effProvider}
-          value={effModel}
-          onChange={setModel}
-          placeholder="pick an image model"
-          filter="image"
-        />
-        <button
-          onClick={() =>
-            void saveConfig({
-              imageModel: effModel ? { provider: effProvider, model: effModel } : null,
-            })
-          }
-        >
+        {endpoint ? (
+          <input
+            className="grow"
+            placeholder={
+              isLocal ? 'model / checkpoint (optional)' : 'model id (e.g. black-forest-labs/FLUX.1-schnell)'
+            }
+            value={effModel}
+            onChange={(e) => setModel(e.target.value)}
+          />
+        ) : (
+          <ModelPicker
+            provider={effProvider}
+            value={effModel}
+            onChange={setModel}
+            placeholder="pick an image model"
+            filter="image"
+          />
+        )}
+        <button disabled={!shouldSave} onClick={() => void save()}>
           Save
         </button>
       </div>
+      {endpoint && (
+        <div className="field-row">
+          <label>{isLocal ? 'server URL' : 'base URL'}</label>
+          <input
+            className="grow"
+            placeholder={isLocal ? 'http://127.0.0.1:7860' : 'https://api.together.ai/v1'}
+            value={effBase}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        </div>
+      )}
+      {isCustom && (
+        <div className="field-row">
+          <label>API key</label>
+          <input
+            className="grow"
+            type="password"
+            placeholder={customKeySaved ? 'saved — paste to replace' : 'endpoint API key'}
+            value={customKey}
+            onChange={(e) => setCustomKey(e.target.value)}
+          />
+        </div>
+      )}
+      {endpoint && (
+        <p className="hint">
+          {isLocal
+            ? 'Point at a local Stable Diffusion server started with --api (AUTOMATIC1111, Forge or SD.Next) — no key needed.'
+            : 'Any OpenAI-images-compatible endpoint (Together AI, DeepInfra, LocalAI, an OpenAI proxy). Base URL is the …/v1 root.'}
+        </p>
+      )}
     </section>
   );
 }
