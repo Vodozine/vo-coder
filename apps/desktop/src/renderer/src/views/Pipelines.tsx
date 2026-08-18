@@ -141,9 +141,19 @@ function ForemanNode({ id, data, selected }: NodeProps) {
   const d = data as unknown as StepData;
   return (
     <div className={`pl-node pl-node--foreman${selected ? ' selected' : ''}`}>
+      {/* The foreman had no ports at all, so he could be added and never wired
+          in. He needs both: work comes back UP to him, and he hands it DOWN —
+          to as many agents as you drag to, which is what makes a fan-out run
+          in parallel. */}
+      <Handle type="target" position={Position.Top} className="pl-h-in" />
       <NodeHead id={id} kind="foreman" canStart={false} />
       <AgentSelect id={id} value={d.agentId} emptyLabel="Vodo (default)" />
-      <div className="pl-foreman-note">runs the floor · reports to Vodo</div>
+      <div className="pl-foreman-note">
+        runs the floor · reports to Vodo
+        <br />
+        wire him to every agent he runs — 2+ at once go in parallel
+      </div>
+      <Handle type="source" position={Position.Bottom} className="pl-h-out" />
     </div>
   );
 }
@@ -207,6 +217,22 @@ function PipelinesEditor() {
     (c: Connection) => setEdges((es) => addEdge({ ...c, label: c.sourceHandle ?? undefined }, es)),
     [setEdges],
   );
+
+  // Two or more wires leaving the SAME port is the parallel case — the foreman
+  // handing one step to three agents at once. Drawn animated so a fan-out reads
+  // as "these run together" rather than as three unrelated lines.
+  const flowEdges = useMemo(() => {
+    const fan = new Map<string, number>();
+    for (const e of edges) {
+      const key = `${e.source}::${e.sourceHandle ?? ''}`;
+      fan.set(key, (fan.get(key) ?? 0) + 1);
+    }
+    return edges.map((e) =>
+      (fan.get(`${e.source}::${e.sourceHandle ?? ''}`) ?? 1) > 1
+        ? { ...e, animated: true, className: 'pl-edge-parallel' }
+        : e,
+    );
+  }, [edges]);
 
   const addStep = (kind: 'agent' | 'reviewer' | 'foreman') => {
     if (kind === 'foreman' && nodes.some((n) => n.type === 'foreman')) return; // one foreman
@@ -316,7 +342,7 @@ function PipelinesEditor() {
           <AgentsCtx.Provider value={agentOptions}>
             <ReactFlow
               nodes={nodes}
-              edges={edges}
+              edges={flowEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -336,7 +362,8 @@ function PipelinesEditor() {
                 Add agent tiles, a reviewer gate, and a foreman, then wire them — drag from a tile's
                 bottom dot (out) to another's top dot (in). Mark one tile <em>▶ start</em>. Loops are
                 allowed: send a reviewer's <em>fail</em> back to an earlier step, <em>pass</em>{' '}
-                onward.
+                onward. Drag from one dot to <em>several</em> tiles to run them{' '}
+                <em>in parallel</em> — those wires animate.
               </p>
             </div>
           )}

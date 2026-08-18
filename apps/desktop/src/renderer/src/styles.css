@@ -3415,6 +3415,11 @@ input[type='radio']:focus-visible {
 .react-flow__handle.pl-h-fail {
   background: var(--error);
 }
+/* A port with more than one wire leaving it: those steps run at the same time. */
+.react-flow__edge.pl-edge-parallel .react-flow__edge-path {
+  stroke: var(--accent2);
+  stroke-width: 2.5;
+}
 
 /* ---- voice / push-to-talk ---- */
 
