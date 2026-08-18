@@ -14,7 +14,7 @@ import {
   type McpServerConfig,
   type RequestLogEntry,
 } from '@vo-coder/core';
-import type { AgentSpec, BoundModel, HarnessMessage, UserPart } from '@vo-coder/providers';
+import type { AgentSpec, BoundModel, HarnessMessage, ToolSpec, UserPart } from '@vo-coder/providers';
 import type { ProjectAnswers } from '@vo-coder/project-config';
 import { detectProject, injectScaffold } from '@vo-coder/scaffold';
 import {
@@ -406,20 +406,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           const safe = title.replace(/[<>:"/\\|?*]+/g, '-').replace(/\s+/g, ' ').trim();
           const dir = exact ? resolve(exact) : resolve(join(parent, safe || 'project'));
           mkdirSync(dir, { recursive: true });
-          const project = projects.createProject(title, dir);
+          // One folder ↔ one project: a second job in the same folder JOINS the
+          // project that already owns it instead of minting a twin. Working
+          // through Telegram made this loud — every dispatched task built its
+          // own "Knitting Wizard" row.
+          const { project, adopted } = projects.createOrAdopt(title, dir);
           // Move the calling chat in and bind its folder, so the very next tool
-          // call in this same turn already has hands inside the new project.
+          // call in this same turn already has hands inside the project.
           if (ctx?.sessionId) {
             projects.moveSession(ctx.sessionId, project.id);
             projects.setSessionDir(ctx.sessionId, dir);
             bank?.moveSession(ctx.sessionId, project.id);
           }
-          journal.append({ kind: 'project', text: `created project "${title}"`, project: title });
+          journal.append({
+            kind: 'project',
+            text: `${adopted ? 'joined project' : 'created project'} "${project.name}"`,
+            project: project.name,
+          });
           broadcastProjects();
           return Promise.resolve({
-            content:
-              `Created project "${project.name}" at ${dir}. It is in the Projects list now, and ` +
-              'this chat is inside it — your file tools and group_start work here.',
+            content: adopted
+              ? `"${project.name}" already exists at ${dir} — this chat joined it rather than ` +
+                'making a second one. Its earlier work is on disk; look before you rebuild ' +
+                'anything. Your file tools and group_start work here.'
+              : `Created project "${project.name}" at ${dir}. It is in the Projects list now, and ` +
+                'this chat is inside it — your file tools and group_start work here.',
           });
         } catch (err) {
           return Promise.resolve({
@@ -1470,6 +1481,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     });
   } catch (err) {
     console.warn('[infra-mcp] bundled server not resolvable (build packages first):', err);
+  }
+
+  // One folder ↔ one project. Rows made before that invariant existed (every
+  // Telegram-dispatched task minted its own) are merged into the oldest one:
+  // chats and groups are re-parented, nothing is deleted, projects.json is
+  // backed up first.
+  for (const m of projects.mergeDuplicateDirs()) {
+    for (const sessionId of m.sessionIds) bank?.moveSession(sessionId, m.keptId);
+    console.log(
+      `[projects] merged ${m.merged.length} duplicate(s) of "${m.keptName}" ` +
+        `(${m.sessionIds.length} chats moved)`,
+    );
+    journal.append({
+      kind: 'project',
+      text: `merged ${m.merged.length} duplicate project(s) into "${m.keptName}" — ${m.sessionIds.length} chats`,
+      project: m.keptName,
+    });
   }
 
   // Reconnect configured MCP servers on startup (fire and forget; status shows in UI).
@@ -2734,7 +2762,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
    * appears in the app like any other, and why the group it may start is
    * watchable there.
    */
-  const dispatchToolSpec = {
+  /** Project names the phone-side Vodo may aim a dispatch at. */
+  const existingProjectNames = (): string[] =>
+    projects
+      .list()
+      .projects.filter((p) => p.id !== GENERAL_PROJECT_ID && p.dir)
+      .map((p) => p.name)
+      .slice(0, 30);
+  const dispatchToolSpec = (): ToolSpec => ({
     name: 'vodo_dispatch',
     description:
       'Hand a job to Vodo at the machine, who has the folders, the file tools and the agent ' +
@@ -2742,7 +2777,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       'the user can watch it in the app. Write the brief as an instruction to someone who ' +
       'cannot see this Telegram conversation: say what to build, WHERE the project folder goes, ' +
       'and whether it is a plain project (work it alone) or a GROUP PROJECT (split it across ' +
-      'the agents).',
+      'the agents). MOST WORK CONTINUES SOMETHING THAT EXISTS: when it belongs to a project the ' +
+      'user already has, name it in `project` so the chat opens INSIDE it — otherwise one job ' +
+      'spread over several messages becomes a pile of identical half-projects.' +
+      (existingProjectNames().length
+        ? ` Existing projects: ${existingProjectNames().join(', ')}.`
+        : ''),
     inputSchema: {
       type: 'object',
       properties: {
@@ -2751,37 +2791,57 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           description: 'The complete instruction, standing on its own with all the context',
         },
         title: { type: 'string', description: 'Short title for the chat (a few words)' },
+        project: {
+          type: 'string',
+          description:
+            'The EXISTING project this work belongs to, by name (see the list in this description). ' +
+            'Leave it out only when this is genuinely a new thing.',
+        },
       },
       required: ['brief'],
     },
-  };
+  });
   const executeDispatch = async (args: unknown): Promise<{ content: string; isError?: boolean }> => {
-    const a = (args ?? {}) as { brief?: unknown; title?: unknown };
+    const a = (args ?? {}) as { brief?: unknown; title?: unknown; project?: unknown };
     const brief = typeof a.brief === 'string' ? a.brief.trim() : '';
     if (!brief) return { content: 'Say what to hand over.', isError: true };
     const title = (typeof a.title === 'string' && a.title.trim()) || brief.slice(0, 48);
-    // Starts in General with no folder: the brief carries the location, and
-    // project_create rehomes the chat the moment Vodo makes the project.
-    const meta = projects.createSession(GENERAL_PROJECT_ID, 'default', title);
+    // Continuing work goes back INTO its project, with that project's folder
+    // already attached. Every dispatch used to start in General and rely on
+    // project_create to rehome it, so one job carried over several phone
+    // messages scattered into a row of identical half-projects.
+    const wanted = typeof a.project === 'string' ? a.project.trim() : '';
+    const target = wanted ? projects.findByName(wanted) : undefined;
+    const meta = target
+      ? projects.createSession(target.id, 'default', title, undefined, target.dir)
+      : projects.createSession(GENERAL_PROJECT_ID, 'default', title);
     broadcastProjects();
     journal.append({ kind: 'chat', text: `dispatched from Telegram: ${title}`, surface: 'telegram' });
+    const where = target
+      ? `[This continues the project "${target.name}"${target.dir ? ` at ${target.dir}` : ''} — ` +
+        'its folder is already attached. Read what is there before building anything new, and do ' +
+        'NOT create a second project for it.]\n'
+      : '';
     void sessions.send(meta.id, [
       {
         type: 'text',
         text:
           `[Dispatched from Telegram — the user is away from the machine and cannot see this ` +
-          `chat. Do the work here; they will read the result on their phone.]\n\n${brief}`,
+          `chat. Do the work here; they will read the result on their phone.]\n${where}\n${brief}`,
       },
     ]);
+    const missed = wanted && !target ? ` (no project named "${wanted}" — started a fresh one)` : '';
     return {
-      content: `Handed to Vodo at the machine — chat "${title}" is running in the app.`,
+      content: target
+        ? `Handed to Vodo at the machine — chat "${title}" is running inside "${target.name}".`
+        : `Handed to Vodo at the machine — chat "${title}" is running in the app.${missed}`,
     };
   };
 
   const telegram = new TelegramBridge(config, secrets, {
     vodoSpec,
     resolve: resolveSpec,
-    tools: () => [...remoteTools(), dispatchToolSpec],
+    tools: () => [...remoteTools(), dispatchToolSpec()],
     execute: (name, args) => telegramExecute(name, args),
     missionsSummary: () => missions.describeAll(),
     onUsage: (bound, ev) => recordUsage(bound, ev),

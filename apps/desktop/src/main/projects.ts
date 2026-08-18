@@ -321,6 +321,92 @@ export class ProjectStore {
   }
 
   /**
+   * The project that owns `dir`, or a new one named `name`. ONE FOLDER ↔ ONE
+   * PROJECT: project_create used to push a fresh row every time, so working on
+   * the same folder twice — which is exactly what happens when each Telegram
+   * task is dispatched separately — left the sidebar full of duplicate
+   * projects with the same name and one chat each.
+   */
+  createOrAdopt(name: string, dir: string): { project: ProjectInfo; adopted: boolean } {
+    const key = resolve(dir).toLowerCase();
+    const owner = this.load().projects.find(
+      (p) => p.dir && resolve(p.dir).toLowerCase() === key,
+    );
+    if (owner) return { project: owner, adopted: true };
+    return { project: this.createProject(name, dir), adopted: false };
+  }
+
+  /**
+   * Heal the one-folder-one-project invariant for rows made before it existed.
+   * Same-folder duplicates are merged into the OLDEST row: every chat and group
+   * is re-parented, then the empty duplicate is dropped. Nothing is deleted —
+   * a chat only changes which project lists it — and a backup of projects.json
+   * is written the first time it runs.
+   *
+   * Returns what moved so the caller can migrate the memory bank too.
+   */
+  mergeDuplicateDirs(): Array<{
+    keptId: string;
+    keptName: string;
+    merged: string[];
+    sessionIds: string[];
+  }> {
+    const data = this.load();
+    const byDir = new Map<string, ProjectInfo[]>();
+    for (const p of data.projects) {
+      if (!p.dir) continue;
+      const key = resolve(p.dir).toLowerCase();
+      const list = byDir.get(key);
+      if (list) list.push(p);
+      else byDir.set(key, [p]);
+    }
+    const out: Array<{ keptId: string; keptName: string; merged: string[]; sessionIds: string[] }> =
+      [];
+    for (const group of byDir.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      const kept = sorted[0]!;
+      const gone = sorted.slice(1);
+      const goneIds = new Set(gone.map((p) => p.id));
+      const sessionIds = data.sessions.filter((s) => goneIds.has(s.projectId)).map((s) => s.id);
+      if (!out.length) this.backup();
+      for (const s of data.sessions) if (goneIds.has(s.projectId)) s.projectId = kept.id;
+      for (const g of data.groups ?? []) if (goneIds.has(g.projectId)) g.projectId = kept.id;
+      data.projects = data.projects.filter((p) => !goneIds.has(p.id));
+      out.push({
+        keptId: kept.id,
+        keptName: kept.name,
+        merged: gone.map((p) => p.name),
+        sessionIds,
+      });
+    }
+    if (out.length) this.persist();
+    return out;
+  }
+
+  /** One-shot copy of projects.json beside itself, before a migration edits it. */
+  private backup(): void {
+    try {
+      copyFileSync(this.file, `${this.file}.before-merge`);
+    } catch {
+      /* best-effort — the merge itself is non-destructive */
+    }
+  }
+
+  /** Find a project by name (case-blind, then loose) — how a dispatched brief
+   *  names where its work belongs. */
+  findByName(name: string): ProjectInfo | undefined {
+    const want = name.trim().toLowerCase();
+    if (!want) return undefined;
+    const list = this.load().projects;
+    return (
+      list.find((p) => p.name.trim().toLowerCase() === want) ??
+      list.find((p) => p.name.trim().toLowerCase().includes(want)) ??
+      list.find((p) => want.includes(p.name.trim().toLowerCase()))
+    );
+  }
+
+  /**
    * Rehome a chat to another project. Only the parent changes — the history
    * file, groupId and dir all stay; the caller migrates the memory bank.
    */
