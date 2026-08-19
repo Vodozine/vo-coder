@@ -69,6 +69,76 @@ export interface LocalEndpoint {
   vramGb?: number;
 }
 
+export interface CrewUser {
+  id: string;
+  name: string;
+  /** Their key. Shown to an admin so it can be handed out or re-shown. */
+  key: string;
+  /**
+   * May manage the crew. This is the ONLY authorization in the app: everything
+   * else is open, because nothing is hidden and everyone here is trusted.
+   * Holding it to one privileged act is what stops it becoming a permissions
+   * model.
+   */
+  admin: boolean;
+  createdAt: number;
+}
+
+export interface RemoteSettings {
+  role: 'local' | 'host' | 'client';
+  /**
+   * role 'host': where to listen, the token a client must present, and whether
+   * the link is encrypted.
+   *
+   * `tls` is true everywhere it can be, and exists to be turned off for one
+   * reason: phones. The certificate this host signs for itself is pinned by
+   * fingerprint on a desktop front end, which works because that front end is
+   * Electron and we control its TLS. Android and iOS refuse a self-signed
+   * certificate outright, and neither offers a WebSocket hook to pin one — so
+   * a companion app cannot reach an encrypted host at all.
+   *
+   * Off, the traffic is plain on the wire. That is only ever acceptable inside
+   * something that is already encrypted — a tailnet, where WireGuard has
+   * already done this job — or on a network you own outright. The key still
+   * guards the door; what is lost is secrecy from anyone already on the wire.
+   */
+  listen: { port: number; token: string; tls: boolean };
+  /**
+   * role 'client': the host to reach, the token it issued, and the certificate
+   * fingerprint it is expected to present.
+   *
+   * The fingerprint is the whole of the identity check. No public authority
+   * will vouch for "the desktop in the corner", so the host signs its own
+   * certificate and this end pins it — asking not "is this valid in general"
+   * but "is this the exact machine I paired with", which is the real question.
+   * Empty means trust the first one seen and remember it.
+   */
+  connect: { url: string; token: string; fingerprint: string };
+}
+
+
+/** Clear of the usual dev-server ports (3000, 5173, 8080, 8888…). */
+export const DEFAULT_REMOTE_PORT = 7420;
+
+export interface RemoteInfo {
+  /**
+   * LAN addresses a client could reach this machine on. Shown so setting up
+   * the other end does not mean going and running ipconfig.
+   */
+  addresses: string[];
+  /** The host server is actually accepting connections. */
+  listening: boolean;
+  /** Front ends currently attached (a desktop host's own window included). */
+  clients: number;
+  /** Why the host is not listening, when it should be. */
+  lastError?: string;
+  /**
+   * This host's certificate fingerprint, for pairing. Shown beside the key so
+   * the far end can be compared by eye the first time.
+   */
+  fingerprint?: string;
+}
+
 export interface AppConfig {
   defaultProvider: ProviderId;
   defaultModel: string;
@@ -201,6 +271,7 @@ export interface AppConfig {
    * would. Off by default: it only makes sense in a git repo.
    */
   worktreeMode: boolean;
+  remote: RemoteSettings;
 }
 
 export interface VoiceSettings {
@@ -326,6 +397,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   telegramPaired: [],
   uiZoom: 1,
   worktreeMode: false,
+  remote: {
+    role: 'local',
+    listen: { port: DEFAULT_REMOTE_PORT, token: '', tls: true },
+    connect: { url: '', token: '', fingerprint: '' },
+  },
 };
 
 /** UI zoom bounds: below 0.8 the caption-button math and hit targets fall
@@ -746,6 +822,19 @@ export interface TelegramInfo {
 }
 
 export interface VoApi {
+  /** Live state of the remote link, for the Settings panel. */
+  remoteInfo(): Promise<RemoteInfo>;
+  onRemoteChanged(cb: (info: RemoteInfo) => void): () => void;
+  remoteSettingsGet(): Promise<RemoteSettings>;
+  remoteSettingsSet(patch: Partial<RemoteSettings>): Promise<RemoteSettings>;
+  /**
+   * Switch which end of the wire this window is. Applied by reloading, because
+   * the preload picks its transport when it loads.
+   */
+  remoteApplyRole(patch: Partial<RemoteSettings>): Promise<void>;
+  /** Is this window driving another machine? Answered without a round trip. */
+  isRemote(): boolean;
+
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
   /** Apply UI zoom to this window (webFrame, synchronous — no IPC round trip). */
@@ -1101,4 +1190,43 @@ export const IPC = {
   videoRead: 'video:read',
   globalRulesRead: 'rules:read',
   globalRulesWrite: 'rules:write',
+
+  // ---- remote mode ----
+  remoteBootstrap: 'remote:bootstrap',
+  remoteInfo: 'remote:info',
+  remoteChanged: 'remote:changed',
+  remoteApplyRole: 'remote:applyRole',
+  remoteSettingsGet: 'remote:settingsGet',
+  remoteSettingsSet: 'remote:settingsSet',
+  mediaUrl: 'media:url',
+  hostFileUpload: 'hostfs:upload',
 } as const;
+
+/**
+ * Channels that must NEVER leave this machine.
+ *
+ * Everything else a front end calls is done BY the host — that is the point.
+ * These are the exceptions: things about the window you are looking at, or
+ * about which end of the wire this copy is. Sent to the host they do the
+ * opposite of what the button says — pressing "Off" on a laptop would switch
+ * the desktop off and strand the laptop with nothing left to reconnect to.
+ */
+export const CLIENT_CHANNELS: ReadonlySet<string> = new Set<string>([
+  // The preview pane is a WebContentsView laid over this window at pixel
+  // coordinates. The dev server behind it is host work; the viewport is local
+  // chrome.
+  IPC.previewOpen,
+  IPC.previewClose,
+  IPC.previewHide,
+  IPC.previewBounds,
+  IPC.previewState,
+  IPC.previewReload,
+  IPC.previewShowRequested,
+  // Opening a browser on a machine nobody is sitting at helps nobody.
+  IPC.openExternal,
+  // Which end of the wire THIS window is, and opening another one, are facts
+  // about this computer.
+  IPC.remoteApplyRole,
+  IPC.remoteSettingsGet,
+  IPC.remoteSettingsSet,
+]);

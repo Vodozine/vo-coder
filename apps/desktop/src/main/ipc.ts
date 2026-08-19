@@ -1,4 +1,19 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
+import { networkInterfaces } from 'node:os';
+import { randomBytes } from 'node:crypto';
+import { emitToSinks, handle as registerHandler } from './ipc-registry';
+import {
+  onRemoteStatusChange,
+  remoteStatus,
+  setMediaResolver,
+  setPreviewOrigin,
+  setUploadSink,
+  startRemoteHost,
+  stopRemoteHost,
+} from './remote-server';
+import { userDataDir } from './paths';
+import { edition } from './edition';
+import type { RemoteSettings } from '../shared/ipc-contract';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -114,12 +129,27 @@ function validateParts(parts: UserPart[]): string | null {
   return null;
 }
 
+/** LAN addresses a front end could reach this machine on. */
+function lanAddresses(): string[] {
+  const out: string[] = [];
+  for (const nics of Object.values(networkInterfaces())) {
+    for (const nic of nics ?? []) {
+      if (nic.family === 'IPv4' && !nic.internal) out.push(nic.address);
+    }
+  }
+  return out;
+}
+
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const config = new ConfigStore();
   const secrets = new SecretStore();
   // Safe against shutdown races: PTYs, watchers, and streams keep emitting
   // after the window is gone — sending to a destroyed webContents throws.
   const sendToWindow = (channel: string, payload: unknown): void => {
+    // Attached front ends first, and deliberately before the early return
+    // below: a host whose own window has gone must still keep the other
+    // machine's copy streaming.
+    emitToSinks(channel, payload);
     const win = getWindow();
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
     win.webContents.send(channel, payload);
@@ -1256,27 +1286,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     },
   });
 
-  ipcMain.handle(IPC.usageGet, () => usage.get());
-  ipcMain.handle(IPC.xaiOauthStatus, () => xaiOauth.status());
-  ipcMain.handle(IPC.xaiOauthBegin, () => xaiOauth.begin());
-  ipcMain.handle(IPC.xaiOauthSignOut, () => {
+  registerHandler(IPC.usageGet, () => usage.get());
+  registerHandler(IPC.xaiOauthStatus, () => xaiOauth.status());
+  registerHandler(IPC.xaiOauthBegin, () => xaiOauth.begin());
+  registerHandler(IPC.xaiOauthSignOut, () => {
     xaiOauth.signOut();
     invalidateXaiLiveIds();
   });
-  ipcMain.handle(IPC.googleOauthStatus, () => googleOAuth.status());
-  ipcMain.handle(IPC.googleOauthBegin, () => googleOAuth.begin());
-  ipcMain.handle(IPC.googleOauthSignOut, () => googleOAuth.signOut());
+  registerHandler(IPC.googleOauthStatus, () => googleOAuth.status());
+  registerHandler(IPC.googleOauthBegin, () => googleOAuth.begin());
+  registerHandler(IPC.googleOauthSignOut, () => googleOAuth.signOut());
 
   // ---- projects & chat sessions ----
   const broadcastProjects = () => sendToWindow(IPC.projectsChanged, projects.list());
-  ipcMain.handle(IPC.projectsList, () => projects.list());
-  ipcMain.handle(IPC.projectCreate, (_e, name: string, dir?: string) => {
+  registerHandler(IPC.projectsList, () => projects.list());
+  registerHandler(IPC.projectCreate, (_e, name: string, dir?: string) => {
     const project = projects.createProject(name, dir);
     journal.append({ kind: 'project', text: `created project "${name}"` });
     broadcastProjects();
     return project;
   });
-  ipcMain.handle(IPC.projectCreateIn, (_e, parentDir: string, name: string) => {
+  registerHandler(IPC.projectCreateIn, (_e, parentDir: string, name: string) => {
     try {
       const safe = name.trim().replace(/[<>:"/\\|?*]+/g, '-').replace(/\s+/g, ' ').trim();
       if (!safe) return { ok: false, error: 'Give the project a name.' };
@@ -1290,7 +1320,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle(IPC.projectOpenExisting, (_e, dir: string) => {
+  registerHandler(IPC.projectOpenExisting, (_e, dir: string) => {
     try {
       const resolved = resolve(dir);
       if (!existsSync(resolved)) return { ok: false, error: 'That folder does not exist.' };
@@ -1320,7 +1350,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle(IPC.projectDelete, (_e, id: string) => {
+  registerHandler(IPC.projectDelete, (_e, id: string) => {
     // Epitaph before the purge: the project's data goes, but a brief overview
     // stays in the shared journal so "what was that project I did in July?"
     // always has an answer.
@@ -1347,7 +1377,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     bank?.purgeProject(id);
     broadcastProjects();
   });
-  ipcMain.handle(IPC.projectSetDir, (_e, id: string, dir: string) => {
+  registerHandler(IPC.projectSetDir, (_e, id: string, dir: string) => {
     try {
       if (!existsSync(dir)) return { ok: false, error: 'That folder does not exist.' };
       if (!projects.setDir(id, dir)) return { ok: false, error: 'Unknown project.' };
@@ -1362,31 +1392,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
+  registerHandler(IPC.sessionCreate, (_e, projectId: string, agentId?: string) => {
     // Mr Homelab's project is created on demand — his tab is the only door.
     if (projectId === HOMELAB_PROJECT_ID) projects.ensureHomelab();
     const meta = projects.createSession(projectId, agentId);
     broadcastProjects();
     return meta;
   });
-  ipcMain.handle(IPC.sessionOpen, (_e, sessionId: string) => {
+  registerHandler(IPC.sessionOpen, (_e, sessionId: string) => {
     const meta = projects.meta(sessionId);
     if (!meta) throw new Error(`Unknown chat session "${sessionId}".`);
     return { meta, history: sessions.historyOf(sessionId) };
   });
-  ipcMain.handle(IPC.sessionDelete, (_e, sessionId: string) => {
+  registerHandler(IPC.sessionDelete, (_e, sessionId: string) => {
     sessions.dropLive(sessionId);
     projects.deleteSession(sessionId);
     broadcastProjects();
   });
-  ipcMain.handle(IPC.sessionRename, (_e, sessionId: string, title: string) => {
+  registerHandler(IPC.sessionRename, (_e, sessionId: string, title: string) => {
     projects.renameSession(sessionId, title);
     broadcastProjects();
   });
   // Delete a whole group project in one act: every member chat, the
   // coordinator chat, and the group record — the sidebar clean-up that used
   // to be nine × clicks.
-  ipcMain.handle(IPC.groupDelete, (_e, groupId: string) => {
+  registerHandler(IPC.groupDelete, (_e, groupId: string) => {
     const group = projects.groups().find((g) => g.id === groupId);
     // The record can be gone while its chats remain (legacy runs, drift).
     // The sweep by session groupId is what guarantees the bundle really
@@ -1415,13 +1445,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     coordProofNudged.delete(groupId);
     broadcastProjects();
   });
-  ipcMain.handle(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
+  registerHandler(IPC.sessionSetAgent, (_e, sessionId: string, agentId: string) => {
     sessions.setAgent(sessionId, agentId);
     broadcastProjects();
   });
   // Point this chat at any folder (or detach with null). Takes effect on the
   // next send — specs and tool mounts re-derive from the meta every turn.
-  ipcMain.handle(IPC.sessionSetDir, (_e, sessionId: string, dir: string | null) => {
+  registerHandler(IPC.sessionSetDir, (_e, sessionId: string, dir: string | null) => {
     try {
       projects.setSessionDir(sessionId, dir);
       // ONE FOLDER ↔ ONE PROJECT. Binding a chat to a real folder REHOMES the
@@ -1505,18 +1535,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     void mcp.connect(cfg);
   }
 
-  ipcMain.handle(IPC.getConfig, () => config.get());
-  ipcMain.handle(IPC.setConfig, (_e, patch: Partial<AppConfig>) => {
+  registerHandler(IPC.getConfig, () => config.get());
+  registerHandler(IPC.setConfig, (_e, patch: Partial<AppConfig>) => {
     const next = config.set(patch);
     if ('telegramEnabled' in patch || 'telegramPaired' in patch) telegramRef?.sync();
     return next;
   });
-  ipcMain.handle(IPC.setSecret, (_e, provider: string, value: string) => {
+  registerHandler(IPC.setSecret, (_e, provider: string, value: string) => {
     secrets.set(provider, value);
     if (provider === 'telegram') telegramRef?.sync();
     return secrets.status();
   });
-  ipcMain.handle(IPC.secretStatus, () => secrets.status());
+  registerHandler(IPC.secretStatus, () => secrets.status());
   // Loading a local model reads gigabytes off disk — a minute of silence
   // before the first token. Starting that when the user PICKS the agent, not
   // when they send, hides it behind their typing. Best-effort by design: a
@@ -1741,7 +1771,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       warming.delete(key);
     }
   };
-  ipcMain.handle(IPC.modelWarm, (_e, providerId: string, model: string) =>
+  registerHandler(IPC.modelWarm, (_e, providerId: string, model: string) =>
     warmModel(providerId, model),
   );
   // A group project: one goal, several agents, side by side in one project.
@@ -1755,8 +1785,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // that has the project's folder, memory map and tools — in the thread, where
   // the user can see it and argue with it — instead of invisibly by whichever
   // model happened to be cheapest.
-  ipcMain.handle(IPC.groupList, () => projects.groups());
-  ipcMain.handle(IPC.groupEnd, (_e, groupId: string) => {
+  registerHandler(IPC.groupList, () => projects.groups());
+  registerHandler(IPC.groupEnd, (_e, groupId: string) => {
     // Ending a run STOPS it. endGroup only stamped a timestamp, so members
     // mid-turn carried on writing files and burning a GPU each while the user
     // watched a group they had already closed — "end" has to mean end. The
@@ -1767,7 +1797,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     broadcastProjects();
     return projects.groups();
   });
-  ipcMain.handle(IPC.listModels, async (_e, providerId: string) => {
+  registerHandler(IPC.listModels, async (_e, providerId: string) => {
     const provider = hub.registry().get(providerId);
     if (!provider) {
       const disabled = (config.get().disabledProviders ?? [])
@@ -1876,7 +1906,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (suggestion) sendToWindow(IPC.advisorSuggest, suggestion);
   };
 
-  ipcMain.handle(
+  registerHandler(
     IPC.chatSend,
     async (
       _e,
@@ -2298,7 +2328,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return routed && result.ok ? { ...result, routed } : result;
     },
   );
-  ipcMain.handle(IPC.chatCompact, async (_e, sessionId: string) => {
+  registerHandler(IPC.chatCompact, async (_e, sessionId: string) => {
     const result = await sessions.compact(sessionId);
     if (result.ok) {
       const meta = projects.meta(sessionId);
@@ -2310,36 +2340,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
     return result;
   });
-  ipcMain.handle(IPC.chatInject, (_e, sessionId: string, parts: UserPart[]) => {
+  registerHandler(IPC.chatInject, (_e, sessionId: string, parts: UserPart[]) => {
     const invalid = validateParts(parts);
     if (invalid) return { ok: false, error: invalid };
     observeMessage(sessionId, parts);
     return sessions.inject(sessionId, parts);
   });
-  ipcMain.handle(IPC.chatCancelInject, (_e, sessionId: string, injectionId: number) =>
+  registerHandler(IPC.chatCancelInject, (_e, sessionId: string, injectionId: number) =>
     sessions.cancelInjection(sessionId, injectionId),
   );
-  ipcMain.handle(IPC.chatStop, (_e, sessionId: string) => sessions.stop(sessionId));
-  ipcMain.handle(IPC.chatReset, (_e, sessionId: string) => sessions.reset(sessionId));
+  registerHandler(IPC.chatStop, (_e, sessionId: string) => sessions.stop(sessionId));
+  registerHandler(IPC.chatReset, (_e, sessionId: string) => sessions.reset(sessionId));
 
-  ipcMain.handle(IPC.mcpList, () => mcp.list());
-  ipcMain.handle(IPC.mcpConnect, async (_e, name: string) => {
+  registerHandler(IPC.mcpList, () => mcp.list());
+  registerHandler(IPC.mcpConnect, async (_e, name: string) => {
     const cfg = config.get().mcpServers.find((s) => s.name === name);
     if (!cfg) throw new Error(`No MCP server named "${name}" in config.`);
     return mcp.connect(cfg);
   });
-  ipcMain.handle(IPC.mcpDisconnect, (_e, name: string) => mcp.disconnect(name));
-  ipcMain.handle(IPC.mcpSearch, (_e, query: string) => searchMcpRegistry(query));
-  ipcMain.handle(IPC.mcpAdd, async (_e, cfg: McpServerConfig) => {
+  registerHandler(IPC.mcpDisconnect, (_e, name: string) => mcp.disconnect(name));
+  registerHandler(IPC.mcpSearch, (_e, query: string) => searchMcpRegistry(query));
+  registerHandler(IPC.mcpAdd, async (_e, cfg: McpServerConfig) => {
     const others = config.get().mcpServers.filter((s) => s.name !== cfg.name);
     config.set({ mcpServers: [...others, cfg] });
     return mcp.connect(cfg);
   });
-  ipcMain.handle(IPC.mcpOauthBegin, (_e, serverName: string) => mcpOAuth.begin(serverName));
-  ipcMain.handle(IPC.mcpOauthSignOut, (_e, serverName: string) => mcpOAuth.signOut(serverName));
+  registerHandler(IPC.mcpOauthBegin, (_e, serverName: string) => mcpOAuth.begin(serverName));
+  registerHandler(IPC.mcpOauthSignOut, (_e, serverName: string) => mcpOAuth.signOut(serverName));
   // ---- skills: packaged know-how, read on demand via skill_read ----
-  ipcMain.handle(IPC.skillsList, () => listSkills(app.getPath('userData')));
-  ipcMain.handle(IPC.skillsImport, async (_e, kind: 'folder' | 'file') => {
+  registerHandler(IPC.skillsList, () => listSkills(app.getPath('userData')));
+  registerHandler(IPC.skillsImport, async (_e, kind: 'folder' | 'file') => {
     const win = getWindow();
     if (!win) return { ok: false, error: 'No window.' };
     const picked = await dialog.showOpenDialog(
@@ -2356,7 +2386,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const res = importSkill(app.getPath('userData'), picked.filePaths[0]);
     return res.ok ? { ok: true, name: res.name } : { ok: false, error: res.error };
   });
-  ipcMain.handle(IPC.skillsImportUrl, async (_e, url: string) => {
+  registerHandler(IPC.skillsImportUrl, async (_e, url: string) => {
     const res = await importSkillFromGitHub(app.getPath('userData'), String(url ?? ''));
     if (!res.ok) return { ok: false, error: res.error };
     return {
@@ -2365,45 +2395,45 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       count: res.imported.length,
     };
   });
-  ipcMain.handle(IPC.skillsRemove, (_e, slug: string) =>
+  registerHandler(IPC.skillsRemove, (_e, slug: string) =>
     removeSkill(app.getPath('userData'), String(slug ?? '')),
   );
-  ipcMain.handle(IPC.advisorDismiss, (_e, topic: string) => advisor.dismiss(topic));
-  ipcMain.handle(IPC.openExternal, (_e, url: string) => {
+  registerHandler(IPC.advisorDismiss, (_e, topic: string) => advisor.dismiss(topic));
+  registerHandler(IPC.openExternal, (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url);
     return Promise.resolve();
   });
 
   // ---- integrated terminal (real PTY) ----
   const terminals = new TerminalManager(sendToWindow);
-  ipcMain.handle(IPC.termCreate, (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
+  registerHandler(IPC.termCreate, (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
     terminals.create(opts ?? {}),
   );
-  ipcMain.handle(IPC.termInput, (_e, id: number, data: string) => terminals.input(id, data));
-  ipcMain.handle(IPC.termResize, (_e, id: number, cols: number, rows: number) =>
+  registerHandler(IPC.termInput, (_e, id: number, data: string) => terminals.input(id, data));
+  registerHandler(IPC.termResize, (_e, id: number, cols: number, rows: number) =>
     terminals.resize(id, cols, rows),
   );
-  ipcMain.handle(IPC.termKill, (_e, id: number) => terminals.kill(id));
+  registerHandler(IPC.termKill, (_e, id: number) => terminals.kill(id));
   app.on('will-quit', () => terminals.killAll());
 
   // ---- code preview watcher ----
   const projectWatcher = new ProjectWatcher(sendToWindow);
-  ipcMain.handle(IPC.watchStart, (_e, dir: string) => projectWatcher.start(dir));
-  ipcMain.handle(IPC.watchStop, () => projectWatcher.stop());
-  ipcMain.handle(IPC.watchReadFile, (_e, relPath: string) => projectWatcher.read(relPath));
-  ipcMain.handle(IPC.watchWriteFile, (_e, relPath: string, content: string) =>
+  registerHandler(IPC.watchStart, (_e, dir: string) => projectWatcher.start(dir));
+  registerHandler(IPC.watchStop, () => projectWatcher.stop());
+  registerHandler(IPC.watchReadFile, (_e, relPath: string) => projectWatcher.read(relPath));
+  registerHandler(IPC.watchWriteFile, (_e, relPath: string, content: string) =>
     projectWatcher.write(relPath, content),
   );
-  ipcMain.handle(IPC.watchReadBaseline, (_e, relPath: string) =>
+  registerHandler(IPC.watchReadBaseline, (_e, relPath: string) =>
     projectWatcher.readBaseline(relPath),
   );
 
   initUpdater(getWindow, config);
-  ipcMain.handle(IPC.permissionRespond, (_e, requestId: string, decision: 'allow' | 'deny') =>
+  registerHandler(IPC.permissionRespond, (_e, requestId: string, decision: 'allow' | 'deny') =>
     sessions.respondPermission(requestId, decision),
   );
 
-  ipcMain.handle(IPC.scaffoldPickDir, async () => {
+  registerHandler(IPC.scaffoldPickDir, async () => {
     const win = getWindow();
     if (!win) return null;
     const result = await dialog.showOpenDialog(win, {
@@ -2412,8 +2442,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
-  ipcMain.handle(IPC.scaffoldDetect, (_e, dir: string) => detectProject(dir));
-  ipcMain.handle(IPC.scaffoldGenerate, (_e, dir: string, answers: ProjectAnswers, force?: boolean) =>
+  registerHandler(IPC.scaffoldDetect, (_e, dir: string) => detectProject(dir));
+  registerHandler(IPC.scaffoldGenerate, (_e, dir: string, answers: ProjectAnswers, force?: boolean) =>
     injectScaffold(dir, answers, { force, generatedAt: new Date().toISOString() }),
   );
 
@@ -2892,37 +2922,37 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
 
   // Claude Code CLI: is it installed and answering? Settings' Check button.
-  ipcMain.handle(IPC.claudeCliCheck, () => hub.cliAgent().healthCheck());
+  registerHandler(IPC.claudeCliCheck, () => hub.cliAgent().healthCheck());
 
-  ipcMain.handle(IPC.missionsList, () => missions.list());
-  ipcMain.handle(IPC.missionCreate, (_e, input: MissionCreateInput) => missions.create(input));
-  ipcMain.handle(IPC.missionControl, (_e, id: string, action: MissionAction) =>
+  registerHandler(IPC.missionsList, () => missions.list());
+  registerHandler(IPC.missionCreate, (_e, input: MissionCreateInput) => missions.create(input));
+  registerHandler(IPC.missionControl, (_e, id: string, action: MissionAction) =>
     missions.control(id, action),
   );
-  ipcMain.handle(IPC.telegramInfo, () => telegram.info());
-  ipcMain.handle(IPC.telegramPairCode, () => telegram.generatePairCode());
-  ipcMain.handle(IPC.telegramUnpair, (_e, chatId: number) => telegram.unpair(chatId));
+  registerHandler(IPC.telegramInfo, () => telegram.info());
+  registerHandler(IPC.telegramPairCode, () => telegram.generatePairCode());
+  registerHandler(IPC.telegramUnpair, (_e, chatId: number) => telegram.unpair(chatId));
 
   // ---- memory view + smart-context toggle ----
-  ipcMain.handle(IPC.projectSetAssemble, (_e, projectId: string, enabled: boolean) => {
+  registerHandler(IPC.projectSetAssemble, (_e, projectId: string, enabled: boolean) => {
     projects.setAssemble(projectId, enabled);
     broadcastProjects();
   });
-  ipcMain.handle(IPC.memStats, (_e, projectId: string) =>
+  registerHandler(IPC.memStats, (_e, projectId: string) =>
     bank ? bank.stats(projectId) : { nodes: 0, archiveTurns: 0 },
   );
-  ipcMain.handle(
+  registerHandler(
     IPC.memMapList,
     (_e, projectId: string, opts?: { query?: string; type?: string; includeInactive?: boolean }) =>
       bank ? bank.listNodes(projectId, opts ?? {}) : [],
   );
-  ipcMain.handle(IPC.memMapSetStatus, (_e, projectId: string, nodeId: number, status: string) => {
+  registerHandler(IPC.memMapSetStatus, (_e, projectId: string, nodeId: number, status: string) => {
     bank?.setNodeStatus(projectId, nodeId, status);
   });
-  ipcMain.handle(IPC.memMapDelete, (_e, projectId: string, nodeId: number) => {
+  registerHandler(IPC.memMapDelete, (_e, projectId: string, nodeId: number) => {
     bank?.deleteNode(projectId, nodeId);
   });
-  ipcMain.handle(
+  registerHandler(
     IPC.memMapGraph,
     (_e, projectId: string, opts?: { includeInactive?: boolean }) =>
       bank ? bank.graph(projectId, opts ?? {}) : { nodes: [], edges: [] },
@@ -2951,11 +2981,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return roots.some(inside) ? target : null;
   };
 
-  ipcMain.handle(IPC.globalRulesRead, () => ({
+  registerHandler(IPC.globalRulesRead, () => ({
     path: globalRulesPath(),
     text: readGlobalRules() || GLOBAL_RULES_TEMPLATE,
   }));
-  ipcMain.handle(IPC.globalRulesWrite, (_e, text: string) => {
+  registerHandler(IPC.globalRulesWrite, (_e, text: string) => {
     try {
       writeGlobalRules(String(text ?? ''));
       return { ok: true };
@@ -2964,7 +2994,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle(IPC.imageRead, (_e, path: string) => {
+  registerHandler(IPC.imageRead, (_e, path: string) => {
     try {
       const target = insideAllowedRoots(path);
       if (!target) return { ok: false, error: 'Path outside allowed folders.' };
@@ -2986,7 +3016,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // Raw bytes, not a data URL: the renderer wraps them in a Blob so the player
   // can seek without a base64 copy a third larger than the file.
-  ipcMain.handle(IPC.videoRead, (_e, path: string) => {
+  registerHandler(IPC.videoRead, (_e, path: string) => {
     try {
       const target = insideAllowedRoots(path);
       if (!target) return { ok: false, error: 'Path outside allowed folders.' };
@@ -3008,7 +3038,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle(IPC.registryCatalog, async () => {
+  registerHandler(IPC.registryCatalog, async () => {
     const hardware = profileHardware();
     // Catalog seed stores xAI *API* rates. Grok login (OAuth) is subscription-
     // billed — zero those rates in the payload the UI reads so Chat/Settings
@@ -3024,7 +3054,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     });
     return { hardware, records };
   });
-  ipcMain.handle(
+  registerHandler(
     IPC.registrySuggest,
     async (
       _e,
@@ -3065,7 +3095,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ---- voice (PTT + live chat) ----
   const voice = new VoiceHost(config, secrets);
-  ipcMain.handle(IPC.voiceTranscribe, async (_e, wav: ArrayBuffer) => {
+  registerHandler(IPC.voiceTranscribe, async (_e, wav: ArrayBuffer) => {
     try {
       const text = await voice.transcribe(new Uint8Array(wav));
       return { ok: true, text };
@@ -3073,7 +3103,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle(IPC.voiceSpeak, async (_e, text: string) => {
+  registerHandler(IPC.voiceSpeak, async (_e, text: string) => {
     try {
       const output = await voice.speak(text);
       if (output.kind === 'audio') {
@@ -3094,12 +3124,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle(IPC.voiceStopSpeak, () => voice.stopSpeak());
-  ipcMain.handle(IPC.voiceCompatCatalog, (_e, baseUrl: string) =>
+  registerHandler(IPC.voiceStopSpeak, () => voice.stopSpeak());
+  registerHandler(IPC.voiceCompatCatalog, (_e, baseUrl: string) =>
     fetchCompatCatalog(baseUrl, secrets.get('tts-custom') ?? null),
   );
-  ipcMain.handle(IPC.voiceSystemVoices, () => voice.listVoices());
-  ipcMain.handle(IPC.voiceSetupWhisper, async () => {
+  registerHandler(IPC.voiceSystemVoices, () => voice.listVoices());
+  registerHandler(IPC.voiceSetupWhisper, async () => {
     try {
       const { binaryPath, modelPath } = await setupWhisper();
       config.set({
@@ -3124,9 +3154,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // Nor the last turn's tokens/cost — record() only writes on an 800ms debounce.
     usage.flush();
   });
-  ipcMain.handle(IPC.previewOpen, (_e, url: string) => preview.open(url));
-  ipcMain.handle(IPC.previewOpenFile, (_e, path: string) => preview.openFile(path));
-  ipcMain.handle(IPC.previewDetect, async (_e, dir: string) => {
+  registerHandler(IPC.previewOpen, (_e, url: string) => preview.open(url));
+  registerHandler(IPC.previewOpenFile, (_e, path: string) => preview.openFile(path));
+  registerHandler(IPC.previewDetect, async (_e, dir: string) => {
     // 1) A dev server already running on a well-known port? (Skip our own.)
     const devUrl = process.env['ELECTRON_RENDERER_URL'];
     const ownPort = devUrl ? Number(new URL(devUrl).port) : -1;
@@ -3158,21 +3188,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
     return { kind: 'none' };
   });
-  ipcMain.handle(IPC.previewStartDev, async (_e, dir: string) => {
+  registerHandler(IPC.previewStartDev, async (_e, dir: string) => {
     const result = await preview.startDev(dir);
     if (result.ok && result.url) preview.open(result.url);
     return result;
   });
-  ipcMain.handle(IPC.previewStopDev, () => {
+  registerHandler(IPC.previewStopDev, () => {
     // A stopped server leaves a dead page behind — clear the pane with it.
     const result = preview.stopServer();
     preview.close();
     return result;
   });
-  ipcMain.handle(IPC.previewClose, () => preview.close());
-  ipcMain.handle(IPC.previewHide, () => preview.hide());
-  ipcMain.handle(IPC.previewReload, () => preview.reload());
-  ipcMain.handle(IPC.previewBounds, (e, bounds: PreviewBounds) => {
+  registerHandler(IPC.previewClose, () => preview.close());
+  registerHandler(IPC.previewHide, () => preview.hide());
+  registerHandler(IPC.previewReload, () => preview.reload());
+  registerHandler(IPC.previewBounds, (e, bounds: PreviewBounds) => {
     // The renderer measures in CSS pixels; the native view is placed in
     // window DIPs. CSS px × zoomFactor = DIP, whatever the OS display scale —
     // without this, any UI zoom (Settings or the stock Ctrl+± accelerators)
@@ -3185,5 +3215,136 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       height: bounds.height * z,
     });
   });
-  ipcMain.handle(IPC.previewState, () => preview.stateValidated());
+  registerHandler(IPC.previewState, () => preview.stateValidated());
+
+  // ---- remote mode ----
+  //
+  // Run Vodo on one computer and drive it from another — a second desktop, or
+  // the companion phone app. The server is an authenticated socket for calls
+  // and events plus plain HTTP for anything that wants byte ranges, all on one
+  // port, so there is one thing to type into the other machine and one
+  // firewall answer to give.
+
+  /**
+   * Media handed out by unguessable id rather than by path.
+   *
+   * The id IS the credential: it is only minted for a path that already passed
+   * the allowed-roots check, and an <img> cannot send an auth header, so the
+   * address has to carry its own right. Stable per file, or every thumbnail
+   * would mint a new one and this map would grow for as long as the app runs.
+   */
+  const mediaRefs = new Map<string, { path: string; mimeType: string }>();
+
+  registerHandler(IPC.mediaUrl, (_e, path: string) => {
+    const target = insideAllowedRoots(String(path));
+    if (!target) return { ok: false, error: 'Path outside allowed folders.' };
+    const ext = target.split('.').pop()?.toLowerCase() ?? '';
+    const mimeType =
+      audioMimeFor(target) ??
+      (ext === 'png'
+        ? 'image/png'
+        : ext === 'jpg' || ext === 'jpeg'
+          ? 'image/jpeg'
+          : ext === 'gif'
+            ? 'image/gif'
+            : ext === 'webp'
+              ? 'image/webp'
+              : ext === 'webm'
+                ? 'video/webm'
+                : ext === 'mov'
+                  ? 'video/quicktime'
+                  : 'video/mp4');
+    const existing = [...mediaRefs].find(([, v]) => v.path === target);
+    if (existing) return { ok: true, id: existing[0], mimeType };
+    const id = randomBytes(24).toString('base64url');
+    mediaRefs.set(id, { path: target, mimeType });
+    return { ok: true, id, mimeType };
+  });
+  setMediaResolver((id) => mediaRefs.get(id) ?? null);
+
+  registerHandler(IPC.hostFileUpload, (_e, name: string, bytes: ArrayBuffer) => {
+    try {
+      const safe = basename(String(name ?? 'file')).replace(/[\/:*?"<>|]/g, '_') || 'file';
+      const dir = join(userDataDir(), 'uploads', randomBytes(8).toString('hex'));
+      mkdirSync(dir, { recursive: true });
+      const target = join(dir, safe);
+      writeFileSync(target, Buffer.from(new Uint8Array(bytes)));
+      return { ok: true, path: target };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  /**
+   * Where an uploaded file lands, checked against the key.
+   *
+   * The HTTP path cannot present the socket handshake, so the key rides in the
+   * query and is checked here. A wrong key gets nowhere to write, and the
+   * endpoint answers 403 without touching the disk. The name is stripped to
+   * its last segment first — a front end is not a trusted source of paths, and
+   * "../.." in a filename must land as a filename.
+   */
+  setUploadSink((name, key) => {
+    const token = config.get().remote.listen.token;
+    if (!token || key !== token) return null;
+    const safe = basename(String(name ?? 'file')).replace(/[\/:*?"<>|]/g, '_') || 'file';
+    const dir = join(userDataDir(), 'uploads', randomBytes(8).toString('hex'));
+    mkdirSync(dir, { recursive: true });
+    return { path: join(dir, safe) };
+  });
+
+  // This edition serves no preview of its own, so there is nothing for the
+  // /preview route to forward to and it answers 503 rather than pretending.
+  setPreviewOrigin(() => null);
+
+  /**
+   * Synchronous by necessity — the preload asks this before it can build
+   * window.vo, and exposeInMainWorld cannot wait for a promise. Deliberately
+   * on ipcMain directly rather than through the registry: it answers a
+   * question about THIS machine, so a remote front end asking it must get its
+   * own answer, never the host's.
+   */
+  ipcMain.on(IPC.remoteBootstrap, (event) => {
+    event.returnValue = { remote: config.get().remote, edition: edition() };
+  });
+
+  registerHandler(IPC.remoteInfo, () => remoteStatus(lanAddresses()));
+  registerHandler(IPC.remoteSettingsGet, () => config.get().remote);
+  registerHandler(IPC.remoteSettingsSet, (_e, patch: Partial<RemoteSettings>) => {
+    const before = config.get().remote;
+    const next = { ...before, ...patch };
+    config.set({ remote: next });
+    // Re-listen when what the listener is made of changed. Without this,
+    // editing the port, the key or the encryption did nothing until a restart
+    // — and said nothing either, so the panel showed the new port beside a
+    // server still on the old one.
+    if (next.role === 'host' && JSON.stringify(before.listen) !== JSON.stringify(next.listen)) {
+      void startRemoteHost(next);
+    }
+    return next;
+  });
+
+  /**
+   * Switch which end of the wire this window is.
+   *
+   * Applied by reloading: the preload picks its transport when it loads, so it
+   * runs again and comes back attached to the other side. That is why this
+   * needs no restart — the role was never baked into the process, only into
+   * the window.
+   */
+  registerHandler(IPC.remoteApplyRole, (_e, patch: Partial<RemoteSettings>) => {
+    const next = { ...config.get().remote, ...patch };
+    config.set({ remote: next });
+    if (next.role === 'host') void startRemoteHost(next);
+    else stopRemoteHost();
+    // Reloaded after the reply is on its way, or the caller loses the socket
+    // mid-call and sees a rejection instead of a switch.
+    setTimeout(() => getWindow()?.webContents.reload(), 80);
+  });
+
+  // Serve this machine, if that is what it has been told to be. Started here
+  // rather than at boot so every handler is registered before the first front
+  // end can call one.
+  if (config.get().remote.role === 'host') void startRemoteHost(config.get().remote);
+  onRemoteStatusChange(() => sendToWindow(IPC.remoteChanged, remoteStatus(lanAddresses())));
 }

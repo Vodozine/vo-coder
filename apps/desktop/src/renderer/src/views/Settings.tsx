@@ -12,10 +12,13 @@ import type {
   AppConfig,
   LocalEndpoint,
   McpOauthEvent,
+  RemoteInfo,
+  RemoteSettings,
   TelegramInfo,
   VoiceSettings,
 } from '../../../shared/ipc-contract';
-import { mcpOauthLabelForUrl } from '../../../shared/ipc-contract';
+import { DEFAULT_REMOTE_PORT, mcpOauthLabelForUrl } from '../../../shared/ipc-contract';
+import { PairingCode } from '../components/PairingCode';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
@@ -3696,6 +3699,7 @@ export function Settings() {
         <SpendingSection />
       </SettingsTile>
       <SettingsTile id="updates" name="Updates" description="Version and auto-update" summary={version || 'auto'} openTile={openTile} setOpenTile={setOpenTile}>
+        <RemoteSection />
         <UpdatesSection />
       </SettingsTile>
 
@@ -3815,6 +3819,306 @@ function DisplaySection() {
       <p className="hint">
         Scales the whole interface — for small screens where the UI reads too fine.
       </p>
+    </section>
+  );
+}
+
+/**
+ * The role this app booted with. The preload picks its transport when the
+ * window is created, so switching role only takes effect on reload — this is
+ * what the panel compares against to say so honestly, rather than appearing to
+ * switch and then behaving like it did not.
+ */
+let bootRole: RemoteSettings['role'] | null = null;
+
+/** A shared secret for the link. 24 bytes, base64url — no padding to mis-copy. */
+function newRemoteToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function RemoteSection() {
+  /**
+   * Read straight from THIS machine, not through the shared config.
+   *
+   * Everything else in Settings belongs to the computer Vodo runs on, and a
+   * front end editing it is exactly right. This panel is the one exception:
+   * it says which end of the wire this window is, which is a fact about the
+   * computer it is running on. Through the ordinary config a connected laptop
+   * would be shown the DESKTOP's answer — and pressing "Off" would switch the
+   * desktop off and strand the laptop with nothing to reconnect to.
+   */
+  const [remote, setRemote] = useState<RemoteSettings | null>(null);
+  const [info, setInfo] = useState<RemoteInfo | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [pairAddress, setPairAddress] = useState('');
+
+  useEffect(() => {
+    // remoteInfo asks the HOST whether it is serving, so on a front end with
+    // nothing to talk to it never answers. Caught rather than left to reject:
+    // this panel is the way OUT of exactly that situation, and it has to render
+    // whether or not anything is listening.
+    void window.vo.remoteInfo().then(setInfo).catch(() => setInfo(null));
+    return window.vo.onRemoteChanged(setInfo);
+  }, []);
+  useEffect(() => {
+    void window.vo.remoteSettingsGet().then((r) => {
+      setRemote(r);
+      if (bootRole === null) bootRole = r.role;
+    });
+  }, []);
+
+  if (!remote) return null;
+  const role = remote.role;
+  /**
+   * Which address the pairing code carries.
+   *
+   * A machine has several — a LAN address, a tailnet one, sometimes a
+   * container bridge — and only the person looking knows which one the phone
+   * can actually reach. Defaulting to the first and letting them tap another
+   * beats guessing, and beats showing several codes nobody can tell apart.
+   */
+  const addressList = (info?.addresses ?? []).map(
+    (a) => `${a}:${remote.listen.port || DEFAULT_REMOTE_PORT}`,
+  );
+  const pairFor = addressList.includes(pairAddress) ? pairAddress : addressList[0];
+  const patch = (p: Partial<RemoteSettings>) => {
+    setRemote({ ...remote, ...p });
+    void window.vo.remoteSettingsSet(p).then(setRemote);
+  };
+  const needsRestart = bootRole !== null && bootRole !== role;
+
+  return (
+    <section>
+      <h2>Remote</h2>
+      <p className="hint">
+        Run Vodo on one computer and drive him from another on the same network. The machine he
+        runs on owns everything — the files he edits, the commands he runs, the keys he uses. The
+        front end is just the window you look through, so it can be a laptop, and he can be a
+        desktop or a container.
+      </p>
+
+      <div className="field-row">
+        <label>this computer</label>
+        <select
+          value={role}
+          onChange={(e) => {
+            const next = { ...remote, role: e.target.value as RemoteSettings['role'] };
+            setRemote(next);
+            // Applied by reloading this window: the preload picks its transport
+            // when it loads, so it comes back on the other side. No restart.
+            void window.vo.remoteApplyRole({ role: next.role });
+          }}
+        >
+          <option value="local">Off — Vodo runs here, in this window</option>
+          <option value="host">Main — Vodo runs here and serves other machines</option>
+          <option value="client">Remote — a front end for the main computer</option>
+        </select>
+      </div>
+
+      {needsRestart && (
+        <p className="hint">
+          ⟳ Switching this window over…
+        </p>
+      )}
+
+      {role === 'host' && (
+        <>
+          <div className="field-row">
+            <label>port</label>
+            <input
+              type="number"
+              value={remote.listen.port || DEFAULT_REMOTE_PORT}
+              onChange={(e) =>
+                patch({
+                  listen: { ...remote.listen, port: Number(e.target.value) || DEFAULT_REMOTE_PORT },
+                })
+              }
+            />
+            <span className="meta grow">
+              {info?.listening
+                ? `● listening — ${info.clients} front end${info.clients === 1 ? '' : 's'} attached`
+                : info?.lastError
+                  ? `⚠ ${info.lastError}`
+                  : remote.listen.token
+                    ? 'not listening yet'
+                    : 'needs a key'}
+            </span>
+          </div>
+          <div className="field-row">
+            <label>key</label>
+            <input
+              type="text"
+              value={remote.listen.token}
+              placeholder="press Make a key"
+              onChange={(e) => patch({ listen: { ...remote.listen, token: e.target.value } })}
+            />
+            <button onClick={() => patch({ listen: { ...remote.listen, token: newRemoteToken() } })}>
+              Make a key
+            </button>
+            <button
+              disabled={!remote.listen.token}
+              onClick={() => {
+                void navigator.clipboard?.writeText(remote.listen.token);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <div className="field-row">
+            <label>encryption</label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={remote.listen.tls !== false}
+                onChange={(e) => patch({ listen: { ...remote.listen, tls: e.target.checked } })}
+              />
+              encrypt the link
+            </label>
+            <span className="meta grow">
+              {remote.listen.tls === false
+                ? '⚠ plain — only on a tailnet or a network you own'
+                : 'on — desktop front ends pin this computer’s identity'}
+            </span>
+          </div>
+          {remote.listen.tls === false && (
+            <p className="hint">
+              Off for one reason: phones. The companion app cannot accept a certificate this
+              computer signed for itself, and neither Android nor iOS will let it be told to.
+              Plain, the key still guards the door — what is gone is secrecy from anyone already
+              on the wire, which is why this belongs inside Tailscale or on your own LAN and
+              nowhere else.
+            </p>
+          )}
+          <div className="field-row">
+            <label>address</label>
+            <div className="checkbox-row grow">
+              {(info?.addresses ?? []).length === 0 ? (
+                <span className="hint">no network address found</span>
+              ) : (
+                (info?.addresses ?? []).map((a) => {
+                  const full = `${a}:${remote.listen.port || DEFAULT_REMOTE_PORT}`;
+                  return (
+                    <code
+                      key={a}
+                      className="perm-tool"
+                      title="Show the pairing code for this address"
+                      style={{
+                        cursor: 'pointer',
+                        outline: full === pairAddress ? '1px solid var(--accent)' : 'none',
+                      }}
+                      onClick={() => setPairAddress(full)}
+                    >
+                      {full}
+                    </code>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          {!!remote.listen.token && !!pairFor && (
+            <div className="field-row" style={{ alignItems: 'flex-start' }}>
+              <label>phone</label>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+                <PairingCode
+                  address={pairFor}
+                  token={remote.listen.token}
+                  tls={remote.listen.tls !== false}
+                />
+                <span className="meta" style={{ maxWidth: '280px' }}>
+                  Point the companion app at this. It carries the address and the key together,
+                  so nothing has to be typed on a phone.
+                  {(info?.addresses ?? []).length > 1 && (
+                    <>
+                      {' '}
+                      Showing <code>{pairFor}</code> — tap another address above to switch.
+                    </>
+                  )}
+                  {remote.listen.tls !== false && (
+                    <>
+                      {' '}
+                      <strong>The link is still encrypted, which a phone cannot accept</strong> —
+                      untick it above or the app will scan this and then fail to connect.
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+          {info?.fingerprint && (
+            <div className="field-row">
+              <label>identity</label>
+              <code className="perm-tool grow" style={{ fontSize: '11px', wordBreak: 'break-all' }}>
+                {info.fingerprint}
+              </code>
+            </div>
+          )}
+          <p className="hint">
+            Type one of those addresses and the key into the other machine&apos;s{' '}
+            <strong>Remote</strong> setting. The link is encrypted, and the other machine
+            remembers this computer&apos;s <strong>identity</strong> the first time it connects —
+            if it ever changes, it refuses rather than asking. You can compare it above.
+          </p>
+          <p className="hint">
+            Worth being plain about what this is: anything holding the key can run commands and
+            edit files <em>on this computer</em>, the same as sitting at it. Only hand it to
+            machines you own, and make a new key if one gets loose.
+          </p>
+        </>
+      )}
+
+      {role === 'client' && (
+        <>
+          <div className="field-row">
+            <label>main computer</label>
+            <input
+              type="text"
+              value={remote.connect.url}
+              placeholder={`192.168.1.20:${DEFAULT_REMOTE_PORT}`}
+              onChange={(e) => patch({ connect: { ...remote.connect, url: e.target.value.trim() } })}
+            />
+          </div>
+          <div className="field-row">
+            <label>key</label>
+            <input
+              type="password"
+              value={remote.connect.token}
+              placeholder="paste the key from the main computer"
+              onChange={(e) => patch({ connect: { ...remote.connect, token: e.target.value.trim() } })}
+            />
+          </div>
+          <div className="field-row">
+            <label>identity</label>
+            <code className="perm-tool grow" style={{ fontSize: '11px', wordBreak: 'break-all' }}>
+              {remote.connect.fingerprint || 'learned on the first connection'}
+            </code>
+            {remote.connect.fingerprint && (
+              <button
+                title="Forget it, and learn the main computer's identity again on the next connection"
+                onClick={() => patch({ connect: { ...remote.connect, fingerprint: '' } })}
+              >
+                Forget
+              </button>
+            )}
+          </div>
+          <p className="hint">
+            Both come from the main computer&apos;s <strong>Remote</strong> setting. While this is
+            on, your own disk is invisible to Vodo — projects, folders and files all live on the
+            main computer, and dragging a file onto a chat sends a copy over.
+          </p>
+          <p className="hint">
+            The link is encrypted. The main computer&apos;s <strong>identity</strong> is
+            remembered the first time you connect, and after that a different one is refused —
+            so compare it against what the other machine shows if you want to be sure. Press
+            Forget only if you deliberately reinstalled over there.
+          </p>
+        </>
+      )}
     </section>
   );
 }

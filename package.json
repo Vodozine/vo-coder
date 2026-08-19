@@ -14,6 +14,7 @@
     "build": "tsc -b && npm run build -w apps/desktop",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "tsc -b && npm run typecheck -w apps/desktop",
+    "mobile": "npm run start -w @vo-coder/mobile",
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "node scripts/preview-desktop.mjs",
