@@ -291,6 +291,16 @@ export interface AppConfig {
    * would. Off by default: it only makes sense in a git repo.
    */
   worktreeMode: boolean;
+  /**
+   * The one shared folder that IS collab. Empty until an admin sets it up.
+   *
+   * Location is the flag: a project inside this folder is a collab project and
+   * one outside it is solo. There is deliberately no per-project collab boolean
+   * — a flag has to be set, read and kept in step with reality, and a location
+   * cannot drift from itself.
+   */
+  collabRoot: string;
+  /** Which end of the wire this install is. See RemoteSettings. */
   remote: RemoteSettings;
 }
 
@@ -417,6 +427,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   telegramPaired: [],
   uiZoom: 1,
   worktreeMode: false,
+  collabRoot: '',
   remote: {
     role: 'local',
     listen: { port: DEFAULT_REMOTE_PORT, token: '', tls: true },
@@ -523,6 +534,12 @@ export interface ProjectInfo {
   /** Optional project folder (ties into scaffold/preview). */
   dir?: string;
   createdAt: number;
+  /**
+   * True when this project sits inside the collab workspace. DERIVED at list
+   * time from the folder, never stored — see AppConfig.collabRoot. A stored
+   * flag could disagree with where the folder actually is; this cannot.
+   */
+  collab?: boolean;
   /**
    * Smart context (window-as-buffer): requests carry a map digest + recent
    * turns instead of replaying the whole conversation. Opt-in per project.

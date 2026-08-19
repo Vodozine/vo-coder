@@ -1306,8 +1306,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   registerHandler(IPC.googleOauthSignOut, () => googleOAuth.signOut());
 
   // ---- projects & chat sessions ----
-  const broadcastProjects = () => sendToWindow(IPC.projectsChanged, projects.list());
-  registerHandler(IPC.projectsList, () => projects.list());
+  /**
+   * The sidebar view, with the collab workspace swept first.
+   *
+   * Swept here rather than inside list(): list() runs on every broadcast, and
+   * re-reading a directory on each one would turn a chat event into disk work.
+   * A folder dropped into the workspace by hand appears the next time the
+   * projects view is asked for, which is the moment anybody could notice it.
+   */
+  const listProjects = () => {
+    const root = config.get().collabRoot;
+    projects.syncCollabWorkspace(root);
+    const data = projects.list();
+    return {
+      ...data,
+      // Derived, never stored — a project is collab because of where it is.
+      projects: data.projects.map((p) => ({ ...p, collab: projects.isCollab(p, root) })),
+    };
+  };
+  const broadcastProjects = () => sendToWindow(IPC.projectsChanged, listProjects());
+  registerHandler(IPC.projectsList, () => listProjects());
   registerHandler(IPC.projectCreate, (_e, name: string, dir?: string) => {
     const project = projects.createProject(name, dir);
     journal.append({ kind: 'project', text: `created project "${name}"` });

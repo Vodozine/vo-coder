@@ -46,6 +46,9 @@ const TILE_ICONS: Record<string, string> = {
   vision: iconVision, image: iconImage, video: iconVideo, voice: iconVoice,
   spending: iconSpending, telegram: iconTelegram, updates: iconUpdates, homelab: iconHomelab,
   generic: iconGeneric, vodo: iconVodo, display: iconDisplay,
+  collab: iconLocal,
+  // Same metaphor as the local-endpoints tile: another box on your network.
+  remote: iconLocal,
 };
 const tileIcon = (id: string): string | undefined => TILE_ICONS[id];
 
@@ -3171,6 +3174,58 @@ function AutoAgentsSection() {
  * edit his master prompt, and pick which MCP servers he may drive. Edits upsert
  * the real `homelab` agent, creating it on first change if it doesn't exist yet.
  */
+/**
+ * The collab workspace: one folder that IS collab.
+ *
+ * Location is the flag. A project inside this folder is a collab project and one
+ * outside it is solo, so there is nothing per-project to set, and nothing that
+ * can fall out of step with where a folder actually is.
+ */
+function CollabSection() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  if (!config) return null;
+  const root = config.collabRoot;
+  return (
+    <section>
+      <h2>Collab</h2>
+      <p className="hint">
+        One shared folder for the work a crew does together. Anything inside it is a collab
+        project; anything outside it is yours alone. Move a folder in and it becomes a collab
+        project — there is nothing to switch on, because being in here is what makes it shared.
+      </p>
+      <div className="field-row">
+        <label>workspace</label>
+        <input
+          className="grow"
+          value={root}
+          placeholder="not set up — collab is off"
+          onChange={(e) => void saveConfig({ collabRoot: e.target.value.trim() })}
+        />
+        <button
+          title="Pick the folder the crew shares"
+          onClick={() => {
+            void window.vo.scaffoldPickDir().then((dir) => {
+              if (dir) void saveConfig({ collabRoot: dir });
+            });
+          }}
+        >
+          Choose…
+        </button>
+      </div>
+      {!root ? (
+        <p className="hint">
+          While this is empty there is no collab — every project is solo and nothing changes.
+        </p>
+      ) : (
+        <p className="hint">
+          Your own projects are untouched by this. They stay wherever they are, and stay yours.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function HomelabSection() {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
@@ -3728,6 +3783,9 @@ export function Settings() {
 
       <SettingsTile id="autoagents" name="Auto agents" description="The hands Vodo hires when a group needs more people" summary={autoAgentSummary} openTile={openTile} setOpenTile={setOpenTile}>
         <AutoAgentsSection />
+      </SettingsTile>
+      <SettingsTile id="collab" name="Collab" description="One shared folder a crew works in together" summary={config.collabRoot ? "on" : "off"} openTile={openTile} setOpenTile={setOpenTile}>
+        <CollabSection />
       </SettingsTile>
       <SettingsTile id="homelab" name="Mr Homelab" description="A dedicated infrastructure agent tab" summary={config.homelabEnabled ? 'shown' : 'hidden'} openTile={openTile} setOpenTile={setOpenTile}>
         <HomelabSection />

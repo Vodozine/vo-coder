@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
 import { HOMELAB_PROJECT_ID } from '../shared/homelab';
 import type { HarnessMessage } from '@vo-coder/providers';
@@ -164,6 +164,49 @@ export class ProjectStore {
       // (seen live) until a restart happened to refetch.
       groups: [...(data.groups ?? [])],
     };
+  }
+
+  /**
+   * Adopt every folder sitting in the collab workspace as a project.
+   *
+   * Collab projects are DISCOVERED, not registered. Being inside the workspace
+   * is what makes a project collab, so the filesystem is the source of truth and
+   * a folder moved in by hand simply appears — no promote action, nothing to
+   * keep in step. Solo projects stay registered, because they live anywhere and
+   * have to be tracked.
+   *
+   * createOrAdopt does the work: a folder already owned by a project keeps that
+   * project, and only genuinely new folders create a row.
+   */
+  syncCollabWorkspace(root: string): void {
+    if (!root) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(root);
+    } catch {
+      // Not created yet, or unreadable. Not an error worth shouting about —
+      // an empty workspace and a missing one look the same to a user.
+      return;
+    }
+    let added = 0;
+    for (const name of entries) {
+      if (name.startsWith(String.fromCharCode(46))) continue;
+      const dir = join(root, name);
+      try {
+        if (!statSync(dir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      if (!this.createOrAdopt(name, dir).adopted) added++;
+    }
+    if (added) console.log("[collab] adopted " + added + " folder(s) from the workspace");
+  }
+
+  /** A project is collab if it lives inside the workspace. Nothing is stored. */
+  isCollab(project: ProjectInfo, root: string): boolean {
+    if (!root || !project.dir) return false;
+    const rel = relative(resolve(root), resolve(project.dir));
+    return rel !== String.fromCharCode(39,39) && !rel.startsWith(String.fromCharCode(46,46)) && !isAbsolute(rel);
   }
 
   createProject(name: string, dir?: string): ProjectInfo {
