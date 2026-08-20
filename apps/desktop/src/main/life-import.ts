@@ -16,7 +16,7 @@ import { openZip, readZipText } from './zip-read';
  * it. Only the distilled notes land, each carrying its source.
  */
 
-export type LifeSource = 'chatgpt' | 'claude' | 'gemini';
+export type LifeSource = 'chatgpt' | 'claude' | 'gemini' | 'grok';
 
 export function lifeSourceLabel(source: string): string {
   return source === 'chatgpt'
@@ -25,7 +25,9 @@ export function lifeSourceLabel(source: string): string {
       ? 'Claude'
       : source === 'gemini'
         ? 'Gemini (Google)'
-        : source;
+        : source === 'grok'
+          ? 'Grok (xAI)'
+          : source;
 }
 
 interface RawMsg {
@@ -199,12 +201,69 @@ function parseGemini(arr: unknown[]): RawChat[] {
   return [...byDay.values()];
 }
 
+/** Mongo extended JSON ({"$date":{"$numberLong":"…"}}), ISO strings, epoch numbers. */
+function anyTime(v: unknown): number {
+  if (typeof v === 'number') return v > 1e12 ? v : v * 1000;
+  if (typeof v === 'string') return Date.parse(v) || 0;
+  if (v && typeof v === 'object') {
+    const d = (v as { $date?: unknown }).$date;
+    if (typeof d === 'string') return Date.parse(d) || 0;
+    if (d && typeof d === 'object') {
+      const n = Number((d as { $numberLong?: unknown }).$numberLong);
+      if (n) return n;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Grok (xAI) export from accounts.x.ai: a single JSON with a `conversations`
+ * array; each conversation carries `responses`. Field names drift between
+ * export vintages (sender human/assistant vs user/grok, items sometimes
+ * wrapped in a `response` object), so extraction probes rather than assumes.
+ */
+function parseGrok(arr: unknown[]): RawChat[] {
+  const chats: RawChat[] = [];
+  for (const item of arr) {
+    const conv = item as Record<string, unknown>;
+    const responses = Array.isArray(conv.responses)
+      ? conv.responses
+      : Array.isArray(conv.messages)
+        ? conv.messages
+        : [];
+    const msgs: RawMsg[] = [];
+    let firstAt = 0;
+    for (const r0 of responses) {
+      const wrapped = (r0 ?? {}) as Record<string, unknown>;
+      const r = (
+        wrapped.response && typeof wrapped.response === 'object' ? wrapped.response : wrapped
+      ) as Record<string, unknown>;
+      const senderRaw = String(r.sender ?? r.role ?? r.author ?? '');
+      const role = /human|user/i.test(senderRaw)
+        ? ('user' as const)
+        : /grok|assistant|\bai\b/i.test(senderRaw)
+          ? ('assistant' as const)
+          : null;
+      if (!role) continue;
+      const text = asText(r.message) || asText(r.content) || asText(r.text);
+      if (!text.trim()) continue;
+      if (!firstAt) firstAt = anyTime(r.create_time ?? r.created_at);
+      msgs.push({ role, text });
+    }
+    const at =
+      anyTime(conv.create_time ?? conv.created_at ?? conv.timestamp) || firstAt || Date.now();
+    chats.push({ title: asText(conv.title) || asText(conv.name) || 'Untitled', at, msgs });
+  }
+  return chats;
+}
+
 function sniffSource(arr: unknown[]): LifeSource | undefined {
   for (const item of arr.slice(0, 5)) {
     if (!item || typeof item !== 'object') continue;
     const o = item as Record<string, unknown>;
     if (o.mapping && typeof o.mapping === 'object') return 'chatgpt';
     if (Array.isArray(o.chat_messages)) return 'claude';
+    if (Array.isArray(o.responses)) return 'grok';
     if (
       typeof o.title === 'string' &&
       (o.title.startsWith('Prompted ') || String(o.header ?? '').includes('Gemini'))
@@ -222,12 +281,18 @@ function parseJsonExport(text: string): { source: LifeSource; chats: RawChat[] }
   } catch {
     throw new Error('That file is not valid JSON.');
   }
+  // Grok wraps its list in an object; the others are bare arrays.
+  if (!Array.isArray(parsed) && parsed && typeof parsed === 'object') {
+    const conv = (parsed as { conversations?: unknown }).conversations;
+    if (Array.isArray(conv)) parsed = conv;
+  }
   if (!Array.isArray(parsed)) throw new Error('Expected a JSON array of conversations.');
   const source = sniffSource(parsed);
   if (!source) {
     throw new Error(
       'Format not recognized. Supported: ChatGPT export (conversations.json), Claude export ' +
-        '(conversations.json), Google Takeout Gemini activity (MyActivity.json).',
+        '(conversations.json), Grok export (accounts.x.ai data download), Google Takeout ' +
+        'Gemini activity (MyActivity.json).',
     );
   }
   const chats =
@@ -235,7 +300,9 @@ function parseJsonExport(text: string): { source: LifeSource; chats: RawChat[] }
       ? parseChatGpt(parsed)
       : source === 'claude'
         ? parseClaude(parsed)
-        : parseGemini(parsed);
+        : source === 'grok'
+          ? parseGrok(parsed)
+          : parseGemini(parsed);
   return { source, chats };
 }
 

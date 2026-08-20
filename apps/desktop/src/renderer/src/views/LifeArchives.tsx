@@ -170,7 +170,7 @@ export function LifeArchives() {
     <>
       <p className="hint">
         Bring your history with other assistants home: import the personal-data export from
-        ChatGPT, Claude, or Google (Gemini), and it is diluted into life notes — durable knowledge
+        ChatGPT, Claude, Grok, or Google (Gemini), and it is diluted into life notes — durable knowledge
         about you, each note stamped with the archive it came from. Vodo knows those chats and
         projects never happened here: there is no transcript, only what they taught him about you.
       </p>
@@ -374,7 +374,7 @@ export function LifeArchives() {
               ? 'No life notes match.'
               : doneBatch
                 ? 'All notes filtered out.'
-                : 'Nothing imported yet. Export your data from ChatGPT (Settings → Data controls), Claude (Settings → Export data), or Google Takeout (Gemini Apps activity, JSON), then choose the file above.'}
+                : 'Nothing imported yet. Export your data from ChatGPT (Settings → Data controls), Claude (Settings → Export data), Grok (accounts.x.ai → Download account data), or Google Takeout (Gemini Apps activity, JSON), then choose the file above.'}
           </p>
         </div>
       ) : (
