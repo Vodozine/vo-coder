@@ -44,7 +44,10 @@ if (process.argv[2] === '--tree') {
     process.exit(2);
   }
 
-  const files = git('diff', '--name-only', `${base}..${head}`).split('\n').filter(Boolean);
+  const files = // Deletions cannot introduce forbidden content — and the commit that
+  // REMOVES the paid app from this tree must not be blocked by the very
+  // rule that exists to keep it out.
+  git('diff', '--diff-filter=d', '--name-only', `${base}..${head}`).split('\n').filter(Boolean);
   for (const file of files) {
     // Design only. The identity/tooling fences belong to the SYNC classifier —
     // they stop replays from Pro, but base legitimately edits its own

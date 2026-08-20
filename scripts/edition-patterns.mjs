@@ -57,7 +57,7 @@ export const PRO_TOOLING_PATHS = /^scripts\/sync-free\.mjs$|^docs\/EDITIONS\.md$
  * this the next sync would helpfully put them back.
  */
 export const PRO_ONLY_PATHS =
-  /^apps\/desktop\/src\/main\/engine-bridges\.ts$|^apps\/desktop\/src\/main\/video-(hub|render|project-store|ffmpeg)\.ts$|^apps\/desktop\/src\/shared\/video-document\.ts$|^apps\/desktop\/src\/renderer\/src\/video\/|^apps\/desktop\/src\/renderer\/src\/video-editor\.css$/;
+  /^apps\/mobile\/|^apps\/desktop\/src\/main\/engine-bridges\.ts$|^apps\/desktop\/src\/main\/video-(hub|render|project-store|ffmpeg)\.ts$|^apps\/desktop\/src\/shared\/video-document\.ts$|^apps\/desktop\/src\/renderer\/src\/video\/|^apps\/desktop\/src\/renderer\/src\/video-editor\.css$/;
 /**
  * The video EDITOR is Pro-only (timeline, mp4 render, continuation, mixer).
  * Note what is deliberately NOT here: video-gen.ts and IPC.videoRead are the
@@ -84,7 +84,12 @@ export function disqualifyPath(file) {
 
 /** Whole-tree rule: only Design may not EXIST in the Free edition. */
 export function disqualifyTreePath(file) {
-  return DESIGN_PATHS.test(file) ? `Design file: ${file}` : null;
+  if (DESIGN_PATHS.test(file)) return `Design file: ${file}`;
+  // The companion app is a PAID product on the Play Store. Its source may not
+  // exist in the public tree at all — it once synced through because no rule
+  // named it, and shipped.
+  if (/^apps\/mobile\//.test(file)) return `Paid app source: ${file}`;
+  return null;
 }
 
 /** Scan added lines for Design code hidden in an otherwise shared file. */
