@@ -29,6 +29,7 @@ export const AUTO_ALLOWED_TOOLS = new Set([
   'archive_search',
   'archive_read',
   'map_query',
+  'life_recall',
   // Reading installed know-how touches nothing outside the skills folder.
   'skill_read',
 ]);
@@ -105,6 +106,8 @@ export const MEMORY_TOOLS = new Set([
   'map_update',
   'archive_search',
   'archive_read',
+  'life_recall',
+  'life_update',
 ]);
 
 /**

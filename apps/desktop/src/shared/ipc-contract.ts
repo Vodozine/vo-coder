@@ -583,6 +583,79 @@ export interface MemGraphDto {
 }
 
 /**
+ * One imported life-memory note: user-level knowledge distilled from a chat
+ * archive the user exported elsewhere (ChatGPT/Claude/Gemini). `source` is the
+ * provenance stamp — the conversations the note refers to never happened in
+ * this app.
+ */
+export interface LifeNoteDto {
+  id: number;
+  /** identity | preference | project | skill | fact | era */
+  kind: string;
+  title: string;
+  body: string;
+  /** Free-text era, e.g. "2024" or "2023-2025". */
+  period: string;
+  tags: string;
+  /** active | superseded */
+  status: string;
+  /** chatgpt | claude | gemini | vodo (a correction Vodo noted himself). */
+  source: string;
+  batchId?: number;
+  updatedAt: number;
+}
+
+/** One import run of one export file. */
+export interface LifeBatchDto {
+  id: number;
+  source: string;
+  file: string;
+  model: string;
+  depth: string;
+  chatsTotal: number;
+  /** Chats digested so far — resume picks up here. */
+  cursor: number;
+  notes: number;
+  /** running | done | canceled | error */
+  status: string;
+  /** Vodo's first-person "what I learned", written by the final pass. */
+  summary: string;
+  error: string;
+  startedAt: number;
+  finishedAt?: number;
+}
+
+/** The free scan stage: what an export contains and what reading it would cost. */
+export interface LifeScanDto {
+  ok: boolean;
+  error?: string;
+  source?: string;
+  sourceLabel?: string;
+  chatsFound?: number;
+  chatsKept?: number;
+  estTokensDeep?: number;
+  estTokensSkim?: number;
+  /** "2023-01-02 to 2026-08-01" */
+  span?: string;
+}
+
+export interface LifeProgressDto {
+  batchId: number;
+  phase: 'reading' | 'final' | 'done' | 'error' | 'canceled';
+  processed: number;
+  total: number;
+  notes: number;
+  summary?: string;
+  error?: string;
+}
+
+export interface LifeStateDto {
+  batches: LifeBatchDto[];
+  noteCount: number;
+  running?: { batchId: number; processed: number; total: number };
+}
+
+/**
  * One tile in a pipeline: an agent step, or a reviewer/gate whose verdict
  * branches the flow. Positions (x,y) are the editor layout.
  */
@@ -1168,6 +1241,37 @@ export interface VoApi {
   memMapDelete(projectId: string, nodeId: number): Promise<void>;
   /** Whole-project nodes + edges for the Memory graph view. */
   memMapGraph(projectId: string, opts?: { includeInactive?: boolean }): Promise<MemGraphDto>;
+  // ---- imported life memory (Memory → Archives) ----
+  /** Pick a chat-export file (.zip or conversations.json). */
+  lifePickFile(): Promise<{ path?: string }>;
+  /** Free stage: parse + trim + count, so the price shows BEFORE any model runs. */
+  lifeScan(path: string): Promise<LifeScanDto>;
+  /**
+   * Start (or resume) digesting an export into life notes. provider/model pin
+   * the digester; omit both for the cheap-route pick. Progress streams on
+   * onLifeProgress.
+   */
+  lifeStart(
+    path: string,
+    opts: {
+      depth: 'deep' | 'skim';
+      provider?: string;
+      model?: string;
+      resumeBatchId?: number;
+    },
+  ): Promise<{ ok: boolean; batchId?: number; error?: string }>;
+  lifeCancel(): Promise<void>;
+  lifeState(): Promise<LifeStateDto>;
+  lifeNotes(opts?: {
+    query?: string;
+    kind?: string;
+    includeInactive?: boolean;
+  }): Promise<LifeNoteDto[]>;
+  lifeNoteStatus(id: number, status: string): Promise<void>;
+  lifeNoteDelete(id: number): Promise<void>;
+  /** Delete an import run AND the notes it created. */
+  lifeBatchDelete(id: number): Promise<void>;
+  onLifeProgress(cb: (ev: LifeProgressDto) => void): () => void;
   /** Read a generated/project image as a data URL for inline display. */
   /** The user's global VO-CODER.md (~/.vo-coder/VO-CODER.md), read and written
    *  from Settings only — agents never edit the user's own rules. */
@@ -1308,6 +1412,16 @@ export const IPC = {
   memMapSetStatus: 'mem:mapSetStatus',
   memMapDelete: 'mem:mapDelete',
   memMapGraph: 'mem:mapGraph',
+  lifePickFile: 'life:pickFile',
+  lifeScan: 'life:scan',
+  lifeStart: 'life:start',
+  lifeCancel: 'life:cancel',
+  lifeState: 'life:state',
+  lifeNotes: 'life:notes',
+  lifeNoteStatus: 'life:noteStatus',
+  lifeNoteDelete: 'life:noteDelete',
+  lifeBatchDelete: 'life:batchDelete',
+  lifeProgress: 'life:progress',
   imageRead: 'image:read',
   videoRead: 'video:read',
   globalRulesRead: 'rules:read',

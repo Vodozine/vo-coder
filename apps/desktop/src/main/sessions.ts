@@ -64,6 +64,8 @@ interface SessionManagerDeps {
     syncSession(projectId: string, sessionId: string, history: HarnessMessage[]): void;
     /** Bounded map briefing, ranked against the current message when given. */
     digest(projectId: string, maxChars?: number, query?: string): string;
+    /** Imported life memory (user-level, provenance-stamped). '' = none imported. */
+    lifeDigest?(maxChars?: number): string;
   };
   /** Catalog lookup: does this model accept image input? undefined = unknown. */
   modelCanSee?: (modelId: string) => boolean | undefined;
@@ -367,6 +369,23 @@ export class SessionManager {
     // tasks first, then recency — changes only when the MAP changes; the
     // model reaches for map_query/archive_search when it needs relevance.
     const digest = this.deps.bank!.digest(projectId, 5_500);
+    // Imported life memory rides the briefing too — but framed, every time:
+    // these notes come from archives of the user's life with OTHER assistants,
+    // and the chats/projects they mention have never existed in this app. The
+    // framing is what keeps the model honest about that, so it must never be
+    // separated from the notes.
+    const life = this.deps.bank!.lifeDigest?.(1_800) ?? '';
+    const lifeNote = life
+      ? '\n\nTHE USER\'S PRE-VODO ARCHIVES — life notes distilled from chat exports they ' +
+        'imported (each stamped with its source):\n' +
+        life +
+        '\nThese are secondhand memory: those conversations and projects happened in another ' +
+        "assistant's world, before this app. None of them exist here — no transcript, no folder, " +
+        'nothing to search; archive_search will not find them. You know OF them, not from having ' +
+        'been there — say so naturally when it matters ("from your ChatGPT archive…"). When they ' +
+        'disagree with what you have lived here, the lived knowledge wins. life_recall searches ' +
+        'them; life_update corrects them.'
+      : '';
     // A chat bound to its OWN folder shares the project's memory with every
     // older app built under the same project — and "active tasks first" read
     // as marching orders: a fresh folder's chat resumed the OLD app's tasks
@@ -387,7 +406,8 @@ export class SessionManager {
         : '') +
       '\nFor anything older or verbatim, use archive_search / archive_read / map_query — the full ' +
       'record always exists. When you form or finish a plan, record it with map_update as a "task" ' +
-      'node so it survives the window moving on.'
+      'node so it survives the window moving on.' +
+      lifeNote
     );
   }
 

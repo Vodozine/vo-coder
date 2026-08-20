@@ -63,6 +63,7 @@ import {
 import { closeAllCliChildren } from './claude-code-provider';
 import { ConfigStore } from './config';
 import { Journal } from './journal';
+import { LifeImporter } from './life-import';
 import { MemoryBank } from './membank';
 import { MissionManager } from './missions';
 import { GENERAL_PROJECT_ID, HOMELAB_PROJECT_ID, ProjectStore } from './projects';
@@ -292,6 +293,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   } catch (err) {
     console.error('[membank] disabled:', err);
   }
+  // Life import: dumps → provenance-stamped life notes. Progress streams to
+  // every attached front end (window and remote clients alike).
+  const lifeImporter = bank
+    ? new LifeImporter({ bank, notify: (ev) => sendToWindow(IPC.lifeProgress, ev) })
+    : null;
 
   /**
    * Hiring. Vodo must never be stuck for hands: when a group needs more people
@@ -746,7 +752,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       }
       if (name === 'file_identify') return Promise.resolve(executeFileIdTool(args));
       if (name.startsWith('memory_')) return journal.executeTool(name, args);
-      if (name.startsWith('archive_') || name.startsWith('map_')) {
+      if (name.startsWith('archive_') || name.startsWith('map_') || name.startsWith('life_')) {
         return bank
           ? bank.executeTool(name, args, resolveProjectId, projectNamesHint, ctx)
           : Promise.resolve({ content: 'The memory bank is unavailable.', isError: true });
@@ -816,6 +822,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             },
             digest: (projectId: string, maxChars?: number, query?: string) =>
               bank.digest(projectId, maxChars, query),
+            lifeDigest: (maxChars?: number) => bank.lifeDigest(maxChars),
           },
           distill: (projectId: string, sessionId: string) =>
             bank.distillPending(projectId, sessionId, completeCheap),
@@ -2832,12 +2839,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   };
   /** One-shot completion on the cheapest adequate model (distiller etc.). */
   // One-shot, non-streamed-to-UI completion: collect the whole reply or throw.
-  const collectOnce = async (bound: BoundModel, prompt: string): Promise<string> => {
+  const collectOnce = async (
+    bound: BoundModel,
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<string> => {
     let out = '';
     let errMsg: string | undefined;
     for await (const event of bound.provider.stream(
       { model: bound.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] },
-      { signal: new AbortController().signal },
+      { signal: signal ?? new AbortController().signal },
     )) {
       if (event.type === 'text_delta') out += event.text;
       else if (event.type === 'error') errMsg = event.error.message;
@@ -3118,6 +3129,106 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     (_e, projectId: string, opts?: { includeInactive?: boolean }) =>
       bank ? bank.graph(projectId, opts ?? {}) : { nodes: [], edges: [] },
   );
+
+  // ---- imported life memory (Memory → Archives) ----
+  registerHandler(IPC.lifePickFile, async () => {
+    const win = getWindow();
+    if (!win) return {};
+    const picked = await hostDialog.showOpenDialog(win, {
+      title: 'Pick a chat export (.zip or conversations.json)',
+      filters: [
+        { name: 'Chat export', extensions: ['zip', 'json'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    refocusMain();
+    return picked.canceled || !picked.filePaths[0] ? {} : { path: picked.filePaths[0] };
+  });
+  registerHandler(IPC.lifeScan, (_e, path: string) =>
+    lifeImporter
+      ? lifeImporter.scan(path)
+      : { ok: false, error: 'The memory bank is unavailable.' },
+  );
+  registerHandler(
+    IPC.lifeStart,
+    async (
+      _e,
+      path: string,
+      opts: {
+        depth: 'deep' | 'skim';
+        provider?: string;
+        model?: string;
+        resumeBatchId?: number;
+      },
+    ) => {
+      if (!lifeImporter) return { ok: false, error: 'The memory bank is unavailable.' };
+      try {
+        const spec = vodoSpec();
+        // The digester: the pinned pick from the UI, else the cheap route —
+        // extraction work, not conversation, so cheap is the right default.
+        let digester: BoundModel;
+        let modelLabel: string;
+        if (opts.provider && opts.model) {
+          digester = resolveSpec({
+            ...spec,
+            provider: opts.provider as AgentSpec['provider'],
+            model: opts.model,
+          });
+          modelLabel = `${opts.provider}/${opts.model}`;
+        } else {
+          const pick = await routeForVodo(
+            [{ type: 'text', text: 'summarize and extract durable facts from chat transcripts' }],
+            false,
+            false,
+          ).catch(() => undefined);
+          digester = resolveSpec(
+            pick
+              ? { ...spec, provider: pick.provider as AgentSpec['provider'], model: pick.model }
+              : spec,
+          );
+          modelLabel = pick ? `auto → ${pick.provider}/${pick.model}` : 'app default';
+        }
+        // The final "what I learned" pass speaks with Vodo's own voice — his
+        // configured model, never the cheap route. Its input is tiny.
+        const strong = resolveSpec(spec);
+        return await lifeImporter.start(
+          path,
+          {
+            depth: opts.depth === 'skim' ? 'skim' : 'deep',
+            modelLabel,
+            ...(opts.resumeBatchId !== undefined ? { resumeBatchId: opts.resumeBatchId } : {}),
+          },
+          (prompt, signal) => collectOnce(digester, prompt, signal),
+          (prompt, signal) => collectOnce(strong, prompt, signal),
+        );
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+  registerHandler(IPC.lifeCancel, () => {
+    lifeImporter?.cancel();
+  });
+  registerHandler(IPC.lifeState, () => ({
+    batches: bank?.lifeBatches() ?? [],
+    noteCount: bank?.lifeCount() ?? 0,
+    ...(lifeImporter?.running() ? { running: lifeImporter.running() } : {}),
+  }));
+  registerHandler(
+    IPC.lifeNotes,
+    (_e, opts?: { query?: string; kind?: string; includeInactive?: boolean }) =>
+      bank?.lifeNotes(opts ?? {}) ?? [],
+  );
+  registerHandler(IPC.lifeNoteStatus, (_e, id: number, status: string) => {
+    bank?.lifeSetStatus(id, status);
+  });
+  registerHandler(IPC.lifeNoteDelete, (_e, id: number) => {
+    bank?.lifeDeleteNote(id);
+  });
+  registerHandler(IPC.lifeBatchDelete, (_e, id: number) => {
+    bank?.lifeBatchDelete(id);
+  });
   // Inline display of generated/project images — reads are fenced to project
   // folders and the app's own generated dir.
   /**

@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { HarnessMessage, ToolSpec } from '@vo-coder/providers';
-import type { MapNodeDto, MemGraphDto } from '../shared/ipc-contract';
+import type { LifeBatchDto, LifeNoteDto, MapNodeDto, MemGraphDto } from '../shared/ipc-contract';
 import { fmtStamp } from './journal';
 
 /**
@@ -32,6 +32,18 @@ const DISTILL_MIN_TURNS = 6;
 const DISTILL_MAX_CHARS = 24_000;
 const NODE_INDEX_MAX_CHARS = 5_000;
 
+/**
+ * Life notes: USER-level memory distilled from imported chat archives
+ * (ChatGPT/Claude/Gemini exports). Project-less by design — they describe the
+ * person, not a codebase — and every note carries the source dump it came
+ * from, because the conversations it refers to never happened in this app and
+ * the model must be able to say so.
+ */
+const LIFE_KINDS = new Set(['identity', 'preference', 'project', 'skill', 'fact', 'era']);
+const LIFE_STATUS = new Set(['active', 'superseded']);
+const MAX_LIVE_LIFE_NOTES = 500;
+const LIFE_INDEX_MAX_CHARS = 3_000;
+
 export interface MapOp {
   op: 'upsert' | 'link' | 'status';
   type?: string;
@@ -44,6 +56,17 @@ export interface MapOp {
   to?: { type: string; title: string };
 }
 
+/** An op against the imported life memory (no links — it is a flat shelf). */
+export interface LifeOp {
+  op: 'upsert' | 'status';
+  kind?: string;
+  title?: string;
+  body?: string;
+  period?: string;
+  tags?: string;
+  status?: string;
+}
+
 export class MemoryBank {
   private db: DatabaseSync;
   private distilling = new Set<string>();
@@ -51,6 +74,9 @@ export class MemoryBank {
   private mapVersion = new Map<string, number>();
   /** Last rendered digest per (project|maxChars|query), valid while version holds. */
   private digestCache = new Map<string, { v: number; note: string }>();
+  /** Same memoization for the life digest — it rides every send too. */
+  private lifeVersion = 0;
+  private lifeDigestCache: { v: number; note: string } | null = null;
 
   /** A node changed — invalidate this project's cached digests. */
   private touchMap(projectId: string): void {
@@ -133,7 +159,70 @@ export class MemoryBank {
         synced INTEGER NOT NULL,
         last_len INTEGER NOT NULL
       );
+
+      -- Imported life memory: user-level notes distilled from exported chat
+      -- archives. The conversations they refer to are NOT in the archive
+      -- table above — they happened in another assistant's world — and the
+      -- source column is what lets the model know that.
+      CREATE TABLE IF NOT EXISTS life_notes (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        period TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        source TEXT NOT NULL,
+        batch_id INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_life_key ON life_notes(kind, lower(title));
+      CREATE VIRTUAL TABLE IF NOT EXISTS life_fts USING fts5(
+        title, body, tags, content='life_notes', content_rowid='id'
+      );
+      CREATE TRIGGER IF NOT EXISTS life_ai AFTER INSERT ON life_notes BEGIN
+        INSERT INTO life_fts(rowid, title, body, tags)
+        VALUES (new.id, new.title, new.body, new.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS life_ad AFTER DELETE ON life_notes BEGIN
+        INSERT INTO life_fts(life_fts, rowid, title, body, tags)
+        VALUES ('delete', old.id, old.title, old.body, old.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS life_au AFTER UPDATE ON life_notes BEGIN
+        INSERT INTO life_fts(life_fts, rowid, title, body, tags)
+        VALUES ('delete', old.id, old.title, old.body, old.tags);
+        INSERT INTO life_fts(rowid, title, body, tags)
+        VALUES (new.id, new.title, new.body, new.tags);
+      END;
+
+      -- One row per import run; canceled/errored runs keep their cursor so
+      -- they resume instead of re-reading (and re-paying) the whole dump.
+      CREATE TABLE IF NOT EXISTS life_batches (
+        id INTEGER PRIMARY KEY,
+        source TEXT NOT NULL,
+        file TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '',
+        depth TEXT NOT NULL DEFAULT 'deep',
+        chats_total INTEGER NOT NULL DEFAULT 0,
+        cursor INTEGER NOT NULL DEFAULT 0,
+        notes INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'running',
+        summary TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER
+      );
     `);
+    // An app killed mid-import leaves 'running' rows nothing owns — make them
+    // resumable instead of forever-stuck.
+    try {
+      this.db
+        .prepare("UPDATE life_batches SET status = 'canceled' WHERE status = 'running'")
+        .run();
+    } catch {
+      // fresh DB — nothing to sweep
+    }
   }
 
   /**
@@ -693,6 +782,340 @@ export class MemoryBank {
     }
   }
 
+  // ---- imported life memory: user-level, provenance-stamped ----
+
+  /** Active life notes — zero means no archive was ever imported. */
+  lifeCount(): number {
+    try {
+      const row = this.db
+        .prepare("SELECT COUNT(*) AS n FROM life_notes WHERE status = 'active'")
+        .get() as { n: number };
+      return row.n;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Apply digester/agent ops to the life shelf. Returns ops applied. An
+   * upsert of an existing (kind, title) evolves body/period/tags but KEEPS the
+   * original provenance — the first archive that taught us a fact stays its
+   * source.
+   */
+  lifeApplyOps(ops: LifeOp[], src: { source: string; batchId?: number }): number {
+    let applied = 0;
+    for (const op of ops.slice(0, 24)) {
+      try {
+        const kind = op.kind && LIFE_KINDS.has(op.kind) ? op.kind : undefined;
+        const title = op.title?.trim();
+        if (!kind || !title) continue;
+        if (op.op === 'upsert') {
+          const existing = this.db
+            .prepare('SELECT id FROM life_notes WHERE kind = ? AND lower(title) = lower(?)')
+            .get(kind, title) as { id: number } | undefined;
+          const now = Date.now();
+          if (existing) {
+            this.db
+              .prepare(
+                `UPDATE life_notes SET
+                   body = COALESCE(?, body), period = COALESCE(?, period),
+                   tags = COALESCE(?, tags), status = 'active', updated_at = ?
+                 WHERE id = ?`,
+              )
+              .run(
+                typeof op.body === 'string' ? op.body.slice(0, 400) : null,
+                typeof op.period === 'string' ? op.period.slice(0, 40) : null,
+                typeof op.tags === 'string' ? op.tags.slice(0, 120) : null,
+                now,
+                existing.id,
+              );
+          } else {
+            // Same live-cap discipline as the map: retire the stalest tenth
+            // rather than refusing new knowledge.
+            const live = this.db
+              .prepare("SELECT COUNT(*) AS n FROM life_notes WHERE status = 'active'")
+              .get() as { n: number };
+            if (live.n >= MAX_LIVE_LIFE_NOTES) {
+              this.db
+                .prepare(
+                  `UPDATE life_notes SET status = 'superseded', updated_at = ?
+                     WHERE id IN (
+                       SELECT id FROM life_notes WHERE status = 'active'
+                       ORDER BY updated_at ASC LIMIT ?
+                     )`,
+                )
+                .run(now, Math.ceil(MAX_LIVE_LIFE_NOTES * 0.1));
+            }
+            this.db
+              .prepare(
+                `INSERT INTO life_notes
+                   (kind, title, body, period, tags, status, source, batch_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+              )
+              .run(
+                kind,
+                title.slice(0, 120),
+                (op.body ?? '').slice(0, 400),
+                (op.period ?? '').slice(0, 40),
+                (op.tags ?? '').slice(0, 120),
+                src.source,
+                src.batchId ?? null,
+                now,
+                now,
+              );
+          }
+          applied++;
+        } else if (op.op === 'status' && op.status && LIFE_STATUS.has(op.status)) {
+          const res = this.db
+            .prepare(
+              'UPDATE life_notes SET status = ?, updated_at = ? WHERE kind = ? AND lower(title) = lower(?)',
+            )
+            .run(op.status, Date.now(), kind, title);
+          if (res.changes) applied++;
+        }
+      } catch (err) {
+        console.error('[membank] life op skipped:', err);
+      }
+    }
+    if (applied > 0) {
+      this.lifeVersion++;
+      this.lifeDigestCache = null;
+    }
+    return applied;
+  }
+
+  /**
+   * Compact listing the digester sees for dedup decisions (titles only). With
+   * a batchId it is the fuller per-archive view the final pass reads, bodies
+   * included.
+   */
+  lifeIndex(maxChars = LIFE_INDEX_MAX_CHARS, batchId?: number): string {
+    try {
+      type Row = {
+        kind: string;
+        title: string;
+        body: string;
+        period: string;
+        status: string;
+      };
+      const rows = (
+        batchId !== undefined
+          ? this.db
+              .prepare(
+                `SELECT kind, title, body, period, status FROM life_notes
+                 WHERE batch_id = ? ORDER BY kind, updated_at DESC LIMIT 400`,
+              )
+              .all(batchId)
+          : this.db
+              .prepare(
+                `SELECT kind, title, body, period, status FROM life_notes
+                 ORDER BY updated_at DESC LIMIT 400`,
+              )
+              .all()
+      ) as Row[];
+      let out = '';
+      for (const r of rows) {
+        const period = r.period ? ` [${r.period}]` : '';
+        const line =
+          batchId !== undefined
+            ? `${r.kind}: ${r.title}${period}${r.body ? ` — ${r.body}` : ''}\n`
+            : `${r.kind}: ${r.title}${period}${r.status !== 'active' ? ' [superseded]' : ''}\n`;
+        if (out.length + line.length > maxChars) break;
+        out += line;
+      }
+      return out;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * The bounded life-briefing block: identity and preferences first — they
+   * shape how to talk to the user — then recency. The FRAMING (where these
+   * came from, that their referents are not in this app) is added by prompt
+   * assembly; this renders only the stamped notes.
+   */
+  lifeDigest(maxChars = 1_800): string {
+    if (this.lifeDigestCache?.v === this.lifeVersion) return this.lifeDigestCache.note;
+    let note = '';
+    try {
+      type Row = { kind: string; title: string; body: string; period: string; source: string };
+      const rows = this.db
+        .prepare(
+          `SELECT kind, title, body, period, source FROM life_notes WHERE status = 'active'
+           ORDER BY CASE kind WHEN 'identity' THEN 0 WHEN 'preference' THEN 1 ELSE 2 END,
+                    updated_at DESC
+           LIMIT 120`,
+        )
+        .all() as Row[];
+      for (const r of rows) {
+        const line =
+          `• [${r.source}${r.period ? ` · ${r.period}` : ''}] ${r.kind}: ${r.title}` +
+          (r.body ? ` — ${r.body}` : '') +
+          '\n';
+        if (note.length + line.length > maxChars) break;
+        note += line;
+      }
+      note = note.trim();
+    } catch {
+      note = '';
+    }
+    this.lifeDigestCache = { v: this.lifeVersion, note };
+    return note;
+  }
+
+  /** Life-note listing for the Memory → Archives view. */
+  lifeNotes(
+    opts: { query?: string; kind?: string; includeInactive?: boolean } = {},
+  ): LifeNoteDto[] {
+    type Row = {
+      id: number;
+      kind: string;
+      title: string;
+      body: string;
+      period: string;
+      tags: string;
+      status: string;
+      source: string;
+      batch_id: number | null;
+      updated_at: number;
+    };
+    const kindFilter = opts.kind && LIFE_KINDS.has(opts.kind) ? opts.kind : undefined;
+    let rows: Row[];
+    const byRecency = (): Row[] =>
+      this.db
+        .prepare(
+          `SELECT * FROM life_notes ${kindFilter ? 'WHERE kind = ?' : ''}
+           ORDER BY updated_at DESC LIMIT 300`,
+        )
+        .all(...(kindFilter ? [kindFilter] : [])) as Row[];
+    if (opts.query?.trim()) {
+      const safe = opts.query
+        .trim()
+        .split(/\s+/)
+        .map((t) => `"${t.replace(/"/g, '')}"`)
+        .join(' ');
+      try {
+        rows = this.db
+          .prepare(
+            `SELECT life_notes.* FROM life_fts JOIN life_notes ON life_notes.id = life_fts.rowid
+             WHERE life_fts MATCH ? ${kindFilter ? 'AND life_notes.kind = ?' : ''}
+             ORDER BY rank LIMIT 200`,
+          )
+          .all(...(kindFilter ? [safe, kindFilter] : [safe])) as Row[];
+      } catch {
+        rows = byRecency();
+      }
+    } else {
+      rows = byRecency();
+    }
+    if (!opts.includeInactive) rows = rows.filter((r) => r.status === 'active');
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      body: r.body,
+      period: r.period,
+      tags: r.tags,
+      status: r.status,
+      source: r.source,
+      batchId: r.batch_id ?? undefined,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  lifeSetStatus(id: number, status: string): boolean {
+    if (!LIFE_STATUS.has(status)) return false;
+    this.db
+      .prepare('UPDATE life_notes SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, Date.now(), id);
+    this.lifeVersion++;
+    this.lifeDigestCache = null;
+    return true;
+  }
+
+  lifeDeleteNote(id: number): void {
+    this.db.prepare('DELETE FROM life_notes WHERE id = ?').run(id);
+    this.lifeVersion++;
+    this.lifeDigestCache = null;
+  }
+
+  lifeBatchCreate(input: {
+    source: string;
+    file: string;
+    model: string;
+    chatsTotal: number;
+    depth: string;
+  }): number {
+    this.db
+      .prepare(
+        `INSERT INTO life_batches (source, file, model, depth, chats_total, started_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(input.source, input.file, input.model, input.depth, input.chatsTotal, Date.now());
+    const row = this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number };
+    return row.id;
+  }
+
+  lifeBatchGet(id: number): LifeBatchDto | undefined {
+    const r = this.db.prepare('SELECT * FROM life_batches WHERE id = ?').get(id) as
+      | LifeBatchRow
+      | undefined;
+    return r ? lifeBatchDto(r) : undefined;
+  }
+
+  lifeBatchUpdate(
+    id: number,
+    patch: {
+      cursor?: number;
+      notes?: number;
+      status?: string;
+      summary?: string;
+      error?: string;
+      model?: string;
+      finishedAt?: number;
+    },
+  ): void {
+    try {
+      const cols: Array<[value: string | number | undefined, col: string]> = [
+        [patch.cursor, 'cursor'],
+        [patch.notes, 'notes'],
+        [patch.status, 'status'],
+        [patch.summary, 'summary'],
+        [patch.error, 'error'],
+        [patch.model, 'model'],
+        [patch.finishedAt, 'finished_at'],
+      ];
+      const sets = cols.filter(([v]) => v !== undefined);
+      if (!sets.length) return;
+      this.db
+        .prepare(`UPDATE life_batches SET ${sets.map(([, c]) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .run(...sets.map(([v]) => v!), id);
+    } catch (err) {
+      console.error('[membank] life batch update failed:', err);
+    }
+  }
+
+  lifeBatches(): LifeBatchDto[] {
+    try {
+      const rows = this.db
+        .prepare('SELECT * FROM life_batches ORDER BY started_at DESC LIMIT 50')
+        .all() as unknown as LifeBatchRow[];
+      return rows.map(lifeBatchDto);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Delete an import run AND the notes it created (merged notes from other
+   *  batches keep their own provenance and survive). */
+  lifeBatchDelete(id: number): void {
+    this.db.prepare('DELETE FROM life_notes WHERE batch_id = ?').run(id);
+    this.db.prepare('DELETE FROM life_batches WHERE id = ?').run(id);
+    this.lifeVersion++;
+    this.lifeDigestCache = null;
+  }
+
   toolSpecs(): ToolSpec[] {
     return [
       {
@@ -765,6 +1188,49 @@ export class MemoryBank {
             radius: { type: 'number', description: `Turns of context each side (default 3, cap ${READ_MAX_TURNS / 2})` },
           },
           required: ['session', 'turn'],
+        },
+      },
+      {
+        name: 'life_recall',
+        description:
+          "Search the user's imported LIFE MEMORY — durable notes distilled from chat archives " +
+          'they exported from other assistants (ChatGPT, Claude, Gemini) and imported here. ' +
+          'Every note names its source archive. The conversations and projects these notes ' +
+          'mention happened OUTSIDE this app, before Vodo: they are NOT in the conversation ' +
+          'archive, archive_search cannot find them, and there is nothing here to open. Omit the ' +
+          'query for the most relevant notes overall.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search words; omit to list the top notes' },
+            kind: {
+              type: 'string',
+              description: 'Filter: identity|preference|project|skill|fact|era',
+            },
+            includeInactive: { type: 'boolean', description: 'Include superseded notes' },
+          },
+        },
+      },
+      {
+        name: 'life_update',
+        description:
+          'Correct or extend the imported life memory: ' +
+          '{"op":"upsert","kind":"identity|preference|project|skill|fact|era","title":"…",' +
+          '"body":"…","period":"…"} · ' +
+          '{"op":"status","kind":"project","title":"…","status":"superseded"}. Use when the user ' +
+          'corrects something from their archives or an imported note proves outdated — ' +
+          'supersede rather than delete.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            // `items` is mandatory for some providers (Gemini 400s without it).
+            ops: {
+              type: 'array',
+              description: 'Array of op objects (see description)',
+              items: { type: 'object' },
+            },
+          },
+          required: ['ops'],
         },
       },
     ];
@@ -926,6 +1392,44 @@ export class MemoryBank {
               .join('\n'),
           };
         }
+        case 'life_recall': {
+          const query = String(a.query ?? '').trim();
+          const kind = a.kind && LIFE_KINDS.has(String(a.kind)) ? String(a.kind) : undefined;
+          const notes = this.lifeNotes({
+            ...(query ? { query } : {}),
+            ...(kind ? { kind } : {}),
+            includeInactive: a.includeInactive === true,
+          }).slice(0, 24);
+          if (notes.length === 0) {
+            return {
+              content:
+                this.lifeCount() === 0
+                  ? 'No imported life memory exists — the user has not imported any chat archives.'
+                  : `No imported life notes match${query ? ` "${query}"` : ''}.`,
+            };
+          }
+          const lines = notes.map(
+            (n) =>
+              `• [${n.source}${n.period ? ` · ${n.period}` : ''}] ${n.kind}: ${n.title}` +
+              (n.body ? ` — ${n.body}` : '') +
+              (n.status !== 'active' ? ' [superseded]' : ''),
+          );
+          return {
+            content:
+              'Imported life memory — distilled from chat archives the user exported from other ' +
+              'assistants. The conversations and projects these mention happened OUTSIDE this ' +
+              'app, before you: no transcript of them exists here and there is nothing to open. ' +
+              'What you have lived in this app outranks these when they disagree.\n' +
+              lines.join('\n'),
+          };
+        }
+        case 'life_update': {
+          if (!Array.isArray(a.ops)) return { content: 'ops must be an array.', isError: true };
+          const applied = this.lifeApplyOps(a.ops as LifeOp[], { source: 'vodo' });
+          return {
+            content: `Applied ${applied} of ${(a.ops as unknown[]).length} ops to the life memory.`,
+          };
+        }
         default:
           return { content: `Unknown archive tool "${name}".`, isError: true };
       }
@@ -933,6 +1437,40 @@ export class MemoryBank {
       return { content: err instanceof Error ? err.message : String(err), isError: true };
     }
   }
+}
+
+interface LifeBatchRow {
+  id: number;
+  source: string;
+  file: string;
+  model: string;
+  depth: string;
+  chats_total: number;
+  cursor: number;
+  notes: number;
+  status: string;
+  summary: string;
+  error: string;
+  started_at: number;
+  finished_at: number | null;
+}
+
+function lifeBatchDto(r: LifeBatchRow): LifeBatchDto {
+  return {
+    id: r.id,
+    source: r.source,
+    file: r.file,
+    model: r.model,
+    depth: r.depth,
+    chatsTotal: r.chats_total,
+    cursor: r.cursor,
+    notes: r.notes,
+    status: r.status,
+    summary: r.summary,
+    error: r.error,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at ?? undefined,
+  };
 }
 
 /** Strict parse of the distiller's JSON — throws on garbage so the watermark holds. */
