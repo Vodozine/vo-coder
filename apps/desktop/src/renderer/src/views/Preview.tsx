@@ -111,7 +111,6 @@ function BrowserPreview({ suspend = false }: { suspend?: boolean }) {
       }
       await detect();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, dir]);
 
   useEffect(() => {

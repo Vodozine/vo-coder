@@ -341,7 +341,6 @@ export function useVoice(appendToInput: (text: string) => void) {
       void pttRef.current?.stop();
       void liveStop();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 

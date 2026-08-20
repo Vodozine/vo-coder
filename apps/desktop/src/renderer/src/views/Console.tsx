@@ -90,7 +90,6 @@ function TerminalSession({
       if (idRef.current > 0) void window.vo.termKill(idRef.current);
       term.dispose();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

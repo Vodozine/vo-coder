@@ -316,7 +316,6 @@ export function CodeWatch() {
       // root keeps churning under an unrelated chat.
       void stopWatch();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, effectiveDir]);
 
   const toggle = (path: string) =>

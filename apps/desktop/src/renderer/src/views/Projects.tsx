@@ -101,7 +101,6 @@ export function Projects() {
   useEffect(() => {
     const handoff = consumeScaffoldTarget();
     if (handoff) void target(handoff);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const newProject = () => {
