@@ -1,7 +1,8 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import { registerIpc } from './ipc';
+import { ConfigStore } from './config';
 import { createMainWindow } from './windows';
 
 /**
@@ -249,7 +250,107 @@ if (!app.requestSingleInstanceLock()) {
 
   void adoptLegacyProfile();
 
+/**
+ * Accept the paired host's own certificate, and nothing else.
+ *
+ * The host signs its own certificate — no public authority will vouch for
+ * "the desktop in the corner" — so Chromium refuses it by default, which is
+ * the correct default and would also mean the link never connects. This
+ * narrows that refusal to one exception: the exact machine paired with, by
+ * fingerprint.
+ *
+ * Written to be hard to weaken by accident. It matches on the host and port
+ * that were configured, it compares the fingerprint the host presented against
+ * the one that was pinned, and if anything at all does not line up it falls
+ * through to Chromium's own answer, which is no. An empty pin means the pair
+ * has not happened yet, and is remembered on the first connection so a swapped
+ * certificate afterwards is refused rather than shrugged at.
+ */
+function trustPairedHost(): void {
+  const store = new ConfigStore();
+  // setCertificateVerifyProc, NOT the app's 'certificate-error' event: that
+  // event covers navigations and ordinary requests, and never fires for a
+  // WebSocket opened by the renderer — which is the entire link. The socket
+  // would simply fail to open, with nothing logged anywhere to say why.
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const VERIFY_OK = 0;
+    const VERIFY_REJECT = -2;
+    const USE_CHROMIUM_RESULT = -3;
+    const remote = store.get().remote;
+    // Not a front end, or the certificate was fine on its own merits: let
+    // Chromium decide, exactly as if this hook were not here.
+    // Keyed on there being somewhere to connect to, NOT on the machine role.
+    // A single window can be a client while the machine is a host — that is
+    // what opening a remote window beside a local one means — and keying this
+    // on the machine role meant that window own TLS was refused by Chromium
+    // while everything else looked correct.
+    if (!remote.connect.url) return callback(USE_CHROMIUM_RESULT);
+    if (request.verificationResult === 'net::OK') return callback(USE_CHROMIUM_RESULT);
+
+    const callbackBool = (ok: boolean): void => callback(ok ? VERIFY_OK : VERIFY_REJECT);
+
+    let expectedHost: string;
+    try {
+      const want = remote.connect.url.replace(/^wss?:\/\//, '').replace(/^https?:\/\//, '');
+      expectedHost = new URL(`https://${want}`).hostname;
+    } catch {
+      return callback(USE_CHROMIUM_RESULT);
+    }
+    // Only the paired machine gets the exception. Anything else on the network
+    // is Chromium's business and keeps Chromium's answer.
+    if (request.hostname !== expectedHost) return callback(USE_CHROMIUM_RESULT);
+    const certificate = request.certificate;
+
+    /**
+     * Both spellings of the same certificate, reduced to the same hex.
+     *
+     * Electron reports "sha256/<base64>"; the host's Settings panel prints
+     * colon-separated hex. Case matters on the way in — base64 is
+     * case-sensitive, so upper-casing before decoding silently yields
+     * DIFFERENT bytes, and the pin would then never match what the user is
+     * shown to compare it against.
+     *
+     * Length is what tells the two apart, not the alphabet: SHA-256 is 64 hex
+     * characters and 44 of base64, and a base64 string can be made only of
+     * characters that also look like hex.
+     */
+    const toHex = (raw: string): string => {
+      const v = raw.trim().replace(/^sha256\//i, '');
+      const bare = v.replace(/:/g, '');
+      if (/^[0-9a-fA-F]{64}$/.test(bare)) return bare.toUpperCase();
+      return Buffer.from(v, 'base64').toString('hex').toUpperCase();
+    };
+
+    let presentedHex: string;
+    let pinned: string;
+    try {
+      presentedHex = toHex(certificate.fingerprint ?? '');
+      pinned = remote.connect.fingerprint ? toHex(remote.connect.fingerprint) : '';
+    } catch {
+      return callbackBool(false);
+    }
+    // A fingerprint that did not decode to 32 bytes is not a fingerprint.
+    if (presentedHex.length !== 64) return callbackBool(false);
+
+    if (!pinned) {
+      // First connection to a host that has not been pinned yet: remember what
+      // it showed, so a DIFFERENT certificate later is refused.
+      store.set({
+        remote: { ...remote, connect: { ...remote.connect, fingerprint: presentedHex } },
+      });
+      console.log(`[remote] pinned host certificate ${presentedHex.slice(0, 16)}…`);
+      return callbackBool(true);
+    }
+    const ok = pinned === presentedHex;
+    if (!ok) {
+      console.error('[remote] REFUSED: the host presented a different certificate than the paired one.');
+    }
+    callbackBool(ok);
+  });
+}
+
 app.whenReady().then(() => {
+    trustPairedHost();
     registerIpc(() => mainWindow);
     openWindow();
 

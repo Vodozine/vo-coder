@@ -64,6 +64,28 @@ export class ConfigStore {
     if (!this.cache.genericDir) {
       this.cache.genericDir = join(this.documentsBase(), 'Vo-Coder');
     }
+    // A container is configured by how it was started, not by what is in its
+    // data volume. Without this a config file left from a previous run could
+    // set the role back to local, and the container would come up serving
+    // nothing with no way in to fix it.
+    const forcedRole = process.env.VO_FORCE_REMOTE_ROLE?.trim();
+    if (forcedRole === 'host' || forcedRole === 'client' || forcedRole === 'local') {
+      this.cache.remote = {
+        ...this.cache.remote,
+        role: forcedRole,
+        listen: {
+          port: Number(process.env.VO_FORCE_REMOTE_PORT) || this.cache.remote.listen.port,
+          token: process.env.VO_FORCE_REMOTE_TOKEN?.trim() || this.cache.remote.listen.token,
+          // Encrypted unless the run says otherwise, in the same words the
+          // rest of this env block uses. A container fronted by a tailnet is
+          // the case that wants it off — that is where the companion app
+          // reaches it, and where WireGuard has already done the encrypting.
+          tls: /^(0|false|off|no)$/i.test(process.env.VO_FORCE_REMOTE_TLS?.trim() ?? '')
+            ? false
+            : this.cache.remote.listen.tls !== false,
+        },
+      };
+    }
     if (this.genericEnsured !== this.cache.genericDir) {
       try {
         mkdirSync(this.cache.genericDir, { recursive: true });

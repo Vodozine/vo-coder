@@ -1018,6 +1018,34 @@ function SuggestPanel({ onApply }: { onApply: () => void }) {
   );
 }
 
+/**
+ * What a window shows while it has no config.
+ *
+ * Locally that is a blink. On a front end whose backend is unreachable it
+ * was forever, and said nothing — a refused certificate, a wrong key, a
+ * backend that is off and a mismatched edition all looked the same. It says
+ * which now, and points at the switch that gets you out.
+ */
+function WaitingForBackend() {
+  const [link, setLink] = useState(() => window.vo.linkState());
+  useEffect(() => window.vo.onLinkState(setLink), []);
+  if (!window.vo.isRemote()) return <div className="empty-state">Loading…</div>;
+  return (
+    <div className="empty-state">
+      {link.error ? (
+        <>
+          <p>Cannot reach the main computer.</p>
+          <p className="hint">{link.error}</p>
+          <p className="hint">
+            Use the switch at the bottom of the sidebar to work on this computer instead.
+          </p>
+        </>
+      ) : (
+        <p>Connecting to the main computer…</p>
+      )}
+    </div>
+  );
+}
 export function Chat() {
   const config = useStore((s) => s.config);
   const models = useStore((s) => s.models);
@@ -1248,7 +1276,7 @@ export function Chat() {
     hadSlashRef.current = has;
   }, [input]);
 
-  if (!config) return <div className="empty-state">Loading…</div>;
+  if (!config) return <WaitingForBackend />;
 
   const activeAgent = config.agents.find((a) => a.id === activeAgentId);
   const usingDefaults = !activeAgent?.provider && !activeAgent?.model;

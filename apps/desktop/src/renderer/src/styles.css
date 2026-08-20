@@ -3802,3 +3802,24 @@ input[type='radio']:focus-visible {
 .host-picker-row.active {
   background: var(--accent-soft, rgba(90, 140, 255, 0.22));
 }
+
+/* Local ⇄ remote, in the sidebar. Small, always visible, and out of the way —
+   this is flipped while working, not configured once. */
+.side-switch {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+.side-switch button {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.side-switch button.ghost {
+  flex: 0 0 28px;
+}
+.side-switch button.active {
+  background: var(--accent-soft, rgba(90, 140, 255, 0.22));
+  color: var(--accent, #7aa2ff);
+}

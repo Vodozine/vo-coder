@@ -162,6 +162,19 @@ export function HostPicker(): React.ReactElement | null {
           <button disabled={busy} title="Starting points" onClick={() => void browse(undefined)}>
             Top
           </button>
+          <button
+            disabled={busy || !listing?.path}
+            title="Make a folder here"
+            onClick={() => {
+              const name = prompt("New folder name");
+              if (!name?.trim() || !listing?.path) return;
+              void window.vo.hostFsMkdir(listing.path, name).then((r) => {
+                if (r.ok && r.path) void browse(listing.path);
+              });
+            }}
+          >
+            New folder
+          </button>
           <code className="perm-tool grow">{listing?.path || 'starting points'}</code>
         </div>
 

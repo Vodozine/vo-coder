@@ -12,7 +12,14 @@ import type {
   TermExit,
   VoApi,
 } from '../shared/ipc-contract';
-import { localBridge, remoteBridge, setHostAsk, type Bridge } from './bridge';
+import {
+  currentLinkState,
+  localBridge,
+  onLinkState,
+  remoteBridge,
+  setHostAsk,
+  type Bridge,
+} from './bridge';
 
 /**
  * Which end of the wire this window is, asked synchronously because
@@ -43,7 +50,9 @@ const remote =
  * A bare address means the secure one: the host serves TLS unless it has been
  * deliberately turned off, and an address typed without a scheme must not
  * quietly downgrade the link. An explicit ws:// or http:// is honoured though,
- * because that is the only way to reach a host running plain for a phone.
+ * because that is the only way to reach a host running plain for a phone —
+ * silently upgrading it would fail the handshake with nothing on screen to say
+ * that the scheme the user typed was ignored.
  */
 function wsUrl(raw: string): string {
   const t = raw.trim();
@@ -119,7 +128,14 @@ const api: VoApi = {
   permissionRespond: (requestId, decision) =>
     bridge.invoke(IPC.permissionRespond, requestId, decision),
   hostFsList: (path) => bridge.invoke(IPC.hostFsList, path),
+  hostFsMkdir: (parent, name) => bridge.invoke(IPC.hostFsMkdir, parent, name),
+  openWindowAs: (role) => bridge.invoke(IPC.openWindowAs, role),
+  linkState: () => currentLinkState(),
+  onLinkState: (cb) => onLinkState(cb),
+  hostFileUpload: (name, bytes) => bridge.invoke(IPC.hostFileUpload, name, bytes),
   oauthLoopback: (authUrlTemplate) => bridge.invoke(IPC.oauthLoopback, authUrlTemplate),
+  saveToThisComputer: (url, suggestedName) =>
+    bridge.invoke(IPC.saveToThisComputer, url, suggestedName),
   scaffoldPickDir: () => bridge.invoke(IPC.scaffoldPickDir),
   scaffoldDetect: (dir) => bridge.invoke(IPC.scaffoldDetect, dir),
   scaffoldGenerate: (dir, answers, force) =>
@@ -199,6 +215,7 @@ const api: VoApi = {
   claudeCliCheck: () => bridge.invoke(IPC.claudeCliCheck),
   openExternal: (url) => bridge.invoke(IPC.openExternal, url),
   voiceTranscribe: (wav) => bridge.invoke(IPC.voiceTranscribe, wav),
+  voiceSynthesize: (text) => bridge.invoke(IPC.voiceSynthesize, text),
   voiceSpeak: (text) => bridge.invoke(IPC.voiceSpeak, text),
   voiceStopSpeak: () => bridge.invoke(IPC.voiceStopSpeak),
   voiceCompatCatalog: (baseUrl) => bridge.invoke(IPC.voiceCompatCatalog, baseUrl),

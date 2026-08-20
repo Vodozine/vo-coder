@@ -197,12 +197,21 @@ export class ProjectStore {
 
   createSession(
     projectId: string,
-    agentId = 'default',
+    /**
+     * Coalesced rather than defaulted. A default parameter only fires on
+     * undefined, and this is reachable from the remote wire, where JSON turns
+     * an omitted trailing argument into an explicit null — which would sail
+     * past a default and store a session with no agent at all. The failure
+     * surfaces later and elsewhere, as "Unknown agent null" on the first
+     * message, which points at the wrong thing entirely.
+     */
+    agentIdOrNull?: string | null,
     title?: string,
     groupId?: string,
     /** Attach a working folder at birth — group members inherit the coordinator's. */
     dir?: string,
   ): ChatSessionMeta {
+    const agentId = agentIdOrNull || 'default';
     const meta: ChatSessionMeta = {
       id: `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       projectId,

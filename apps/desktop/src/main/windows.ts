@@ -1,7 +1,15 @@
 import { BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
 
-export function createMainWindow(): BrowserWindow {
+/**
+ * A window, optionally forced onto one side of the wire.
+ *
+ * The role normally comes from the config, which is why two windows in one
+ * app were identical: both asked the same question and got the same answer.
+ * An override rides in as a launch argument instead, which the preload reads
+ * BEFORE the config — per window, because that is what a window is.
+ */
+export function createMainWindow(forceRole?: 'local' | 'client'): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -20,6 +28,9 @@ export function createMainWindow(): BrowserWindow {
       : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
+      // Read by the preload before it looks at the config, so this window
+      // can sit on a different side from its siblings.
+      ...(forceRole ? { additionalArguments: [`--vo-role=${forceRole}`] } : {}),
       contextIsolation: true,
       // Not an oversight, and not free to flip: Electron cannot load an ESM
       // preload (.mjs) into a sandboxed renderer, so sandbox:true would break
@@ -63,4 +74,22 @@ export function createMainWindow(): BrowserWindow {
     void win.loadFile(join(import.meta.dirname, '../renderer/index.html'));
   }
   return win;
+}
+
+/**
+ * A second window, so local and a backend can be open side by side.
+ *
+ * The role is chosen when a window's preload loads, not when the app starts —
+ * which is why two windows in ONE process can sit on different ends of the
+ * wire. Nothing about the app is per-role; only the window is.
+ *
+ * These are extra windows: the app's own lifecycle still follows the first one,
+ * and closing an extra takes nothing with it.
+ */
+const extras = new Set<BrowserWindow>();
+
+export function openExtraWindow(role?: 'local' | 'client'): void {
+  const win = createMainWindow(role);
+  extras.add(win);
+  win.on('closed', () => extras.delete(win));
 }

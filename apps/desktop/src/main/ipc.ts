@@ -1,4 +1,4 @@
-import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
 import { networkInterfaces } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { emitToSinks, handle as registerHandler } from './ipc-registry';
@@ -11,7 +11,11 @@ import {
   startRemoteHost,
   stopRemoteHost,
 } from './remote-server';
+import { createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { hostDialog } from './host-dialog';
+import { openExtraWindow } from './windows';
 import { runOauthLoopback } from './oauth-loopback';
 import { userDataDir } from './paths';
 import { edition } from './edition';
@@ -2453,6 +2457,50 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     runOauthLoopback(String(authUrlTemplate ?? '')),
   );
 
+  // A second window on the chosen side — see windows.openExtraWindow.
+  registerHandler(IPC.openWindowAs, (_e, role: 'local' | 'client') => openExtraWindow(role));
+
+  /**
+   * Bring a finished file over from the host and put it where the person
+   * wants it. Always local (see CLIENT_CHANNELS): the save dialog and the
+   * file that comes out of it belong to the machine being looked at.
+   *
+   * Fetched here rather than in the window because the file can be gigabytes,
+   * and streaming it to disk beats holding all of it in the page first.
+   */
+  registerHandler(IPC.saveToThisComputer, async (_e, url: string, suggestedName: string) => {
+    try {
+      const win = getWindow();
+      const picked = win
+        ? await dialog.showSaveDialog(win, { defaultPath: suggestedName })
+        : await dialog.showSaveDialog({ defaultPath: suggestedName });
+      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true };
+      const res = await fetch(url);
+      if (!res.ok || !res.body) return { ok: false, error: `The host answered ${res.status}.` };
+      // The DOM and Node each declare a ReadableStream and TypeScript sees
+      // both here; the object is Node's, which is what fromWeb wants.
+      await pipeline(
+        Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+        createWriteStream(picked.filePath),
+      );
+      return { ok: true, saved: picked.filePath };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  registerHandler(IPC.hostFsMkdir, (_e, parent: string, name: string) => {
+    try {
+      const safe = basename(String(name ?? '')).replace(/[\/:*?"<>|]/g, '_').trim();
+      if (!safe) return { ok: false, error: 'That name cannot be used.' };
+      const target = join(resolve(String(parent)), safe);
+      mkdirSync(target, { recursive: true });
+      return { ok: true, path: target };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   registerHandler(IPC.hostFsList, (_e, path?: string): HostFsListing => {
     const entry = (full: string, name: string): HostFsEntry | null => {
       try {
@@ -3194,6 +3242,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     try {
       const text = await voice.transcribe(new Uint8Array(wav));
       return { ok: true, text };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  registerHandler(IPC.voiceSynthesize, async (_e, text: string) => {
+    try {
+      const out = await voice.synthesize(String(text ?? ''));
+      if (!out) {
+        // Not a failure — the engine simply speaks out loud here rather than
+        // handing over a file. The caller has its own voice for that case, and
+        // saying so plainly is what lets it use it.
+        return { ok: false, error: 'This computer’s voice plays here and cannot be sent.' };
+      }
+      return {
+        ok: true,
+        data: out.data.buffer.slice(out.data.byteOffset, out.data.byteOffset + out.data.byteLength),
+        mimeType: out.mimeType,
+      };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

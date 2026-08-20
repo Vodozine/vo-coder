@@ -1,5 +1,9 @@
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import {
   ElevenLabsTts,
   listSystemVoices,
@@ -16,6 +20,65 @@ import {
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
 import { cleanIdentifier } from './tts-catalog';
+import { app } from 'electron';
+
+/**
+ * The bundled ffmpeg, if this edition ships one. Same search the Pro video
+ * suite uses (extraResources, then the workspace install, then FFMPEG_BIN) —
+ * inlined here because the video module itself is not part of this edition,
+ * and transcoding a phone clip must not drag it in.
+ */
+const FFMPEG_EXE = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+let ffmpegCached: string | null | undefined;
+function resolveFfmpegPath(): string | null {
+  if (ffmpegCached !== undefined) return ffmpegCached;
+  const appPath = app.getAppPath();
+  const override = process.env.FFMPEG_BIN;
+  const candidates = [
+    ...(override ? [override] : []),
+    join(process.resourcesPath ?? '', 'ffmpeg', FFMPEG_EXE),
+    join(appPath, 'node_modules', 'ffmpeg-static', FFMPEG_EXE),
+    join(appPath, '..', '..', 'node_modules', 'ffmpeg-static', FFMPEG_EXE),
+  ];
+  for (const c of candidates) {
+    try {
+      if (c && existsSync(c)) return (ffmpegCached = c);
+    } catch {
+      /* keep looking */
+    }
+  }
+  return (ffmpegCached = null);
+}
+
+const pExecFile = promisify(execFile);
+
+/**
+ * Re-cut a clip as the 16 kHz mono WAV whisper.cpp insists on.
+ *
+ * Only ever called when the engine is the local one and the clip is not
+ * already a WAV. That happens for exactly one reason today: Android's recorder
+ * has no raw-PCM mode, so the companion app can only hand over AAC in an MP4
+ * box. The cloud endpoint takes that happily; whisper.cpp reads WAV and
+ * nothing else, so without this a phone would work for one kind of user and
+ * fail for the other, with an error about containers that nobody asked to
+ * care about.
+ */
+async function toWhisperWav(data: Uint8Array, ext: string): Promise<Uint8Array> {
+  const ffmpeg = resolveFfmpegPath();
+  if (!ffmpeg) throw new Error('whisper-local needs WAV, and the bundled ffmpeg was not found.');
+  const dir = await mkdtemp(join(tmpdir(), 'vo-stt-'));
+  const src = join(dir, `in.${ext || 'm4a'}`);
+  const out = join(dir, 'out.wav');
+  try {
+    await writeFile(src, data);
+    // -ar 16000 -ac 1: the rate and channel count whisper.cpp wants; anything
+    // else it resamples internally at best and refuses at worst.
+    await pExecFile(ffmpeg, ['-y', '-i', src, '-ar', '16000', '-ac', '1', '-f', 'wav', out]);
+    return new Uint8Array(await readFile(out));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /** Builds STT/TTS from current settings on each call so config changes apply
  *  immediately; keys come from the same encrypted secret store as chat. */
@@ -73,7 +136,12 @@ export class VoiceHost {
    * off Telegram. Same engine and same language setting; only the container
    * differs, and the engine is told what it is.
    */
-  transcribeFile(data: Uint8Array, mimeType: string, fileName: string): Promise<string> {
+  async transcribeFile(data: Uint8Array, mimeType: string, fileName: string): Promise<string> {
+    const isWav = /wav|wave|pcm/.test(mimeType.toLowerCase());
+    if (this.config.get().voice.stt === 'whisper-local' && !isWav) {
+      const wav = await toWhisperWav(data, fileName.split('.').pop()?.toLowerCase() ?? 'm4a');
+      return this.transcribe(wav, { mimeType: 'audio/wav', fileName: 'audio.wav' });
+    }
     return this.transcribe(data, { mimeType, fileName });
   }
 

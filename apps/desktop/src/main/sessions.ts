@@ -130,7 +130,11 @@ export class SessionManager {
   constructor(private deps: SessionManagerDeps) {}
 
   private specFor(agentId: string): AgentSpec {
-    if (agentId === 'default') {
+    // An empty agent is "whoever answers by default", not a missing one. Chats
+    // created before the null above was caught carry it in projects.json, and
+    // without this they stay permanently unusable — every message answering
+    // "Unknown agent null" with no way to fix it from the UI.
+    if (!agentId || agentId === 'default') {
       const cfg = this.deps.config.get();
       return {
         id: 'default',

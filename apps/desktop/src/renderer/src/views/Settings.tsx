@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ModelPicker } from '../components/ModelPicker';
+import { PairingCode } from '../components/PairingCode';
 import type { McpRegistryEntry } from '@vo-coder/core';
 import type { AgentSpec } from '@vo-coder/providers';
 import {
@@ -18,7 +19,6 @@ import type {
   VoiceSettings,
 } from '../../../shared/ipc-contract';
 import { DEFAULT_REMOTE_PORT, mcpOauthLabelForUrl } from '../../../shared/ipc-contract';
-import { PairingCode } from '../components/PairingCode';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
@@ -3323,7 +3323,30 @@ export function Settings() {
     return () => window.removeEventListener('keydown', onKey);
   }, [openTile]);
 
-  if (!config) return <div className="empty-state">Loading…</div>;
+  /**
+   * Settings stays usable when the config does not arrive.
+   *
+   * Everything here reads the backend’s config — except the Remote panel,
+   * which is deliberately answered by THIS machine. That matters most in the
+   * one case that used to be unrecoverable: a front end pointed at a backend
+   * that is off, or gone, or was switched to local. The config never arrives,
+   * every panel folds, and the only control that could fix it folded with
+   * them — leaving editing config.json by hand as the only way out.
+   *
+   * So when there is no config, show the one panel that does not need it.
+   */
+  if (!config) {
+    return (
+      <div className="settings">
+        <p className="hint">
+          Waiting for the main computer. If it is off, or this window should not be a remote
+          at all, switch it back below — that setting belongs to this computer and works
+          whether or not anything answers.
+        </p>
+        <RemoteSection />
+      </div>
+    );
+  }
 
   const ollamaExtras = config.ollamaExtraEndpoints ?? [];
   const llamacppEps = config.llamacppEndpoints ?? [];
@@ -3924,6 +3947,18 @@ function RemoteSection() {
           ⟳ Switching this window over…
         </p>
       )}
+      <div className="field-row">
+        <label>second window</label>
+        <button
+          title="Open another window on the other side, so both are up at once"
+          onClick={() => void window.vo.openWindowAs(role === 'client' ? 'local' : 'client')}
+        >
+          Open a {role === 'client' ? 'local' : 'remote'} window too
+        </button>
+        <span className="meta grow">
+          Two windows, one app — each picks its own side when it opens.
+        </span>
+      </div>
 
       {role === 'host' && (
         <>

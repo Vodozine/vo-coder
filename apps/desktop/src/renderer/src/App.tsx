@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { RemoteSettings } from '../../shared/ipc-contract';
 import { Icon } from './components/Icon';
 import { HostPicker } from './components/HostPicker';
 import { VodoMark } from './components/VodoMark';
@@ -481,6 +482,55 @@ function TotalUsage() {
 /** Windows runs with a hidden title bar + overlaid native buttons. */
 const CUSTOM_TITLEBAR = navigator.platform.toLowerCase().includes('win');
 
+/**
+ * Local ⇄ remote, in the sidebar, one click.
+ *
+ * The transport is chosen when a window’s preload loads, so switching is a
+ * reload rather than a restart — and it belongs here rather than four clicks
+ * deep in Settings, because it is something you flip while working, not
+ * something you configure once.
+ *
+ * Hidden until a backend has been set up: with no address to go to there is
+ * nothing to switch between, and an inert control is worse than no control.
+ */
+function SideSwitch() {
+  const [remote, setRemote] = useState<RemoteSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void window.vo.remoteSettingsGet().then(setRemote).catch(() => setRemote(null));
+  }, []);
+  if (!remote || !remote.connect.url) return null;
+
+  const here = remote.role !== 'client';
+  const flip = () => {
+    setBusy(true);
+    void window.vo.remoteApplyRole({ role: here ? 'client' : 'local' });
+  };
+  return (
+    <div className="side-switch">
+      <button
+        className={here ? "" : "active"}
+        disabled={busy}
+        title={
+          here
+            ? `Switch this window to the main computer (${remote.connect.url})`
+            : "Switch this window back to this computer"
+        }
+        onClick={flip}
+      >
+        {busy ? "switching…" : here ? "This computer" : "Remote"}
+      </button>
+      <button
+        className="ghost"
+        disabled={busy}
+        title="Open a second window on the other side, so both are up at once"
+        onClick={() => void window.vo.openWindowAs(here ? "client" : "local")}
+      >
+        +
+      </button>
+    </div>
+  );
+}
 export function App() {
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
@@ -535,6 +585,7 @@ export function App() {
             ⬆ Update ready — restart
           </button>
         )}
+        <SideSwitch />
         <TotalUsage />
       </aside>
       <main className="content">

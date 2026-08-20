@@ -868,9 +868,48 @@ export interface VoApi {
    * person at it, so 127.0.0.1 must be that machine too. The host mints the
    * URL and does the token exchange; only the code comes back over the wire.
    */
+  /**
+   * Make one folder, under a parent the caller just browsed to. The name is
+   * stripped to its last segment before use: a front end is not a trusted
+   * source of paths, so "../.." must land as a folder NAME, not an escape.
+   */
+  hostFsMkdir(parent: string, name: string): Promise<{ ok: boolean; path?: string; error?: string }>;
+  /**
+   * Whether this window can reach its backend, and why not.
+   *
+   * Answered from inside this window — no round trip, because the whole
+   * point is to work when there is nothing to round-trip to.
+   */
+  linkState(): { connected: boolean; error: string | null };
+  onLinkState(cb: (s: { connected: boolean; error: string | null }) => void): () => void;
+  /** Open ANOTHER window on the chosen side — local and remote side by side. */
+  openWindowAs(role: 'local' | 'client'): Promise<void>;
+  /**
+   * Put a file from THIS machine onto the machine Vodo runs on, and get back
+   * the path it landed at. Dragging a clip or a screenshot onto a remote front
+   * end has to send the bytes: the host cannot read your disk, and the path
+   * your browser hands you means nothing over there.
+   */
+  hostFileUpload(
+    name: string,
+    bytes: ArrayBuffer,
+  ): Promise<{ ok: boolean; path?: string; error?: string }>;
   oauthLoopback(
     authUrlTemplate: string,
   ): Promise<{ ok: boolean; code?: string; redirectUri?: string; error?: string }>;
+  /**
+   * Pull a finished file off the host onto THIS machine and reveal it.
+   *
+   * A file made on the host lives on the computer that made it. Show it in a
+   * file manager and you would be pointing at a folder on a machine you are
+   * not sitting at — or, on a front end, at a path that does not exist here at
+   * all. So the bytes come over first, through the same addressed media the
+   * player uses, and then it is revealed here.
+   */
+  saveToThisComputer(
+    url: string,
+    suggestedName: string,
+  ): Promise<{ ok: boolean; saved?: string; canceled?: boolean; error?: string }>;
   setHostPicker(fn: (kind: string, payload: unknown) => Promise<unknown>): void;
   isRemote(): boolean;
   getConfig(): Promise<AppConfig>;
@@ -1050,6 +1089,19 @@ export interface VoApi {
   }>;
   openExternal(url: string): Promise<void>;
   voiceTranscribe(wav: ArrayBuffer): Promise<{ ok: boolean; text?: string; error?: string }>;
+  /**
+   * Speech as BYTES, never spoken here.
+   *
+   * voiceSpeak answers 'native' when the engine is the OS voice, which means
+   * the words come out of THIS computer's speakers. That is right for the
+   * window in front of you and useless for a phone in another room — it would
+   * talk to an empty chair. This asks for audio or nothing, so a caller that
+   * cannot use the room's speakers knows to fall back to its own voice
+   * instead of waiting on a clip that is never coming.
+   */
+  voiceSynthesize(
+    text: string,
+  ): Promise<{ ok: boolean; data?: ArrayBuffer; mimeType?: string; error?: string }>;
   voiceSpeak(
     text: string,
   ): Promise<
@@ -1142,7 +1194,10 @@ export const IPC = {
   permissionRequest: 'permission:request',
   permissionRespond: 'permission:respond',
   oauthLoopback: 'oauth:loopback',
+  saveToThisComputer: 'hostfs:saveHere',
   hostFsList: 'hostfs:list',
+  hostFsMkdir: 'hostfs:mkdir',
+  openWindowAs: 'window:openAs',
   scaffoldPickDir: 'scaffold:pickDir',
   scaffoldDetect: 'scaffold:detect',
   scaffoldGenerate: 'scaffold:generate',
@@ -1161,6 +1216,7 @@ export const IPC = {
   previewBounds: 'preview:bounds',
   previewState: 'preview:state',
   voiceTranscribe: 'voice:transcribe',
+  voiceSynthesize: 'voice:synthesize',
   voiceSpeak: 'voice:speak',
   voiceStopSpeak: 'voice:stopSpeak',
   voiceCompatCatalog: 'voice:compatCatalog',
@@ -1268,6 +1324,9 @@ export const CLIENT_CHANNELS: ReadonlySet<string> = new Set<string>([
   // BROWSER. Done on the host it would open a consent screen nobody can see
   // and listen on a loopback port the person never reaches.
   IPC.oauthLoopback,
+  // The save dialog and the file that comes out of it belong to the machine
+  // being looked at.
+  IPC.saveToThisComputer,
   IPC.previewOpen,
   IPC.previewClose,
   IPC.previewHide,
@@ -1280,6 +1339,7 @@ export const CLIENT_CHANNELS: ReadonlySet<string> = new Set<string>([
   // Which end of the wire THIS window is, and opening another one, are facts
   // about this computer.
   IPC.remoteApplyRole,
+  IPC.openWindowAs,
   IPC.remoteSettingsGet,
   IPC.remoteSettingsSet,
 ]);
