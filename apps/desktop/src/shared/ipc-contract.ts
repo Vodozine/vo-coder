@@ -250,6 +250,12 @@ export interface AppConfig {
    */
   claudeCliPath: string;
   /**
+   * Same for the Codex CLI (`codex`) — the ChatGPT-plan CLI agent. Empty =
+   * probe: the Codex app's install dir, ~/.local/bin, the npm global dir,
+   * then PATH.
+   */
+  codexCliPath: string;
+  /**
    * The app's generic scratch folder — every chat can always write SOMETHING.
    * Folder-less chats get it as their working folder (single files, images,
    * temp work), so ws_write never dead-ends. It is NOT a project home: real
@@ -423,6 +429,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     methods: [],
   },
   claudeCliPath: '',
+  codexCliPath: '',
   // Empty = resolve at runtime (Documents/Vo-Coder); the shared contract
   // cannot ask Electron for paths.
   genericDir: '',
@@ -1230,6 +1237,8 @@ export interface VoApi {
    * version, so a misconfigured path fails here instead of mid-conversation.
    */
   claudeCliCheck(): Promise<{ ok: boolean; version?: string; path?: string; error?: string }>;
+  /** Same check for the Codex CLI (ChatGPT-plan agent). */
+  codexCliCheck(): Promise<{ ok: boolean; version?: string; path?: string; error?: string }>;
   missionsList(): Promise<Mission[]>;
   missionCreate(input: MissionCreateInput): Promise<Mission>;
   missionControl(id: string, action: MissionAction): Promise<void>;
@@ -1404,6 +1413,7 @@ export const IPC = {
   updateEvent: 'update:event',
   voiceSetupWhisper: 'voice:setupWhisper',
   claudeCliCheck: 'claude-code:check',
+  codexCliCheck: 'codex-cli:check',
   openExternal: 'shell:openExternal',
   missionsList: 'missions:list',
   missionCreate: 'missions:create',

@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -13,13 +13,25 @@ import {
   newClaudeCodeParseState,
   parseClaudeCodeLine,
   renderHistoryPrompt,
-  streamLines,
   type ChatProvider,
   type ChatRequest,
+  type ClaudeCodeParseState,
   type ModelInfo,
   type ProviderEvent,
 } from '@vo-coder/providers';
 import type { AppConfig } from '../shared/ipc-contract';
+import {
+  runCliTurn,
+  spawnForm,
+  type CliParseAdapter,
+  type CliSessionBinding,
+  type ResolvedBinary,
+} from './cli-agent-runner';
+
+// The process machinery (child registry, kill, spawn form) is shared with the
+// Codex provider; existing import sites keep working through these re-exports.
+export { closeAllCliChildren } from './cli-agent-runner';
+export type { CliSessionBinding } from './cli-agent-runner';
 
 /**
  * Claude Code as a provider — the RUNNER half.
@@ -31,62 +43,44 @@ import type { AppConfig } from '../shared/ipc-contract';
  * first turn and resumes it afterwards, so nothing is ever replayed.
  *
  * The pure half (argv, stream-json parsing, prompt rendering) lives in
- * @vo-coder/providers where it is unit-tested; this file owns what needs a
- * process: finding the binary, spawning, killing, and session bookkeeping.
+ * @vo-coder/providers where it is unit-tested; the generic process half
+ * (spawn, kill, held-events, child registry) in cli-agent-runner. This file
+ * owns what is Claude Code's alone: finding the binary, the env scrub, the
+ * session bookkeeping, and the error prose.
  */
 
-/** How a spawned turn is tied to a chat (or mission). Chat bindings persist the
- *  CLI session id in the session meta so a restart still resumes. */
-export interface CliSessionBinding {
-  /** Chat session id, or `mission:<id>` — only used as a map key. */
-  key: string;
-  /** Working folder for the child — the chat's project dir. */
-  dir?: string;
-  persistedId?: () => string | undefined;
-  persist?: (cliId: string | null) => void;
-  /** Missions run unattended: they force bypassPermissions so an
-   *  unanswerable prompt can never wedge a scheduled run. */
-  permissionMode?: string;
-}
+/** The stream dialect handed to the shared runner. */
+const ADAPTER: CliParseAdapter<ClaudeCodeParseState> = {
+  newState: newClaudeCodeParseState,
+  parse: parseClaudeCodeLine,
+  sawResult: (s) => s.sawResult,
+  exitError: (detail, exitCode) =>
+    /unknown option/i.test(detail)
+      ? `Claude Code is too old for this integration: ${detail}. Update it ` +
+        '(npm update -g @anthropic-ai/claude-code).'
+      : `Claude Code exited (${exitCode ?? 'killed'}) without a result` +
+        (detail ? `: ${detail}` : '.'),
+};
 
-/** Every live child, so quitting the app never leaves a CLI running headless. */
-const children = new Map<number, ChildProcess>();
-
-export function closeAllCliChildren(): void {
-  for (const child of children.values()) killTree(child.pid);
-  children.clear();
-}
-
-/** Same idiom as workspace-tools' runner: Windows needs the whole tree gone. */
-function killTree(pid: number | undefined): void {
-  if (pid === undefined) return;
-  if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
-  } else {
-    try {
-      process.kill(-pid, 'SIGKILL');
-    } catch {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-    }
+/**
+ * A Vo-Coder started FROM a Claude Code terminal inherits that session's
+ * harness markers, and the child then believes it has a host: with
+ * CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 in the env it waits for a host that
+ * does not exist and reports "OAuth session expired and could not be
+ * refreshed" despite a perfectly valid login. Seen live, first harness run.
+ * ANTHROPIC_BASE_URL from such a session points at the host's relay — also
+ * gone. A deliberate base URL belongs in the CLI's own settings.json.
+ */
+function scrubEnv(env: NodeJS.ProcessEnv): void {
+  for (const key of Object.keys(env)) {
+    if (/^CLAUDE/i.test(key)) delete env[key];
   }
-}
-
-interface ResolvedBinary {
-  path: string;
-  /** 'exe' spawns directly; 'cli-js' runs under Electron-as-Node — the .cmd
-   *  shim is never executed, so cmd.exe never sees user text. */
-  kind: 'exe' | 'cli-js';
+  delete env.ANTHROPIC_BASE_URL;
 }
 
 interface TurnSummary {
   sawResult: boolean;
   erred: boolean;
-  exitCode: number | null;
-  stderrTail: string;
 }
 
 export class ClaudeCodeCliProvider implements ChatProvider {
@@ -120,7 +114,7 @@ export class ClaudeCodeCliProvider implements ChatProvider {
       };
     }
     try {
-      const { cmd, argv, env } = spawnForm(binary, ['--version']);
+      const { cmd, argv, env } = spawnForm(binary, ['--version'], scrubEnv);
       const out = execFileSync(cmd, argv, { env, encoding: 'utf8', timeout: 5_000, windowsHide: true });
       return { ok: true, version: out.trim().split('\n')[0] ?? '', path: binary.path };
     } catch (err) {
@@ -216,14 +210,7 @@ export class ClaudeCodeCliProvider implements ChatProvider {
     yield* this.spawnTurn(binary, fresh, renderHistoryPrompt(req.messages), cwd, opts.signal, persist, false);
   }
 
-  /**
-   * One child process, start to finish. Yields provider events; returns what
-   * happened so the caller can decide on the resume-retry. When
-   * `suppressErrors` is set a failed turn ends silently (no error event, no
-   * done) — the caller is about to retry and two error bubbles for one turn
-   * would read as two failures.
-   */
-  private async *spawnTurn(
+  private spawnTurn(
     binary: ResolvedBinary,
     args: string[],
     prompt: string,
@@ -232,117 +219,18 @@ export class ClaudeCodeCliProvider implements ChatProvider {
     persist: (id: string | null) => void,
     suppressErrors: boolean,
   ): AsyncGenerator<ProviderEvent, TurnSummary> {
-    const summary: TurnSummary = { sawResult: false, erred: false, exitCode: null, stderrTail: '' };
-    if (signal.aborted) {
-      yield { type: 'done', stopReason: 'aborted' };
-      return summary;
-    }
-
-    const { cmd, argv, env } = spawnForm(binary, args);
-    let child: ChildProcess;
-    try {
-      child = spawn(cmd, argv, {
-        cwd: existsSync(cwd) ? cwd : homedir(),
-        env,
-        windowsHide: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      if (!suppressErrors) {
-        yield {
-          type: 'error',
-          error: { kind: 'unknown', message: `Could not start Claude Code: ${messageOf(err)}` },
-        };
-      }
-      summary.erred = true;
-      return summary;
-    }
-    if (child.pid !== undefined) children.set(child.pid, child);
-
-    let stderrTail = '';
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString('utf8')).slice(-4_000);
+    return runCliTurn({
+      binary,
+      args,
+      prompt,
+      cwd,
+      signal,
+      persist,
+      suppressErrors,
+      adapter: ADAPTER,
+      scrubEnv,
+      startError: (detail) => `Could not start Claude Code: ${detail}`,
     });
-    const exited = new Promise<number | null>((resolve) => {
-      child.once('close', (code) => resolve(code));
-      child.once('error', () => resolve(null));
-    });
-    const onAbort = () => killTree(child.pid);
-    signal.addEventListener('abort', onAbort, { once: true });
-
-    try {
-      // The prompt goes down stdin: argv on Windows has a 32k ceiling and a
-      // prompt is user prose that must never meet a shell.
-      child.stdin?.on('error', () => {});
-      child.stdin?.end(prompt);
-
-      const state = newClaudeCodeParseState();
-      // A suppressed attempt (a --resume about to be retried fresh) must leave
-      // NO trace unless it succeeds — otherwise the CLI's failure prose lands
-      // in the transcript and the retry repeats the same complaint under it.
-      // Prose is held back until the result confirms the attempt; heartbeats
-      // pass through so the stall watchdog stays fed either way.
-      let held: ProviderEvent[] | null = suppressErrors ? [] : null;
-      for await (const line of streamLines(
-        child.stdout as unknown as ReadableStream<Uint8Array>,
-      )) {
-        const parsed = parseClaudeCodeLine(line, state);
-        // Persist the moment the CLI announces itself: a crash mid-turn must
-        // not orphan a session that already exists on disk.
-        if (parsed.sessionId) persist(parsed.sessionId);
-        if (held && state.sawResult) {
-          yield* held;
-          held = null;
-        }
-        for (const event of parsed.events) {
-          if (event.type === 'error') {
-            summary.erred = true;
-            if (suppressErrors) continue;
-          }
-          if (held && (event.type === 'text_delta' || event.type === 'thinking_delta')) {
-            held.push(event);
-            continue;
-          }
-          yield event;
-        }
-      }
-      summary.sawResult = state.sawResult;
-
-      // The stream is over; the child should be too. A lingering process after
-      // its result is the third way a turn hangs — it gets three seconds.
-      const grace = setTimeout(() => killTree(child.pid), 3_000);
-      summary.exitCode = await exited;
-      clearTimeout(grace);
-      summary.stderrTail = stderrTail.trim();
-
-      if (signal.aborted) {
-        yield { type: 'done', stopReason: 'aborted' };
-        return summary;
-      }
-      if (!summary.sawResult && !summary.erred) {
-        summary.erred = true;
-        if (!suppressErrors) {
-          const detail = summary.stderrTail.split('\n').slice(-3).join(' ').slice(0, 400);
-          const oldFlag = /unknown option/i.test(detail);
-          yield {
-            type: 'error',
-            error: {
-              kind: 'unknown',
-              message: oldFlag
-                ? `Claude Code is too old for this integration: ${detail}. Update it ` +
-                  '(npm update -g @anthropic-ai/claude-code).'
-                : `Claude Code exited (${summary.exitCode ?? 'killed'}) without a result` +
-                  (detail ? `: ${detail}` : '.'),
-            },
-          };
-        }
-      }
-      return summary;
-    } finally {
-      signal.removeEventListener('abort', onAbort);
-      killTree(child.pid);
-      if (child.pid !== undefined) children.delete(child.pid);
-    }
   }
 
   private resolveBinary(): ResolvedBinary | null {
@@ -355,10 +243,6 @@ export class ClaudeCodeCliProvider implements ChatProvider {
     }
     return found;
   }
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -423,30 +307,4 @@ function probeBinary(override: string): ResolvedBinary | null {
     /* not on PATH either */
   }
   return null;
-}
-
-/** How to actually invoke the resolved binary. cli.js runs on the bundled
- *  Electron-as-Node runtime, so a packaged app needs no system Node at all. */
-function spawnForm(
-  binary: ResolvedBinary,
-  args: string[],
-): { cmd: string; argv: string[]; env: NodeJS.ProcessEnv } {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  // A Vo-Coder started FROM a Claude Code terminal inherits that session's
-  // harness markers, and the child then believes it has a host: with
-  // CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 in the env it waits for a host that
-  // does not exist and reports "OAuth session expired and could not be
-  // refreshed" despite a perfectly valid login. Seen live, first harness run.
-  // ANTHROPIC_BASE_URL from such a session points at the host's relay — also
-  // gone. A deliberate base URL belongs in the CLI's own settings.json.
-  for (const key of Object.keys(env)) {
-    if (/^CLAUDE/i.test(key)) delete env[key];
-  }
-  delete env.ANTHROPIC_BASE_URL;
-  if (binary.kind === 'cli-js') {
-    env.ELECTRON_RUN_AS_NODE = '1';
-    return { cmd: process.execPath, argv: [binary.path, ...args], env };
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
-  return { cmd: binary.path, argv: args, env };
 }

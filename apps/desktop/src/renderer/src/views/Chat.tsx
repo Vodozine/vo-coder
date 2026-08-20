@@ -155,6 +155,7 @@ const PROVIDERS = ['anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'openai
 // Appended as a statement: the array line above may not be edited by shared
 // commits (scripts/edition-patterns.mjs scans added lines).
 PROVIDERS.push('claude-code');
+PROVIDERS.push('codex-cli');
 PROVIDERS.push('gemini');
 /** Backends where becoming ready is expensive enough to be worth pre-loading. */
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp']);

@@ -214,6 +214,7 @@ const api: VoApi = {
   onUpdateEvent: subscribe(IPC.updateEvent),
   voiceSetupWhisper: () => bridge.invoke(IPC.voiceSetupWhisper),
   claudeCliCheck: () => bridge.invoke(IPC.claudeCliCheck),
+  codexCliCheck: () => bridge.invoke(IPC.codexCliCheck),
   openExternal: (url) => bridge.invoke(IPC.openExternal, url),
   voiceTranscribe: (wav) => bridge.invoke(IPC.voiceTranscribe, wav),
   voiceSynthesize: (text) => bridge.invoke(IPC.voiceSynthesize, text),

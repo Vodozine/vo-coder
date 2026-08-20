@@ -18,6 +18,7 @@ import {
   ClaudeCodeCliProvider,
   type CliSessionBinding,
 } from './claude-code-provider';
+import { CodexCliProvider } from './codex-cli-provider';
 import type { ConfigStore } from './config';
 import type { SecretStore } from './secrets';
 
@@ -153,16 +154,17 @@ export class ProviderHub {
     if (on('llamacpp') && llamacpp.length) {
       reg.register(new LlamaCppProvider({ endpoints: llamacpp }));
     }
-    // Claude Code CLI: the user's installed, logged-in `claude` as an agent
-    // brain. No key gate on purpose — a missing binary must surface as a
+    // CLI agents: the user's installed, logged-in `claude` / `codex` as agent
+    // brains. No key gate on purpose — a missing binary must surface as a
     // readable chat error, not as "provider not configured".
     if (on('claude-code')) reg.register(this.cliAgent());
+    if (on('codex-cli')) reg.register(this.codexAgent());
     return reg;
   }
 
   /**
-   * The CLI provider is the one provider with state (session bindings, binary
-   * cache), so unlike the HTTP adapters it is a singleton across registry()
+   * The CLI providers are the ones with state (session bindings, binary
+   * cache), so unlike the HTTP adapters they are singletons across registry()
    * rebuilds. Config still applies live — it reads through a closure.
    */
   cliAgent(): ClaudeCodeCliProvider {
@@ -170,11 +172,19 @@ export class ProviderHub {
     return this.cli;
   }
 
-  /** Tie a resolved claude-code provider to a chat or mission; other providers
-   *  pass through untouched, so callers need no provider-specific branching. */
+  codexAgent(): CodexCliProvider {
+    this.codex ??= new CodexCliProvider(() => this.config.get());
+    return this.codex;
+  }
+
+  /** Tie a resolved CLI provider to a chat or mission; other providers pass
+   *  through untouched, so callers need no provider-specific branching. */
   bindCli(provider: ChatProvider, binding: CliSessionBinding): ChatProvider {
-    return provider instanceof ClaudeCodeCliProvider ? provider.forSession(binding) : provider;
+    if (provider instanceof ClaudeCodeCliProvider) return provider.forSession(binding);
+    if (provider instanceof CodexCliProvider) return provider.forSession(binding);
+    return provider;
   }
 
   private cli?: ClaudeCodeCliProvider;
+  private codex?: CodexCliProvider;
 }

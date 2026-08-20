@@ -121,8 +121,9 @@ export function ModelPicker({
       provider === 'zai' ||
       // Gemini's AI Studio free tier bills nothing — show it free, like NVIDIA.
       provider === 'gemini' ||
-      // The CLI bills through its own login, not through Vo-Coder.
+      // The CLIs bill through their own logins, not through Vo-Coder.
       provider === 'claude-code' ||
+      provider === 'codex-cli' ||
       (provider === 'xai' && xaiOauthConnected);
 
     let list = [...byId.values()].map((m) => {
@@ -195,6 +196,7 @@ export function ModelPicker({
     if (r.inPrice === 0 && (r.outPrice ?? 0) === 0) {
       if (provider === 'xai' && xaiOauthConnected) return 'free (Grok login)';
       if (provider === 'claude-code') return 'your Claude Code login';
+      if (provider === 'codex-cli') return 'your ChatGPT login';
       if (provider === 'zai') return 'included (GLM plan)';
       if (provider === 'gemini') return 'free tier';
       if (provider === 'nvidia') return 'free endpoint';

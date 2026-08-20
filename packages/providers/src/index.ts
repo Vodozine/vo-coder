@@ -30,6 +30,22 @@ export type {
   ClaudeCodeParseState,
   ClaudeCodeTurn,
 } from './adapters/claude-code.js';
+export {
+  CODEX_CLI_DEFAULT_MODEL,
+  CODEX_CLI_ID,
+  CODEX_CLI_STALL_MS,
+  codexCliArgs,
+  codexCliPrompt,
+  codexCliSandbox,
+  codexCliSeedModels,
+  newCodexCliParseState,
+  parseCodexCliLine,
+} from './adapters/codex-cli.js';
+export type {
+  CodexCliParsed,
+  CodexCliParseState,
+  CodexCliTurn,
+} from './adapters/codex-cli.js';
 export { LlamaCppProvider } from './adapters/llamacpp.js';
 export type { LlamaCppEndpoint, LlamaCppProviderOptions } from './adapters/llamacpp.js';
 export {

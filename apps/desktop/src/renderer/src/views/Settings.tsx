@@ -176,34 +176,50 @@ function KeyRow({ provider, placeholder }: { provider: string; placeholder?: str
 }
 
 /**
- * Claude Code as a provider — no key row, because there is no key: it runs the
+ * A CLI agent as a provider — no key row, because there is no key: it runs the
  * user's installed CLI under their own login. What this row offers instead is
  * the On/Off gate, a path override for unusual installs, and a Check button so
  * a broken setup fails HERE with a version string or a reason, not mid-chat.
  */
-function ClaudeCodeRow() {
+function CliAgentRow({
+  provider,
+  label,
+  binaryName,
+  currentPath,
+  savePath,
+  check: doCheck,
+  children,
+}: {
+  provider: string;
+  label: string;
+  binaryName: string;
+  currentPath: string;
+  savePath: (path: string) => void;
+  check: () => Promise<{ ok: boolean; version?: string; path?: string; error?: string }>;
+  children: React.ReactNode;
+}) {
   const config = useStore((s) => s.config);
   const saveConfig = useStore((s) => s.saveConfig);
   const [path, setPath] = useState<string | null>(null);
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
 
-  const providerOff = (config?.disabledProviders ?? []).includes('claude-code');
+  const providerOff = (config?.disabledProviders ?? []).includes(provider);
   const setEnabled = (on: boolean) => {
     const cur = config?.disabledProviders ?? [];
     void saveConfig({
       disabledProviders: on
-        ? cur.filter((p) => p !== 'claude-code')
-        : cur.includes('claude-code')
+        ? cur.filter((p) => p !== provider)
+        : cur.includes(provider)
           ? cur
-          : [...cur, 'claude-code'],
+          : [...cur, provider],
     });
   };
 
   const runCheck = async () => {
     setChecking(true);
     try {
-      const r = await window.vo.claudeCliCheck();
+      const r = await doCheck();
       setCheck(
         r.ok
           ? { ok: true, text: `${r.version ?? 'found'} — ${r.path ?? ''}` }
@@ -217,14 +233,14 @@ function ClaudeCodeRow() {
   return (
     <>
       <div className={`field-row provider-key-row${providerOff ? ' provider-off' : ''}`}>
-        <label>claude-code</label>
+        <label>{provider}</label>
         <button
           type="button"
           className={`provider-toggle ${providerOff ? 'off' : 'on'}`}
           title={
             providerOff
-              ? 'Claude Code agents are off — click to enable'
-              : 'Claude Code agents are on — click to disable'
+              ? `${label} agents are off — click to enable`
+              : `${label} agents are on — click to disable`
           }
           onClick={() => setEnabled(providerOff)}
         >
@@ -232,13 +248,11 @@ function ClaudeCodeRow() {
         </button>
         <input
           className="grow"
-          value={path ?? config?.claudeCliPath ?? ''}
-          placeholder="path to the claude binary (empty = find it automatically)"
+          value={path ?? currentPath}
+          placeholder={`path to the ${binaryName} binary (empty = find it automatically)`}
           onChange={(e) => setPath(e.target.value)}
           onBlur={() => {
-            if (path !== null && path !== (config?.claudeCliPath ?? '')) {
-              void saveConfig({ claudeCliPath: path.trim() });
-            }
+            if (path !== null && path !== currentPath) savePath(path.trim());
           }}
         />
         <button type="button" onClick={() => void runCheck()} disabled={checking}>
@@ -250,6 +264,23 @@ function ClaudeCodeRow() {
           {check.ok ? `✓ ${check.text}` : check.text}
         </p>
       )}
+      {children}
+    </>
+  );
+}
+
+function ClaudeCodeRow() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  return (
+    <CliAgentRow
+      provider="claude-code"
+      label="Claude Code"
+      binaryName="claude"
+      currentPath={config?.claudeCliPath ?? ''}
+      savePath={(p) => void saveConfig({ claudeCliPath: p })}
+      check={() => window.vo.claudeCliCheck()}
+    >
       <details className="hint-more">
         <summary>claude-code: your installed Claude Code as an agent</summary>
         <p className="hint">
@@ -261,7 +292,36 @@ function ClaudeCodeRow() {
           stay on a regular model so he keeps his coordination tools.
         </p>
       </details>
-    </>
+    </CliAgentRow>
+  );
+}
+
+function CodexCliRow() {
+  const config = useStore((s) => s.config);
+  const saveConfig = useStore((s) => s.saveConfig);
+  return (
+    <CliAgentRow
+      provider="codex-cli"
+      label="Codex"
+      binaryName="codex"
+      currentPath={config?.codexCliPath ?? ''}
+      savePath={(p) => void saveConfig({ codexCliPath: p })}
+      check={() => window.vo.codexCliCheck()}
+    >
+      <details className="hint-more">
+        <summary>codex-cli: your ChatGPT plan as an agent (via Codex)</summary>
+        <p className="hint">
+          The sanctioned way to use a ChatGPT subscription here: OpenAI&apos;s <code>codex</code>{' '}
+          CLI is included in every ChatGPT plan and does its own login. Install it (
+          <code>npm install -g @openai/codex</code>, or the Codex app), run{' '}
+          <code>codex login</code> once in a terminal, and Vo-Coder never sees a password or
+          token. Then make an agent whose provider is <code>codex-cli</code> and hire it like any
+          other: chat with it, give it missions, seat it in groups. It edits files in the
+          chat&apos;s folder with its own tools. Best used for agents; Vodo himself should stay
+          on a regular model so he keeps his coordination tools.
+        </p>
+      </details>
+    </CliAgentRow>
   );
 }
 
@@ -3503,6 +3563,7 @@ export function Settings() {
           </p>
         </details>
         <ClaudeCodeRow />
+        <CodexCliRow />
       </section>
       </SettingsTile>
 

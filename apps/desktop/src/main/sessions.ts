@@ -428,7 +428,7 @@ export class SessionManager {
     // specialist actually gets.
     const carriesMemory = this.specCarriesMemory(spec);
     const provider = spec.provider ?? this.deps.config.get().defaultProvider;
-    if (provider === 'claude-code') {
+    if (provider === 'claude-code' || provider === 'codex-cli') {
       // The coordinator seat of a live group is the one job a CLI brain cannot
       // hold: commanding members takes Vo-Coder's group_* tools every turn,
       // and a CLI runs ITS OWN tool world — seen live, a claude-code Vodo
@@ -444,13 +444,13 @@ export class SessionManager {
           'tools reach nobody in this app, so do not improvise with them. The members keep ' +
           'working on their briefs regardless. When the user asks for anything about the group, ' +
           'answer with exactly this: they should switch this chat\'s model (the dropdown above ' +
-          'the chat) to a regular provider, and coordination resumes — Claude Code agents work ' +
+          'the chat) to a regular provider, and coordination resumes — CLI agents work ' +
           'fine as MEMBERS, just not as the boss.'
         : spec.id === 'default' && this.teamSize() >= 2
           ? '\n\nIf the user asks for a GROUP PROJECT (several agents working one goal): that is ' +
             'run through Vo-Coder tools your session does not have. Say so, and tell them to ' +
             'switch this chat\'s model (the dropdown above the chat) to a regular provider ' +
-            'first — Claude Code agents can then be seated as members.'
+            'first — CLI agents can then be seated as members.'
           : '';
       return {
         ...spec,

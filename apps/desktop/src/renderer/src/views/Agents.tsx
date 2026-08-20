@@ -8,6 +8,7 @@ const PROVIDERS = ['', 'anthropic', 'ollama', 'lmstudio', 'flm', 'llamacpp', 'op
 // Appended as a statement: the array line above may not be edited by shared
 // commits (scripts/edition-patterns.mjs scans added lines).
 PROVIDERS.push('claude-code');
+PROVIDERS.push('codex-cli');
 PROVIDERS.push('gemini');
 
 function AgentForm({
