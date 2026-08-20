@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MapNodeDto } from '../../../shared/ipc-contract';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
+import { LifeArchives } from './LifeArchives';
 import { MemoryGraph } from './MemoryGraph';
 
 const TYPES = ['file', 'component', 'decision', 'task', 'fact', 'issue', 'preference'] as const;
@@ -73,7 +74,7 @@ export function Memory() {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [mode, setMode] = useState<'notes' | 'graph'>('notes');
+  const [mode, setMode] = useState<'notes' | 'graph' | 'life'>('notes');
 
   const effectiveId = projectId || activeProjectId || projects[0]?.id || '';
   const project = projects.find((p) => p.id === effectiveId);
@@ -126,36 +127,43 @@ export function Memory() {
           <button className={mode === 'graph' ? 'active' : ''} onClick={() => setMode('graph')}>
             Graph
           </button>
+          <button className={mode === 'life' ? 'active' : ''} onClick={() => setMode('life')}>
+            Archives
+          </button>
         </div>
-        <select value={effectiveId} onChange={(e) => setProjectId(e.target.value)}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <input
-          className="grow"
-          placeholder="Search the map…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-          <option value="">all types</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={includeInactive}
-            onChange={(e) => setIncludeInactive(e.target.checked)}
-          />
-          show superseded
-        </label>
+        {mode !== 'life' && (
+          <>
+            <select value={effectiveId} onChange={(e) => setProjectId(e.target.value)}>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <input
+              className="grow"
+              placeholder="Search the map…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">all types</option>
+              {TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(e) => setIncludeInactive(e.target.checked)}
+              />
+              show superseded
+            </label>
+          </>
+        )}
       </div>
 
       {mode === 'notes' && (
@@ -175,7 +183,9 @@ export function Memory() {
         </div>
       )}
 
-      {mode === 'graph' ? (
+      {mode === 'life' ? (
+        <LifeArchives />
+      ) : mode === 'graph' ? (
         <MemoryGraph
           projectId={effectiveId}
           query={query}

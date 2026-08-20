@@ -1059,8 +1059,7 @@ export class MemoryBank {
 
   lifeBatchGet(id: number): LifeBatchDto | undefined {
     const r = this.db.prepare('SELECT * FROM life_batches WHERE id = ?').get(id) as
-      | LifeBatchRow
-      | undefined;
+      | unknown as LifeBatchRow | undefined;
     return r ? lifeBatchDto(r) : undefined;
   }
 

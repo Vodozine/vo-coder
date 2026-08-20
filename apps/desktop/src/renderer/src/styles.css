@@ -2882,6 +2882,72 @@ input[type='radio']:focus-visible {
   color: var(--accent2);
 }
 
+/* ---- imported life memory (Memory → Archives) ---- */
+.life-import,
+.life-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  margin-bottom: 12px;
+}
+.life-src {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.life-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.life-bar {
+  flex: 1;
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.life-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.life-summary,
+.life-batch-summary {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.life-summary {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+}
+.life-batches {
+  margin-bottom: 4px;
+}
+.mem-type.t-identity {
+  color: var(--accent);
+}
+.mem-type.t-project {
+  color: var(--ok);
+}
+.life-batch button.danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
 /* ---- memory graph view ---- */
 /* In graph mode the page stops scrolling and becomes a flex column so the canvas
    fills everything below the shared controls. */
