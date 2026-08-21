@@ -169,6 +169,23 @@ describe('JSONL mapping', () => {
     expect(err?.error.message).toContain('codex login');
   });
 
+  it('a nested API-error JSON is unwrapped, and an outdated CLI names its fix', () => {
+    const { events } = feed([
+      {
+        type: 'error',
+        message:
+          '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.6-sol\' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}',
+      },
+    ]);
+    const err = events.find(
+      (e): e is Extract<ProviderEvent, { type: 'error' }> => e.type === 'error',
+    );
+    // The human sentence, not the JSON blob.
+    expect(err?.error.message).not.toContain('"status"');
+    expect(err?.error.message).toContain('newer version of Codex');
+    expect(err?.error.message).toContain('codex update');
+  });
+
   it('debug noise and unknown lines are heartbeats, never aborts', () => {
     const { events } = feed([
       '2026-08-20T23:28:52Z ERROR codex_models_manager::cache: failed to load models cache',

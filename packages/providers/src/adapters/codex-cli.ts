@@ -174,6 +174,20 @@ function workLog(item: AnyItem): string {
   }
 }
 
+/** Codex nests the raw API error JSON inside its message field — a chat
+ *  bubble reading `{"type":"error","status":400,…}` is how the first real
+ *  failure looked. Unwrap to the human sentence when one is in there. */
+function humanDetail(raw: string): string {
+  try {
+    const j = JSON.parse(raw) as { error?: { message?: string }; message?: string };
+    const inner = j.error?.message ?? j.message;
+    if (inner) return inner;
+  } catch {
+    /* already prose */
+  }
+  return raw;
+}
+
 /** Codex's own words for "you are not signed in", including the one a revoked
  *  refresh token produces — the most likely first failure on any machine. */
 function isAuthProblem(text: string): boolean {
@@ -184,13 +198,19 @@ function isAuthProblem(text: string): boolean {
 
 function errorEvent(detail: string): ProviderEvent {
   const auth = isAuthProblem(detail);
+  // An outdated CLI rejects the server's current default model with a 400
+  // every single turn — an agent on "its own default" then looks simply
+  // silent (seen live: a group member parked with no output). Name the fix.
+  const outdated = /newer version of codex|upgrade to the latest/i.test(detail);
   return {
     type: 'error',
     error: {
       kind: auth ? 'auth' : 'unknown',
       message: auth
         ? `Codex is not signed in: ${detail} Run \`codex login\` in a terminal to sign in with your ChatGPT plan.`
-        : `Codex: ${detail}`,
+        : outdated
+          ? `Codex is outdated: ${detail} Run \`codex update\` in a terminal, or pin this agent to a named model (e.g. gpt-5.5).`
+          : `Codex: ${detail}`,
     },
   };
 }
@@ -267,7 +287,8 @@ export function parseCodexCliLine(line: string, state: CodexCliParseState): Code
       // Deliberately NOT sawResult: a failed resume must fall through to the
       // fresh-thread retry, exactly as claude-code does with a dead --resume.
       const detail =
-        clip(parsed.error?.message ?? parsed.message ?? '', 300) || 'the CLI reported an error';
+        clip(humanDetail(parsed.error?.message ?? parsed.message ?? ''), 300) ||
+        'the CLI reported an error';
       if (detail !== state.lastError) {
         state.lastError = detail;
         out.events.push(errorEvent(detail));
