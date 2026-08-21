@@ -81,6 +81,15 @@ export function useVoice(appendToInput: (text: string) => void) {
   speakHereRef.current = useStore(
     (s) => s.config?.voice.tts === 'system' && window.vo.isRemote(),
   );
+  /**
+   * Read responses aloud (Settings -> Voice): the Live pipeline's speech
+   * half, opened without the microphone. Live keeps priority - when it is on,
+   * behaviour is exactly as before.
+   */
+  const speakRepliesRef = useRef(false);
+  speakRepliesRef.current = useStore(
+    (s) => !!s.config?.voice.speakReplies && s.config?.voice.tts !== 'none',
+  );
   /** How far into the current assistant message we've already spoken. */
   const spokenPosRef = useRef<{ id: number; chars: number }>({ id: 0, chars: 0 });
 
@@ -241,9 +250,9 @@ export function useVoice(appendToInput: (text: string) => void) {
     let prefetched: ReturnType<typeof window.vo.voiceSpeak> | null = null;
     try {
       while (speakQueueRef.current.length > 0) {
-        // The ref mutates across awaits — re-read it uncached each pass.
-        if ((liveStateRef.current as LiveState) === 'off') return;
-        setLiveState('speaking');
+        // The refs mutate across awaits — re-read them uncached each pass.
+        if ((liveStateRef.current as LiveState) === 'off' && !speakRepliesRef.current) return;
+        if ((liveStateRef.current as LiveState) !== 'off') setLiveState('speaking');
         const chunk = speakQueueRef.current.shift()!;
         if (speakHereRef.current) {
           await speakWithBrowserVoice(chunk);
@@ -255,7 +264,7 @@ export function useVoice(appendToInput: (text: string) => void) {
         if (canPrefetchRef.current && speakQueueRef.current.length > 0) {
           prefetched = window.vo.voiceSpeak(speakQueueRef.current[0]!);
         }
-        if ((liveStateRef.current as LiveState) === 'off') return;
+        if ((liveStateRef.current as LiveState) === 'off' && !speakRepliesRef.current) return;
         if (!result.ok) {
           setVoiceError(result.error);
           break;
@@ -304,9 +313,18 @@ export function useVoice(appendToInput: (text: string) => void) {
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
   useEffect(() => {
-    if (liveStateRef.current === 'off' || !activeSession) return;
+    if ((liveStateRef.current === 'off' && !speakRepliesRef.current) || !activeSession) return;
     const last = activeSession.messages[activeSession.messages.length - 1];
     if (!last) return;
+    // Without the mic there is no session boundary: opening the app or
+    // switching chats must not read out a reply that finished long ago. A
+    // reply qualifies only if we watched it stream (or it is streaming now).
+    if (liveStateRef.current === 'off' && !last.streaming && spokenPosRef.current.id !== last.id) {
+      if (last.role === 'assistant' && last.id > lastSpokenIdRef.current) {
+        lastSpokenIdRef.current = last.id;
+      }
+      return;
+    }
     if (last.role !== 'assistant') {
       // The user moved on — stop voicing the previous reply.
       speakQueueRef.current = [];

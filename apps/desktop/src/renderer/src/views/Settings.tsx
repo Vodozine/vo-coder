@@ -2406,6 +2406,25 @@ function VoiceSection() {
         )}
         {v.tts !== 'none' && <TestVoiceButton />}
       </div>
+      <div className="field-row">
+        <label>read aloud</label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            disabled={v.tts === 'none'}
+            checked={!!v.speakReplies && v.tts !== 'none'}
+            onChange={(e) => save({ speakReplies: e.target.checked })}
+          />
+          read responses out loud in the open chat (no Live mode needed)
+        </label>
+      </div>
+      {!!v.speakReplies && v.tts !== 'none' && (
+        <p className="hint">
+          Replies are spoken as they stream, with the voice above. Only the chat you are looking
+          at speaks, and only new replies — opening an old chat stays silent. Send a new message
+          to cut a long readout short.
+        </p>
+      )}
       {v.tts === 'system' && (
         <>
           <div className="field-row">

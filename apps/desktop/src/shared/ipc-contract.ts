@@ -305,6 +305,12 @@ export interface AppConfig {
 }
 
 export interface VoiceSettings {
+  /**
+   * Read every finished reply aloud in the open chat, without Live mode — the
+   * same voice, queue and chunking Live uses, minus the microphone. Optional:
+   * configs written before it existed read as off.
+   */
+  speakReplies?: boolean;
   stt: 'openai' | 'whisper-local';
   /** Model for the OpenAI-compatible transcription endpoint. */
   sttModel: string;
@@ -396,6 +402,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     compatVoice: '',
     elevenVoiceId: '',
     elevenModel: 'eleven_multilingual_v2',
+    speakReplies: false,
   },
   scaffoldDefaults: {},
   routeMode: 'auto',
