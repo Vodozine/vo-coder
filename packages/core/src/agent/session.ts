@@ -23,6 +23,13 @@ export type SessionEvent =
    * the UI's "queued" note can honestly become "seen".
    */
   | { type: 'inject_delivered'; injectionId: number; ok: boolean }
+  /**
+   * The user's own message, echoed to EVERY front end. Each front end draws
+   * its own bubble when IT sends — but a phone and a desktop can watch the
+   * same chat, and without this the words you said on one never appear on
+   * the other: the reply streams in answering something invisible.
+   */
+  | { type: 'user_echo'; text: string; attachments?: number }
   | { type: 'tool_started'; callId: string; name: string; args: unknown }
   | {
       type: 'tool_result';

@@ -1544,6 +1544,34 @@ function handleEvent(payload: ChatEventPayload, set: SetFn): void {
     case 'error':
       patchDraft((m) => ({ ...m, error: event.error.message }));
       break;
+    case 'user_echo':
+      // The user's message, echoed by the host so EVERY front end shows it —
+      // a chat driven from the phone must read as a conversation on the
+      // desktop too, not as replies to invisible questions. The front end
+      // that SENT already drew its bubble optimistically: if the last user
+      // message says the same thing, this echo is that bubble coming back.
+      patchSession((session) => {
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+          const m = session.messages[i]!;
+          if (m.role === 'assistant' && !m.streaming) break;
+          if (m.role === 'user') {
+            if ((m.text ?? '').trim() === event.text.trim()) return session;
+            break;
+          }
+        }
+        const suffix = event.attachments
+          ? `
+[${event.attachments} attachment${event.attachments === 1 ? '' : 's'}]`
+          : '';
+        return {
+          ...session,
+          messages: [
+            ...session.messages,
+            { id: nextId++, role: 'user', text: event.text + suffix, streaming: false },
+          ],
+        };
+      });
+      break;
     case 'inject_delivered':
       // The queued note's honest moment: the turn that just opened carries the
       // message (seen), or the queued send errored and dropped it (failed).

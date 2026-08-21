@@ -984,6 +984,26 @@ export class SessionManager {
     return this.lastBound.get(sessionId);
   }
 
+  /**
+   * Echo the user's message to every front end. The sender draws its own
+   * bubble; every OTHER surface watching this chat (desktop beside a phone,
+   * a second window) needs the host to say what was said, or it renders a
+   * reply to an invisible question.
+   */
+  private echoUser(sessionId: string, parts: UserPart[]): void {
+    const text = parts
+      .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
+    const attachments = parts.length - parts.filter((p) => p.type === 'text').length;
+    if (!text && !attachments) return;
+    this.deps.send(IPC.chatEvent, {
+      sessionId,
+      event: { type: 'user_echo', text, ...(attachments ? { attachments } : {}) },
+    });
+  }
+
   send(
     sessionId: string,
     parts: UserPart[],
@@ -996,7 +1016,10 @@ export class SessionManager {
       // (prompt, tools, model); the next send re-resolves from the meta.
       if (specOverride) session.spec = this.projectized(specOverride, sessionId);
       const result = session.send(parts, override);
-      if (result.ok) this.persist(sessionId);
+      if (result.ok) {
+        this.echoUser(sessionId, parts);
+        this.persist(sessionId);
+      }
       return result;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -1053,7 +1076,10 @@ export class SessionManager {
   inject(sessionId: string, parts: UserPart[]): SendResult {
     try {
       const result = this.sessionFor(sessionId).inject(parts);
-      if (result.ok) this.persist(sessionId);
+      if (result.ok) {
+        this.echoUser(sessionId, parts);
+        this.persist(sessionId);
+      }
       return result;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
