@@ -609,7 +609,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           createSession: (pid, agentId, title, groupId, dir) =>
             projects.createSession(pid, agentId, title, groupId, dir).id,
           send: (sid, body) => {
-            void sessions.send(sid, [{ type: 'text', text: body }]);
+            void sessions.send(sid, [{ type: 'text', text: body }], undefined, undefined, {
+              echo: true,
+            });
           },
           addGroup: (group) => {
             // Did the USER ask for this group? The Group project button sends
@@ -2344,7 +2346,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           rationale: `image request — no handoff; image_generate renders it with ${im?.model ?? 'the image model'}`,
         };
       }
-      const result = sessions.send(sessionId, parts, override, specOverride);
+      const result = sessions.send(sessionId, parts, override, specOverride, { echo: true });
       if (result.ok) {
         const meta = projects.meta(sessionId);
         const text = parts
@@ -2377,7 +2379,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const invalid = validateParts(parts);
     if (invalid) return { ok: false, error: invalid };
     observeMessage(sessionId, parts);
-    return sessions.inject(sessionId, parts);
+    return sessions.inject(sessionId, parts, { echo: true });
   });
   registerHandler(IPC.chatCancelInject, (_e, sessionId: string, injectionId: number) =>
     sessions.cancelInjection(sessionId, injectionId),
@@ -3024,14 +3026,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         'its folder is already attached. Read what is there before building anything new, and do ' +
         'NOT create a second project for it.]\n'
       : '';
-    void sessions.send(meta.id, [
+    void sessions.send(
+      meta.id,
+      [
       {
         type: 'text',
         text:
           `[Dispatched from Telegram — the user is away from the machine and cannot see this ` +
           `chat. Do the work here; they will read the result on their phone.]\n${where}\n${brief}`,
       },
-    ]);
+    ],
+      undefined,
+      undefined,
+      { echo: true },
+    );
     const missed = wanted && !target ? ` (no project named "${wanted}" — started a fresh one)` : '';
     return {
       content: target

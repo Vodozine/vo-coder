@@ -990,6 +990,12 @@ export class SessionManager {
    * a second window) needs the host to say what was said, or it renders a
    * reply to an invisible question.
    */
+  /**
+   * Echo only CONVERSATION. The group watchdog and drivers also speak through
+   * send() — steering prompts that were never meant to render; echoing them
+   * painted walls of machinery into the coordinator chat. So echoing is opt-in
+   * at the call site: front ends, dispatch briefs, boss-to-member messages.
+   */
   private echoUser(sessionId: string, parts: UserPart[]): void {
     const text = parts
       .filter((p): p is Extract<UserPart, { type: 'text' }> => p.type === 'text')
@@ -1009,6 +1015,7 @@ export class SessionManager {
     parts: UserPart[],
     override?: { provider?: string; model?: string },
     specOverride?: AgentSpec,
+    opts?: { echo?: boolean },
   ): SendResult {
     try {
       const session = this.sessionFor(sessionId);
@@ -1017,7 +1024,7 @@ export class SessionManager {
       if (specOverride) session.spec = this.projectized(specOverride, sessionId);
       const result = session.send(parts, override);
       if (result.ok) {
-        this.echoUser(sessionId, parts);
+        if (opts?.echo) this.echoUser(sessionId, parts);
         this.persist(sessionId);
       }
       return result;
@@ -1073,11 +1080,11 @@ export class SessionManager {
     }
   }
 
-  inject(sessionId: string, parts: UserPart[]): SendResult {
+  inject(sessionId: string, parts: UserPart[], opts?: { echo?: boolean }): SendResult {
     try {
       const result = this.sessionFor(sessionId).inject(parts);
       if (result.ok) {
-        this.echoUser(sessionId, parts);
+        if (opts?.echo) this.echoUser(sessionId, parts);
         this.persist(sessionId);
       }
       return result;
