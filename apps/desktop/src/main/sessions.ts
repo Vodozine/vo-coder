@@ -1015,7 +1015,7 @@ export class SessionManager {
     parts: UserPart[],
     override?: { provider?: string; model?: string },
     specOverride?: AgentSpec,
-    opts?: { echo?: boolean },
+    opts?: { echo?: boolean; echoParts?: UserPart[] },
   ): SendResult {
     try {
       const session = this.sessionFor(sessionId);
@@ -1024,7 +1024,10 @@ export class SessionManager {
       if (specOverride) session.spec = this.projectized(specOverride, sessionId);
       const result = session.send(parts, override);
       if (result.ok) {
-        if (opts?.echo) this.echoUser(sessionId, parts);
+        // echoParts: what the PERSON typed. The group-aware send appends
+        // steering notes to `parts` before this point; echoing those both
+        // exposed the machinery and broke the sender's duplicate check.
+        if (opts?.echo) this.echoUser(sessionId, opts.echoParts ?? parts);
         this.persist(sessionId);
       }
       return result;

@@ -1952,6 +1952,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     ) => {
       const invalid = validateParts(parts);
       if (invalid) return { ok: false, error: invalid };
+      // What the person actually typed — captured before the group-aware code
+      // below appends steering notes to `parts`. Only THIS is echoed.
+      const typedParts = [...parts];
       // noRoute is only ever the group-planning turn (the button) — arm the
       // follow-through watchdog for it.
       if (opts?.noRoute) pendingGroupPlans.set(sessionId, { retried: false });
@@ -2346,7 +2349,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           rationale: `image request — no handoff; image_generate renders it with ${im?.model ?? 'the image model'}`,
         };
       }
-      const result = sessions.send(sessionId, parts, override, specOverride, { echo: true });
+      const result = sessions.send(sessionId, parts, override, specOverride, { echo: true, echoParts: typedParts });
       if (result.ok) {
         const meta = projects.meta(sessionId);
         const text = parts
