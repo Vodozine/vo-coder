@@ -1,0 +1,63 @@
+# Phase-1 test build for macOS — the local gate, run on a Mac.
+#
+# `npm run dist:test` covers Windows locally, but electron-builder refuses to
+# build mac targets from Windows (app-builder-lib throws outright, and the DMG
+# target shells out to hdiutil). This workflow is the mac equivalent: same
+# electron-builder.yml, same ad-hoc signing, but `--publish never` and the DMGs
+# come back as workflow artifacts. Nothing is ever attached to a release here —
+# publishing stays tag-driven in release.yml.
+#
+# Trigger by hand from the Actions tab, or: gh workflow run mac-test-build.yml
+name: mac test build
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile workspace packages
+        run: npx tsc -b
+
+      - name: Bundle the infra MCP (ships as an extraResource)
+        run: npm run bundle -w packages/infra-mcp
+
+      - name: Build renderer + main
+        run: npm run build -w apps/desktop
+
+      # npm ci on the arm64 runner only installs the darwin-arm64 node-pty
+      # prebuild; the x64 DMG needs its sibling too. Unpack the tarball straight
+      # into node_modules — `npm install --cpu=x64` would re-reify the tree and
+      # prune the arm64 prebuild as "wrong platform".
+      - name: Add x64 node-pty prebuild for the Intel Mac build
+        run: |
+          # fs read, not require(): the package's exports map hides package.json
+          V=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/@lydell/node-pty/package.json','utf8')).optionalDependencies['@lydell/node-pty-darwin-x64']")
+          npm pack "@lydell/node-pty-darwin-x64@$V"
+          mkdir -p node_modules/@lydell/node-pty-darwin-x64
+          tar -xzf lydell-node-pty-darwin-x64-*.tgz -C node_modules/@lydell/node-pty-darwin-x64 --strip-components=1
+          rm lydell-node-pty-darwin-x64-*.tgz
+
+      - name: Package the DMGs (no publish)
+        working-directory: apps/desktop
+        run: npx electron-builder --mac --publish never
+
+      # Only the DMGs: the release dir also holds the unpacked .app trees, which
+      # are the same bits again at several hundred MB.
+      - name: Upload the DMGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: apps/desktop/release/*.dmg
+          compression-level: 0
+          if-no-files-found: error
