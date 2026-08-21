@@ -254,20 +254,27 @@ export class CodexCliProvider implements ChatProvider {
 /**
  * The npm shims' real payload — the shims themselves must never be executed
  * (.cmd would drag in cmd.exe; the extensionless one is a bash script).
- * @openai/codex ships a native binary per platform under vendor/<triple>/
+ * @openai/codex ships the native binary in a platform sub-package
+ * (node_modules/@openai/codex-<platform>-<arch>/vendor/<triple>/bin/codex),
  * plus a bin/codex.js launcher; the native one is preferred, the launcher is
  * a plain Node script that runs fine on Electron-as-Node.
  */
 function npmCodexBinary(npmDir: string): ResolvedBinary | null {
   const pkg = join(npmDir, 'node_modules', '@openai', 'codex');
-  const vendor = join(pkg, 'vendor');
+  const vendor = join(
+    pkg,
+    'node_modules',
+    '@openai',
+    `codex-${process.platform}-${process.arch}`,
+    'vendor',
+  );
   if (existsSync(vendor)) {
     try {
       for (const triple of readdirSync(vendor)) {
         const native = join(
           vendor,
           triple,
-          'codex',
+          'bin',
           process.platform === 'win32' ? 'codex.exe' : 'codex',
         );
         if (existsSync(native)) return { path: native, kind: 'exe' };
@@ -295,6 +302,16 @@ function probeBinary(override: string): ResolvedBinary | null {
 
   const home = homedir();
   if (process.platform === 'win32') {
+    // npm first: it is the install the user refreshes (`npm install -g
+    // @openai/codex`), while the app-managed copy under OpenAI\Codex can be a
+    // stale orphan whose own `codex update` cannot even tell how it was
+    // installed — seen live, a 19-versions-old alpha outranking a fresh npm.
+    const npm = npmCodexBinary(
+      join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'npm'),
+    );
+    if (npm) return npm;
+    const local = classify(join(home, '.local', 'bin', 'codex.exe'));
+    if (local) return local;
     // The Codex desktop/installer build — where `codex app` puts it.
     const installer = join(
       process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'),
@@ -305,13 +322,9 @@ function probeBinary(override: string): ResolvedBinary | null {
     );
     const hit = classify(installer);
     if (hit) return hit;
-    const local = classify(join(home, '.local', 'bin', 'codex.exe'));
-    if (local) return local;
-    const npm = npmCodexBinary(
-      join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'npm'),
-    );
-    if (npm) return npm;
   } else {
+    const npm = npmCodexBinary('/usr/local/lib');
+    if (npm) return npm;
     for (const candidate of [
       join(home, '.local', 'bin', 'codex'),
       '/usr/local/bin/codex',
