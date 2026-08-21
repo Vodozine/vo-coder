@@ -309,29 +309,51 @@ export function useVoice(appendToInput: (text: string) => void) {
 
   // Speak WHILE the model streams: each completed sentence is queued the
   // moment it exists instead of waiting for the whole reply.
+  const activeSessionId = useStore((s) => s.activeSessionId);
   const activeSession = useStore((s) =>
     s.activeSessionId ? s.sessions[s.activeSessionId] : undefined,
   );
+  /**
+   * Read-aloud's notion of "new": everything at or below the baseline existed
+   * before we started watching this chat and is history, everything above it
+   * happened in front of us and gets spoken. The previous rule ("only if we
+   * watched it stream") silently skipped any reply fast enough to arrive
+   * between two renders — short answers never spoke.
+   */
+  const watchRef = useRef<{ sessionId: string; baseline: number } | null>(null);
   useEffect(() => {
-    if ((liveStateRef.current === 'off' && !speakRepliesRef.current) || !activeSession) return;
-    const last = activeSession.messages[activeSession.messages.length - 1];
-    if (!last) return;
-    // Without the mic there is no session boundary: opening the app or
-    // switching chats must not read out a reply that finished long ago. A
-    // reply qualifies only if we watched it stream (or it is streaming now).
-    if (liveStateRef.current === 'off' && !last.streaming && spokenPosRef.current.id !== last.id) {
-      if (last.role === 'assistant' && last.id > lastSpokenIdRef.current) {
-        lastSpokenIdRef.current = last.id;
-      }
+    const live = liveStateRef.current !== 'off';
+    if (!live && !speakRepliesRef.current) {
+      watchRef.current = null;
       return;
     }
+    if (!activeSession || !activeSessionId) return;
+    const last = activeSession.messages[activeSession.messages.length - 1];
+    // Entering a chat (or turning the toggle on) draws the history line at its
+    // current tail — and silences whatever an earlier chat was still reading.
+    if (!live) {
+      if (watchRef.current?.sessionId !== activeSessionId) {
+        watchRef.current = { sessionId: activeSessionId, baseline: last?.id ?? 0 };
+        speakQueueRef.current = [];
+        return;
+      }
+    }
+    if (!last) return;
     if (last.role !== 'assistant') {
       // The user moved on — stop voicing the previous reply.
       speakQueueRef.current = [];
       return;
     }
+    if (!live && last.id <= (watchRef.current?.baseline ?? 0)) return;
     if (last.id <= lastSpokenIdRef.current) return;
-    if (spokenPosRef.current.id !== last.id) spokenPosRef.current = { id: last.id, chars: 0 };
+    if (spokenPosRef.current.id !== last.id) {
+      // A NEW reply while older chunks still wait: speech has fallen behind
+      // the conversation. Reading a backlog of stale replies helps nobody —
+      // drop the queue and pick up the newest one (the sentence already
+      // playing finishes; that is the whole overlap).
+      speakQueueRef.current = [];
+      spokenPosRef.current = { id: last.id, chars: 0 };
+    }
 
     const text = (last.segments ?? [])
       .filter((seg) => seg.kind === 'text')
@@ -351,7 +373,7 @@ export function useVoice(appendToInput: (text: string) => void) {
       speakQueueRef.current.push(chunk);
       void pumpSpeech();
     }
-  }, [activeSession, pumpSpeech]);
+  }, [activeSession, activeSessionId, pumpSpeech]);
 
   // Teardown on unmount.
   useEffect(
