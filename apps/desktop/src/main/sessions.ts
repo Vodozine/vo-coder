@@ -288,7 +288,12 @@ export class SessionManager {
     // refused him downstream, but only after the plan had already counted on
     // him. He is not advertised at all now; hiring covers the missing hands.
     const cfg = this.deps.config.get();
-    const agents = cfg.agents.filter((a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID);
+    // Personal agents are hidden the same way and for the same reason: a name
+    // on this list is a name the coordinator plans around, and the seat guards
+    // refusing it downstream would come after the plan already counted on it.
+    const agents = cfg.agents.filter(
+      (a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID && a.personal !== true,
+    );
     const hireRoom = Math.max(0, cfg.autoAgents.max - agents.filter((a) => a.auto).length);
     const hiring = hireRoom
       ? '\n\nYou are never short of people: group_add with any name HIRES a new helper when the ' +

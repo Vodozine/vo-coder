@@ -52,6 +52,7 @@ function AgentForm({
   // Existing agents keep what they have (undefined reads as on); a NEW agent
   // starts as hired help — given a part, not the run of the project.
   const [memory, setMemory] = useState(initial ? initial.memory !== false : false);
+  const [personal, setPersonal] = useState(initial?.personal === true);
   const [thinkingVisibility, setThinkingVisibility] = useState(
     initial?.thinkingVisibility ?? 'visible',
   );
@@ -192,6 +193,16 @@ function AgentForm({
           knows the project between jobs
         </label>
       </div>
+      <div className="field-row wide">
+        <label>personal</label>
+        <label
+          className="checkbox"
+          title="On: this agent is yours alone. Vodo never seats it in a group, never assigns it a part, never routes a conversation to it, and never sees it on his roster — asking for it by name is refused out loud. You still talk to it in its own chat, and everything you do with it yourself still works."
+        >
+          <input type="checkbox" checked={personal} onChange={(e) => setPersonal(e.target.checked)} />
+          off limits to Vodo — never drafted, never routed to
+        </label>
+      </div>
       <div className="field-row">
         <label>thinking</label>
         <label className="checkbox">
@@ -237,6 +248,9 @@ function AgentForm({
               // Written unconditionally: undefined means "carries memory" here,
               // so a new agent has to persist an explicit false to be hired help.
               memory,
+              // Only ever an explicit true — absent means ordinary workforce,
+              // so agents from before this flag keep working as they did.
+              ...(personal ? { personal: true } : {}),
               thinkingVisibility,
               injectionMode,
               routingHints: routingHints.trim() || undefined,
@@ -315,6 +329,13 @@ export function Agents() {
   const setMemory = (id: string, memory: boolean) => {
     void saveAgents(config.agents.map((a) => (a.id === id ? { ...a, memory } : a)));
   };
+  const setPersonal = (id: string, personal: boolean) => {
+    void saveAgents(
+      config.agents.map((a) =>
+        a.id === id ? { ...a, ...(personal ? { personal: true } : { personal: undefined }) } : a,
+      ),
+    );
+  };
 
   // Mr Homelab is configured in his own tab, next to his name — he owns a whole
   // view, so listing him here as one card among the specialists put the same
@@ -340,11 +361,13 @@ export function Agents() {
           {listed.map((a) => {
             const on = a.enabled !== false;
             const remembers = a.memory !== false;
+            const kept = a.personal === true;
             return (
               <div key={a.id} className={`agent-row${on ? '' : ' agent-row--off'}`}>
                 <div className="agent-info">
                   <strong>
                     {a.name}
+                    {kept && <span className="meta"> — personal, off limits to Vodo</span>}
                     {!on && <span className="meta"> — off duty</span>}
                   </strong>
                   <span className="meta">
@@ -380,6 +403,17 @@ export function Agents() {
                       onClick={() => setMemory(a.id, !remembers)}
                     >
                       {remembers ? 'Memory' : 'No memory'}
+                    </button>
+                    <button
+                      className={kept ? '' : 'ghost'}
+                      title={
+                        kept
+                          ? 'Personal: Vodo never drafts this agent into groups, never routes to it, never sees it on his roster. Click to return it to the workforce.'
+                          : 'Make this agent yours alone — off limits to Vodo: no group seats, no routing, not on his roster. Your own chats with it are untouched.'
+                      }
+                      onClick={() => setPersonal(a.id, !kept)}
+                    >
+                      {kept ? 'Personal' : 'Draftable'}
                     </button>
                   </div>
                   {/* What you DO with it. */}

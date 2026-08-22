@@ -240,4 +240,21 @@ export interface AgentSpec {
    * task. Marked so the UI can badge them and the pool can be capped/reused.
    */
   auto?: boolean;
+  /**
+   * Personal: off limits to Vodo, absolutely.
+   *
+   * A personal agent exists for the user to talk to — a companion, an
+   * assistant, a diary with a voice — and is never part of the workforce.
+   * The machinery keeps its hands off on BOTH ends: it is stripped from every
+   * roster Vodo is briefed with (the Mr Homelab lesson — a name on the roster
+   * is a name that gets seated), and refused at every point where an agent is
+   * resolved for work: group seats, part assignment, and message routing.
+   * Asking for one by name in a group is refused out loud, not quietly
+   * substituted.
+   *
+   * The user's own acts still work: opening its chat, binding it to a session,
+   * giving it a mission from the Missions panel. Off limits means off limits
+   * to VODO, not to the person it belongs to.
+   */
+  personal?: boolean;
 }

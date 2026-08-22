@@ -17,6 +17,15 @@ export const MAX_GROUP_MEMBERS = 8;
  * a group needs another pair of hands it HIRES one (see auto-agents) — an
  * unlimited, disposable resource — instead of borrowing the specialist.
  */
+/** The refusal for a personal agent, by name, so the coordinator re-plans. */
+export function personalNotForGroups(name: string): string {
+  return (
+    `${name} is the user's PERSONAL agent — off limits to group work, missions and delegation, ` +
+    'permanently. Do not wait for them and do not try again: seat someone else, or group_add ' +
+    'any new name to hire a helper for that part.'
+  );
+}
+
 export const HOMELAB_NOT_FOR_GROUPS =
   `${HOMELAB_AGENT_NAME} does not join group projects — he has his own tab and his own estate ` +
   'memory. Hire a helper instead (group_add with any name; one is created if the roster is ' +
@@ -402,7 +411,7 @@ export async function executeGroupTool(
     // group's answer to "we need another pair of hands" is to HIRE one.
     const roster = deps
       .agents()
-      .filter((ag) => ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID);
+      .filter((ag) => ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID && ag.personal !== true);
     // An agent on a mission is off the roster for the duration — one model on
     // one GPU, already working. Named outright, it is refused by NAME and by
     // reason: the exact-name case skips the roster lookup so a partial match on
@@ -418,6 +427,21 @@ export async function executeGroupTool(
     // stranger under the coordinator's nose.
     if (!agent && norm(agentName).includes('homelab')) {
       return { content: HOMELAB_NOT_FOR_GROUPS, isError: true };
+    }
+    // Same rule as Mr Homelab, for any agent the user marked personal: asked
+    // for by NAME they are refused OUT LOUD. They are already off the roster,
+    // so without this the request would fall through to hiring and quietly
+    // seat a pioneer-named stranger while the coordinator believes it seated
+    // the user's own assistant.
+    if (!agent) {
+      const kept = deps
+        .agents()
+        .find(
+          (ag) =>
+            ag.personal === true &&
+            (norm(ag.name) === norm(agentName) || norm(ag.name).includes(norm(agentName))),
+        );
+      if (kept) return { content: personalNotForGroups(kept.name), isError: true };
     }
     let hiredNote = '';
     if (!agent) {
@@ -452,6 +476,12 @@ export async function executeGroupTool(
         content: `${agent.name} is already in the group — reach them with group_send.`,
         isError: true,
       };
+    }
+    // The last door before a chat is created for them — the roster filter and
+    // the by-name refusal above should make this unreachable, and the seat is
+    // still not taken on trust.
+    if (agent.personal === true) {
+      return { content: personalNotForGroups(agent.name), isError: true };
     }
     const member: GroupMember = {
       sessionId: deps.createSession(group.projectId, agent.id, task.slice(0, 48), group.id, dir),
@@ -674,7 +704,7 @@ export async function startGroup(
   // HIRES rather than borrowing the user's specialist.
   const roster = deps
     .agents()
-    .filter((a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID);
+    .filter((a) => a.enabled !== false && a.id !== HOMELAB_AGENT_ID && a.personal !== true);
   if (!goal.trim()) return { ok: false, error: 'Give the group a goal.' };
   // Too few agents for the work is not a dead end and not a reason to double up:
   // hire until there is one pair of hands per part (up to the seat limit and the
@@ -730,17 +760,31 @@ export async function startGroup(
   // the coordinator asked for a specific model and must be told it got another.
   const onMission = deps.onMission?.() ?? [];
   const held: string[] = [];
-  if (onMission.length) {
+  {
     const lower = (s: string) => s.trim().toLowerCase();
     for (const p of parts) {
       if (!p.agent) continue;
       const h = onMission.find((x) => lower(x.name) === lower(p.agent!));
-      if (!h) continue;
-      const took = plan.find((q) => q.task === p.task)?.agent.name;
-      held.push(
-        `${h.name} is on the mission "${h.mission}" — their part ` +
-          (took ? `went to ${took}` : 'is queued'),
-      );
+      if (h) {
+        const took = plan.find((q) => q.task === p.task)?.agent.name;
+        held.push(
+          `${h.name} is on the mission "${h.mission}" — their part ` +
+            (took ? `went to ${took}` : 'is queued'),
+        );
+        continue;
+      }
+      // A part addressed to a personal agent lands elsewhere for a different
+      // reason, and the coordinator is told WHICH reason — "went to someone
+      // else" without the why reads as a routing bug and gets retried at the
+      // same locked door.
+      const kept = deps.agents().find((x) => x.personal === true && lower(x.name) === lower(p.agent!));
+      if (kept) {
+        const took = plan.find((q) => q.task === p.task)?.agent.name;
+        held.push(
+          `${kept.name} is the user's personal agent — off limits to groups, permanently. ` +
+            `Their part ${took ? `went to ${took}` : 'is queued'}`,
+        );
+      }
     }
   }
   // A one-member "group" is a normal chat with extra ceremony — and it hides
@@ -754,6 +798,12 @@ export async function startGroup(
         'parts yourself (e.g. "research the population data AND draft the article structure").',
     };
   }
+
+  // The last door. The pool is filtered and names are refused above, so no
+  // plan should reach here holding a personal agent — but this is the line
+  // that actually creates their chat, so it does not take that on trust.
+  const leaked = plan.find((p) => p.agent.personal === true);
+  if (leaked) return { ok: false, error: personalNotForGroups(leaked.agent.name) };
 
   const groupId = `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const members: GroupMember[] = plan.map((p) => ({

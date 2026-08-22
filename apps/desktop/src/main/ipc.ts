@@ -2058,6 +2058,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
                 (ag) =>
                   ag.enabled !== false &&
                   ag.id !== HOMELAB_AGENT_ID &&
+                  ag.personal !== true &&
                   !onMissionNow.has(ag.id) &&
                   !liveGroupHere.members.some((m) => m.agentId === ag.id),
               )
@@ -2094,7 +2095,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           .get()
           .agents.filter(
             (ag) =>
-              ag.enabled !== false && ag.id !== HOMELAB_AGENT_ID && !onMissionNow.has(ag.id),
+              ag.enabled !== false &&
+              ag.id !== HOMELAB_AGENT_ID &&
+              ag.personal !== true &&
+              !onMissionNow.has(ag.id),
           )
           .map((ag) => ag.name);
         if (roster.length >= 2) {
@@ -2203,9 +2207,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             boss,
             ...config
               .get()
+              // Personal agents are not in the pool either: routing is Vodo
+              // choosing who answers, and a personal agent is never his to
+              // choose. Their own chat is their front door.
               .agents.filter(
                 (ag) =>
-                  ag.id !== HOMELAB_AGENT_ID && ag.enabled !== false && !onMission.has(ag.id),
+                  ag.id !== HOMELAB_AGENT_ID &&
+                  ag.enabled !== false &&
+                  ag.personal !== true &&
+                  !onMission.has(ag.id),
               ),
           ];
           const needsVision =
