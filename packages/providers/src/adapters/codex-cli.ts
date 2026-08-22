@@ -35,8 +35,10 @@ export const CODEX_CLI_DEFAULT_MODEL = 'default';
 
 /**
  * The slugs the CLI's own model catalogue offers a ChatGPT plan (read off
- * codex 0.130's refresh response). Deliberately short: a stale id here becomes
- * a failed turn, and `default` always works because the CLI resolves it.
+ * codex 0.130's refresh response). The FALLBACK ONLY: the live list comes
+ * from the CLI's own models cache (see codexModelsFromCache) whenever that
+ * file is readable. Deliberately short: a stale id here becomes a failed
+ * turn, and `default` always works because the CLI resolves it.
  */
 export function codexCliSeedModels(): ModelInfo[] {
   const entry = (id: string, displayName: string): ModelInfo => ({
@@ -50,6 +52,53 @@ export function codexCliSeedModels(): ModelInfo[] {
     entry('gpt-5.5', 'Codex — GPT-5.5'),
     entry('gpt-5.4-mini', 'Codex — GPT-5.4 mini'),
   ];
+}
+
+/**
+ * The CLI's own model catalogue, from ~/.codex/models_cache.json — written by
+ * codex itself on every refresh, so it names exactly what the user's plan and
+ * CLI version can run (there is no `codex models` command to ask). Hidden
+ * entries (visibility ≠ "list": internal review models, reserves) stay out of
+ * the picker. Returns null when the JSON is not that file's shape — the
+ * caller then falls back to the static seeds.
+ */
+export function codexModelsFromCache(json: string): ModelInfo[] | null {
+  let parsed: {
+    models?: Array<{
+      slug?: string;
+      display_name?: string;
+      visibility?: string;
+      context_window?: number;
+      input_modalities?: string[];
+    }>;
+  };
+  try {
+    parsed = JSON.parse(json) as typeof parsed;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed?.models)) return null;
+  const out: ModelInfo[] = [
+    {
+      id: CODEX_CLI_DEFAULT_MODEL,
+      provider: CODEX_CLI_ID,
+      displayName: 'Codex (its own default)',
+      supportsTools: true,
+    },
+  ];
+  for (const m of parsed.models) {
+    if (!m?.slug || m.visibility !== 'list') continue;
+    out.push({
+      id: m.slug,
+      provider: CODEX_CLI_ID,
+      displayName: `Codex — ${m.display_name ?? m.slug}`,
+      supportsTools: true,
+      ...(m.context_window ? { contextLength: m.context_window } : {}),
+      ...(m.input_modalities?.includes('image') ? { supportsVision: true } : {}),
+    });
+  }
+  // A cache with no listable models is no catalogue at all.
+  return out.length > 1 ? out : null;
 }
 
 /**

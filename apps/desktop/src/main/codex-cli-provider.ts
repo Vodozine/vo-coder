@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   codexCliPrompt,
   codexCliSandbox,
   codexCliSeedModels,
+  codexModelsFromCache,
   latestUserText,
   newCodexCliParseState,
   parseCodexCliLine,
@@ -95,7 +96,17 @@ export class CodexCliProvider implements ChatProvider {
 
   constructor(private cfg: () => AppConfig) {}
 
+  /** The CLI's own on-disk catalogue when it has one (it names the models the
+   *  user's plan actually serves — the 5.6 family arrived there first), the
+   *  static seeds otherwise. */
   listModels(): Promise<ModelInfo[]> {
+    try {
+      const cache = readFileSync(join(homedir(), '.codex', 'models_cache.json'), 'utf8');
+      const live = codexModelsFromCache(cache);
+      if (live) return Promise.resolve(live);
+    } catch {
+      /* no cache yet — the CLI has simply never run here */
+    }
     return Promise.resolve(codexCliSeedModels());
   }
 

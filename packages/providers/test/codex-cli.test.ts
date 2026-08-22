@@ -6,6 +6,7 @@ import {
   codexCliPrompt,
   codexCliSandbox,
   codexCliSeedModels,
+  codexModelsFromCache,
   newCodexCliParseState,
   parseCodexCliLine,
 } from '../src/adapters/codex-cli.ts';
@@ -212,5 +213,37 @@ describe('seed models', () => {
       expect(m.provider).toBe('codex-cli');
       expect(m.supportsTools).toBe(true);
     }
+  });
+});
+
+describe('models cache', () => {
+  const cache = JSON.stringify({
+    fetched_at: 1,
+    models: [
+      {
+        slug: 'gpt-5.6-sol',
+        display_name: 'GPT-5.6-Sol',
+        visibility: 'list',
+        context_window: 272000,
+        input_modalities: ['text', 'image'],
+      },
+      { slug: 'gpt-reserve', display_name: 'GPT-Reserve', visibility: 'hide' },
+      { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' },
+    ],
+  });
+
+  it("reads the CLI's catalogue: listed models plus the default entry, hidden ones out", () => {
+    const models = codexModelsFromCache(cache)!;
+    expect(models.map((m) => m.id)).toEqual(['default', 'gpt-5.6-sol', 'gpt-5.5']);
+    const sol = models.find((m) => m.id === 'gpt-5.6-sol')!;
+    expect(sol.contextLength).toBe(272000);
+    expect(sol.supportsVision).toBe(true);
+    expect(sol.displayName).toContain('GPT-5.6-Sol');
+  });
+
+  it('rejects non-catalogue JSON so the caller falls back to seeds', () => {
+    expect(codexModelsFromCache('not json')).toBeNull();
+    expect(codexModelsFromCache('{"models": []}')).toBeNull();
+    expect(codexModelsFromCache('{"something": "else"}')).toBeNull();
   });
 });

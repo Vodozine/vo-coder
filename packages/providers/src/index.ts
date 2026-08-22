@@ -38,6 +38,7 @@ export {
   codexCliPrompt,
   codexCliSandbox,
   codexCliSeedModels,
+  codexModelsFromCache,
   newCodexCliParseState,
   parseCodexCliLine,
 } from './adapters/codex-cli.js';
