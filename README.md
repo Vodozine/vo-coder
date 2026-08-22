@@ -83,7 +83,7 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 **📐 A rulebook per folder** — when a folder quietly becomes a real project, the agent hits the brakes once and talks it through, one question at a time. What you agree on lands in `VO-CODER.md`: `## Rules` binds every agent in that folder, `## Map` keeps the next session oriented. Say no and it never asks again.
 
-**👥 Group projects** — Vodo splits a goal across your specialists and runs them side by side, 4, 8 or 16 panes to a page. He can see his own team — each agent's model, how strong it is, which MCP servers it holds — so the hard part goes to someone who can actually do it. A group isn't done until the deliverable has run. Flip on **Worktrees** and every agent gets its own git branch instead of one shared checkout.
+**👥 Group projects** — Vodo splits a goal across your specialists and runs them side by side, 4, 8 or 16 panes to a page. He can see his own team — each agent's model, how strong it is, which MCP servers it holds — so the hard part goes to someone who can actually do it. A group isn't done until the deliverable has run. Flip on **Worktrees** and every agent gets its own git branch instead of one shared checkout. An agent is a template, not a body: every seat is its own instance, so the same specialist can work in several projects at once — and if you run it on one small GPU, tick **single instance** and it goes busy everywhere while it works. Out of hands? Vodo hires one, named after a computing pioneer.
 
 **🔀 Pipelines** — draw a workflow once and keep it: a Foreman, Agent steps and Reviewer gates wired with pass/fail branches. Name it, Save, run it again.
 
@@ -93,13 +93,17 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 **📱 Telegram remote** — pair your own bot and talk to Vodo from anywhere: launch missions, get notifications, approve tool calls with inline buttons. Start a project from your phone and find it running when you get home.
 
+**📨 Gmail, GitHub and the rest** — sign in and your agents get real Gmail tools: search, read, send. Remote MCP servers connect with a proper **Sign in with GitHub** instead of a pasted token, and the whole official registry is searchable from Settings → Connections.
+
+**🖧 Run it on another machine** — put Vodo on the box with the GPUs and drive him from your laptop: the front end talks to the backend over an encrypted, paired link. File dialogs open where *you* are, sign-ins use *your* browser, and the preview follows you.
+
 **🧠 Memory** — every conversation kept verbatim in local SQLite and distilled into a map of decisions, files, tasks and facts. Read it as editable **Notes** cards or a **3D Graph** you fly through. Turn on **Smart context** and a chat that replayed 290k tokens a turn drops to a few thousand, with the full record one search away.
 
 **👁 Eyes for any model** — `look_at_image` runs a file through your vision model, so even a text-only coder can see a screenshot. Camera RAW included.
 
-**🎨 Image generation** — renders inline and lands in the project's `designs/` folder. Grok Imagine, OpenRouter or OpenAI.
+**🎨 Image and video generation** — renders inline and lands in the project's `designs/` folder. Grok Imagine, Gemini, OpenRouter or OpenAI — plus any OpenAI-images endpoint, your own local Stable Diffusion, or the fal.ai and Replicate model libraries. Video too: Veo on your Gemini key, or hundreds of models through the same two aggregators.
 
-**🎙 Voice** — push-to-talk and hands-free live chat, offline whisper.cpp for speech-to-text, and speech through your system voice, OpenAI, ElevenLabs or any compatible endpoint — spoken sentence by sentence while the model is still writing.
+**🎙 Voice** — push-to-talk and hands-free live chat, offline whisper.cpp for speech-to-text, and speech through your system voice, OpenAI, ElevenLabs or any compatible endpoint — spoken sentence by sentence while the model is still writing. Or just tick **read responses aloud** and every reply is spoken in the chat you are watching, no microphone involved.
 
 **👀 Live code view** — project tree with change states, per-line diffs, git-aware review. Select any code and ask about it right where it sits.
 
@@ -115,11 +119,14 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 ## What's new
 
-**1.2.33** — **A 3D memory graph, and pipelines you draw yourself.** Memory has a **Graph** view beside Notes:
-the whole project as linked nodes you rotate, search and fly into — coloured by type, sized by how connected
-they are, click one to read it. **Pipelines** is a new tab for drawing a multi-agent workflow once and saving
-it: a Foreman, Agent steps and Reviewer gates wired with pass/fail branches. Settings is one screen of cards,
-and Gemini joins as a provider for chat and image generation.
+**1.4.0** — **Every screen tells the same story.** A chat driven from the phone now shows what you said on
+the desktop too, and the other way round — one conversation across every front end. Voice gained
+**read responses aloud** without Live mode. Agents became **templates**: every seat, chat and mission is its
+own instance, so the same specialist serves many projects at once, with a **single instance** switch for a
+small local GPU — and a new job always starts a new board instead of re-tasking a finished one. Mark an
+agent **personal** and Vodo never drafts it. Plus Gmail tools, Sign in with GitHub for remote MCP servers,
+image and video generation through custom endpoints, local Stable Diffusion, fal.ai and Replicate, and
+remote mode: run the backend on one machine and drive it from another.
 
 Older versions and full notes: **[Releases](https://github.com/Vodozine/vo-coder/releases)**.
 
