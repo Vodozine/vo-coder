@@ -234,7 +234,10 @@ interface AppState {
   openHomelab(): Promise<void>;
   /** The chat that was active before the Homelab tab took over. */
   chatSessionBeforeHomelab: string | null;
-  openSession(sessionId: string): Promise<void>;
+  /** keepView: restore the session binding WITHOUT navigating — for machinery
+   *  (leaving the Homelab tab) that must never override where the user just
+   *  clicked to. */
+  openSession(sessionId: string, opts?: { keepView?: boolean }): Promise<void>;
   /** Summarize-and-swap the active conversation; returns an error or null. */
   compactSession(): Promise<string | null>;
   newSession(projectId?: string, agentId?: string): Promise<void>;
@@ -552,7 +555,7 @@ export const useStore = create<AppState>((set, get) => ({
     } else if (prev === 'homelab' && view !== 'homelab') {
       const back = get().chatSessionBeforeHomelab;
       set({ chatSessionBeforeHomelab: null });
-      if (back) void get().openSession(back);
+      if (back) void get().openSession(back, { keepView: true });
     }
   },
 
@@ -604,12 +607,12 @@ export const useStore = create<AppState>((set, get) => ({
     return null;
   },
 
-  async openSession(sessionId) {
+  async openSession(sessionId, opts) {
     const meta = get().sessionMetas.find((m) => m.id === sessionId);
     // Opening an ordinary chat while standing in the Homelab tab means the
     // user wants Chat — otherwise his tab would quietly show someone else's
     // conversation with his name on the header.
-    if (get().view === 'homelab' && !isHomelabSessionMeta(meta)) {
+    if (!opts?.keepView && get().view === 'homelab' && !isHomelabSessionMeta(meta)) {
       set({ view: 'chat', chatSessionBeforeHomelab: null });
     }
     if (!get().sessions[sessionId]) {
@@ -631,7 +634,10 @@ export const useStore = create<AppState>((set, get) => ({
       // Opening a chat normally means "show me Chat" — but opening MR HOMELAB'S
       // chat must stay on his tab, or pressing his nav item lit up Chat instead
       // (his own tab opening his own conversation, then jumping away from it).
-      view: isHomelabSessionMeta(meta) ? 'homelab' : 'chat',
+      // keepView callers are restoring state, not navigating: leaving the
+      // Homelab tab for Settings used to land on Chat because THIS line fired
+      // after the parked chat finished loading and stomped the click.
+      ...(opts?.keepView ? {} : { view: isHomelabSessionMeta(meta) ? 'homelab' : 'chat' }),
     });
   },
 
