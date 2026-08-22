@@ -73,7 +73,7 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 ## What's inside
 <a id="whats-inside"></a>
 
-**🤖 Eleven providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), Z.ai, NVIDIA NIM, Ollama, LM Studio, llama.cpp, FLM (NPU) and Claude Code. Grok works on subscription sign-in, no key needed. Flip any provider — or any agent — On/Off without deleting the setup.
+**🤖 Twelve providers, one chat** — Anthropic, OpenAI, OpenRouter, xAI (Grok), Z.ai, Gemini, NVIDIA NIM, Ollama, LM Studio, llama.cpp, FLM (NPU), Claude Code and the Codex CLI. Grok works on subscription sign-in, no key needed. Flip any provider — or any agent — On/Off without deleting the setup.
 
 **🧭 Smart routing** — four modes: *Auto* (cheapest adequate model), *My agents first*, *My agents only*, *Off*. Routing weighs capability, not just price, and reads open models by real parameter count so a 70B isn't filed next to a 4B. Failing endpoints back off, retry, then get benched.
 
@@ -87,7 +87,7 @@ Every feature, explained in detail, on the **[website ↗](https://vodozine.gith
 
 **🔀 Pipelines** — draw a workflow once and keep it: a Foreman, Agent steps and Reviewer gates wired with pass/fail branches. Name it, Save, run it again.
 
-**🤝 Hire the coding agent you already have** — the installed Claude Code CLI is a provider. One chat is one CLI session, so it remembers across restarts, its edits stream into the live code view, and missions and groups can seat it. Its own login, nothing billed through Vo-Coder.
+**🤝 Hire the coding agents you already have** — the installed Claude Code and Codex CLIs are providers, so a ChatGPT or Claude plan you already pay for becomes a hireable agent. One chat is one CLI session, so it remembers across restarts, its edits stream into the live code view, and missions and groups can seat it. Their own logins, nothing billed through Vo-Coder.
 
 **🚀 Missions** — background objectives, one-shot or on a schedule, running alongside your chats. Just ask: *"check my backups every hour."*
 
@@ -127,6 +127,9 @@ small local GPU — and a new job always starts a new board instead of re-taskin
 agent **personal** and Vodo never drafts it. Plus Gmail tools, Sign in with GitHub for remote MCP servers,
 image and video generation through custom endpoints, local Stable Diffusion, fal.ai and Replicate, and
 remote mode: run the backend on one machine and drive it from another.
+
+**1.4.1** — The **Codex CLI** joins Claude Code as a hireable agent: your ChatGPT plan's login stays
+OpenAI's, and the model picker reads Codex's own catalogue rather than a hardcoded list.
 
 Older versions and full notes: **[Releases](https://github.com/Vodozine/vo-coder/releases)**.
 
