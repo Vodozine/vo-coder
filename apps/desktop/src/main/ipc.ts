@@ -3182,7 +3182,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ],
       properties: ['openFile'],
     });
-    refocusMain();
+    // (Pro's refocusMain lives with the preview-overlay machinery this edition
+    //  does not carry; the dialog returns focus on its own here.)
     return picked.canceled || !picked.filePaths[0] ? {} : { path: picked.filePaths[0] };
   });
   registerHandler(IPC.lifeScan, (_e, path: string) =>
