@@ -848,6 +848,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         // follow-through below could not fire on the one route users actually
         // take, and a stated plan ended the turn with nothing running. Arm it
         // from the model's own last turn instead of from the entry point.
+        // The user stopping the chat outranks every follow-through: a stated
+        // plan in a turn the USER killed is not a plan to chase, and nudging
+        // it 50ms after the Stop reads as the Stop button not working.
+        if (sessions.wasUserStopped(sessionId)) pendingGroupPlans.delete(sessionId);
         if (!pendingGroupPlans.has(sessionId) && statedGroupPlan(sessionId)) {
           pendingGroupPlans.set(sessionId, { retried: false });
         }
@@ -864,6 +868,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             // state machine is still settling into idle — sending now could
             // bounce off a stale "busy".
             setTimeout(() => {
+              if (sessions.wasUserStopped(sessionId)) return;
               void sessions.send(sessionId, [
                 {
                   type: 'text',
@@ -957,16 +962,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             coordUserStalled.delete(g.id);
             coordContinues.delete(g.id);
           } else if (event.type === 'status' && event.status === 'idle') {
-            if (coordStalled.has(g.id)) {
+            if (sessions.wasUserStopped(sessionId)) {
+              // The user pulled the plug on the coordinator: whatever stall
+              // bookkeeping this turn accumulated, resuming now would override
+              // the Stop. The group stays as it is until the user speaks.
+              coordStalled.delete(g.id);
+              coordUserStalled.delete(g.id);
+              coordContinues.delete(g.id);
+            } else if (coordStalled.has(g.id)) {
               coordStalled.delete(g.id);
               coordUserStalled.delete(g.id);
               groupSynthesisFired.delete(g.id);
-              setTimeout(() => maybeFinishGroup(g.id), 3000);
+              setTimeout(() => {
+                if (!sessions.wasUserStopped(sessionId)) maybeFinishGroup(g.id);
+              }, 3000);
             } else if (coordUserStalled.delete(g.id)) {
               const n = (coordContinues.get(g.id) ?? 0) + 1;
               coordContinues.set(g.id, n);
               if (n <= 2) {
                 setTimeout(() => {
+                  if (sessions.wasUserStopped(sessionId)) return;
                   void sessions.send(sessionId, [
                     {
                       type: 'text',
@@ -1678,6 +1693,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (attempts >= FINISH_ATTEMPTS_MAX) return;
     const group = projects.groups().find((g) => g.id === groupId && !g.endedAt);
     if (!group || !group.coordinatorId) return;
+    // Every route into this driver — member idles, stall recovery, timers —
+    // stands down while the user's Stop on the coordinator is in force. The
+    // group resumes when the user speaks to Vodo again (send clears the flag).
+    if (sessions.wasUserStopped(group.coordinatorId)) return;
     ensureGroupDirs(group);
     if (!group.members.every((m) => sessions.statusOf(m.sessionId) === 'idle')) return;
     if (sessions.statusOf(group.coordinatorId) !== 'idle') return;

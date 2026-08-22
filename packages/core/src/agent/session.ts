@@ -249,6 +249,15 @@ export class AgentSession {
   private activeCancel: { flag: boolean } | null = null;
   /** Aborts the whole run including a running tool — this is what Stop hits. */
   private runAbort: AbortController | null = null;
+  /**
+   * The current run was ended by stop() rather than finishing. Consumed by the
+   * run's finally: a stopped run must NOT auto-fire whatever sits in the
+   * inject queue — the user pressed Stop to get silence, and a queued message
+   * instantly starting a fresh turn reads as "the Stop button does not work"
+   * (seen live, stopping Vodo mid-coordination). The queue is kept, chips and
+   * all; it drains after the next run the user starts themselves.
+   */
+  private stopRequested = false;
   private injectQueue: Array<{ id: number; parts: UserPart[] }> = [];
   private nextInjectionId = 1;
   /** First history index sent to the provider this run (window-as-buffer). */
@@ -286,6 +295,7 @@ export class AgentSession {
   }
 
   stop(): void {
+    if (this.activeCancel) this.stopRequested = true;
     if (this.activeCancel) this.activeCancel.flag = true;
     // Abort the in-flight stream AND the run — the latter reaches a hung tool
     // (ws_run launching a GUI app, a wedged MCP call) so Stop always bites.
@@ -341,6 +351,9 @@ export class AgentSession {
     this.injectQueue.push({ id, parts });
     if (mode === 'abort-and-resend') {
       this.stop();
+      // This stop IS the delivery mechanism: the finally must still drain the
+      // queue so the resend happens — only a bare user Stop holds it.
+      this.stopRequested = false;
       return { ok: true, injectionId: id };
     }
     return { ok: true, queued: true, injectionId: id };
@@ -623,10 +636,13 @@ export class AgentSession {
       this.runAbort = null;
       // Only clear the token if a newer run has not already taken the slot.
       if (this.activeCancel === cancel) this.activeCancel = null;
+      const holdQueue = this.stopRequested;
+      this.stopRequested = false;
       this.setStatus('idle');
       // Microtask so the finally block fully unwinds before a queued or
-      // injected message starts the next run.
-      queueMicrotask(() => this.drainInjectQueue());
+      // injected message starts the next run. A user-stopped run holds the
+      // queue instead — Stop means silence, not "next message fires".
+      if (!holdQueue) queueMicrotask(() => this.drainInjectQueue());
     }
   }
 }

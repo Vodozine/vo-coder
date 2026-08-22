@@ -1017,6 +1017,7 @@ export class SessionManager {
     specOverride?: AgentSpec,
     opts?: { echo?: boolean; echoParts?: UserPart[] },
   ): SendResult {
+    this.userStopped.delete(sessionId);
     try {
       const session = this.sessionFor(sessionId);
       // Vodo delegation: this turn runs with the specialist's full spec
@@ -1084,6 +1085,7 @@ export class SessionManager {
   }
 
   inject(sessionId: string, parts: UserPart[], opts?: { echo?: boolean }): SendResult {
+    this.userStopped.delete(sessionId);
     try {
       const result = this.sessionFor(sessionId).inject(parts);
       if (result.ok) {
@@ -1101,8 +1103,22 @@ export class SessionManager {
   }
 
   stop(sessionId: string): void {
+    this.userStopped.add(sessionId);
     this.sessions.get(sessionId)?.stop();
   }
+
+  /**
+   * Did the user stop this chat since they last engaged it? The automation
+   * that resumes dying turns (group follow-through, coordinator auto-continue)
+   * must stand down for exactly this window — a Stop that gets auto-resumed
+   * reads as a broken Stop button, and Vodo's seat has the most automation
+   * pointed at it. Cleared by the next user send/injection.
+   */
+  wasUserStopped(sessionId: string): boolean {
+    return this.userStopped.has(sessionId);
+  }
+
+  private userStopped = new Set<string>();
 
   reset(sessionId: string): void {
     this.sessions.get(sessionId)?.reset();
