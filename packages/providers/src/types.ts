@@ -235,6 +235,14 @@ export interface AgentSpec {
    */
   memory?: boolean;
   /**
+   * Only one running instance of this agent at a time. By default an agent is
+   * a TEMPLATE — every seat, chat and mission is its own instance and the
+   * agent is always available. A user running the agent on their own GPU can
+   * flip this: while any instance is running, the agent shows busy everywhere
+   * else until it goes idle.
+   */
+  singleInstance?: boolean;
+  /**
    * Hired by Vodo rather than built by the user (an "auto agent"): named from
    * the pioneer pool, settings from the auto-agent defaults, role given in the
    * task. Marked so the UI can badge them and the pool can be capped/reused.

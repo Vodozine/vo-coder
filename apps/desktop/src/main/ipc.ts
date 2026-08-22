@@ -323,6 +323,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return hire;
   };
 
+  /**
+   * Agents currently unavailable, and why. An agent is a TEMPLATE: every seat,
+   * chat and mission is its own instance, so by default NOTHING holds one — a
+   * powerful GPU (or the cloud) runs as many instances as asked. Only an agent
+   * the user marked singleInstance is held: while its one instance is running
+   * anywhere (a mission, or any chat mid-turn), it shows busy everywhere else.
+   */
+  const heldAgents = (): Map<string, string> => {
+    const out = new Map<string, string>();
+    const cfg = config.get();
+    const single = new Set(cfg.agents.filter((a) => a.singleInstance).map((a) => a.id));
+    if (single.size === 0) return out;
+    const missions = missionsRef?.busyAgents() ?? new Map<string, string>();
+    for (const [id, title] of missions) {
+      if (single.has(id)) out.set(id, `running its one instance on the mission "${title}"`);
+    }
+    for (const meta of projects.list().sessions) {
+      if (!meta.agentId || !single.has(meta.agentId) || out.has(meta.agentId)) continue;
+      if (sessions.statusOf(meta.id) !== 'idle') {
+        out.set(meta.agentId, `running its one instance in the chat "${meta.title}"`);
+      }
+    }
+    return out;
+  };
+
   // Built-in tools every agent session carries: web access, mission control,
   // and memory. Mission tools resolve through a late ref — MissionManager
   // needs routing, which is defined further down.
@@ -581,19 +606,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
         return executeGroupTool(name, args, {
-          // An agent held by a running mission is not available to be seated:
-          // it is one model on one GPU and it already has a job.
+          // Only a single-instance agent whose instance is running is off the
+          // roster — everyone else is a template with unlimited instances.
           agents: () => {
-            const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
+            const busy = heldAgents();
             return config.get().agents.filter((a) => !busy.has(a.id));
           },
           hire: hireAutoAgent,
           autoAgentCount: () => config.get().agents.filter(isAutoAgent).length,
           autoAgentMax: () => autoAgentLimit(),
-          // The same held agents, by name — so a refused seat names the mission
+          // The same held agents, by name — so a refused seat says WHY
           // instead of claiming the agent does not exist.
           onMission: () => {
-            const busy = missionsRef?.busyAgents() ?? new Map<string, string>();
+            const busy = heldAgents();
             return config
               .get()
               .agents.filter((a) => busy.has(a.id))
@@ -811,7 +836,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       contextFit.windowFor(modelId, endpointUrlFor(config.get(), modelId)) ??
       catalogSync.find((r) => r.id === modelId)?.contextLength,
     agentProfile,
-    busyAgents: () => missionsRef?.busyAgents() ?? new Map<string, string>(),
+    busyAgents: () => heldAgents(),
     skillsCatalog: () => skillsCatalog(app.getPath('userData'), config.get().disabledSkills ?? []),
     ...(bank
       ? {
@@ -1728,7 +1753,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           'your most capable member. When the parts are block files, the assembly is ONE ' +
           'ws_assemble call in blueprint order — nobody re-types blocks by hand. One member ' +
           'can hold several follow-ups, but send each as its own group_send.\n' +
-          '2b. IDLE MEMBERS ARE SPARE CAPACITY: spread the remaining work across them — one ' +
+          '2b. IDLE MEMBERS ARE SPARE CAPACITY for THIS goal: spread the remaining work ' +
+          'across them — one ' +
           'group_send each — instead of stacking several jobs on one member or doing them ' +
           'yourself. Small jobs count: verifying a file, updating a doc, running a check. ' +
           'Queued parts from the start go out now too. If the work needs a specialty nobody ' +
@@ -2036,12 +2062,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // one model on one GPU. Naming it here would have Vodo try to seat it,
       // and the seat is refused downstream; the held ones are listed separately
       // so he can say why the team is short rather than appear to skip someone.
-      const onMissionNow = missionsRef?.busyAgents() ?? new Map<string, string>();
+      const onMissionNow = heldAgents();
       const heldNote = (): string => {
         const held = config
           .get()
           .agents.filter((ag) => ag.enabled !== false && onMissionNow.has(ag.id))
-          .map((ag) => `${ag.name} (mission: ${onMissionNow.get(ag.id)})`);
+          .map((ag) => `${ag.name} (${onMissionNow.get(ag.id)})`);
         return held.length
           ? ` ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} on a mission and cannot be ` +
             'seated — say so rather than counting them in.'
@@ -2069,8 +2095,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             idleNames.length > 0
               ? `\n[group: ${idleNames.length} of ${liveGroupHere.members.length} members idle — ` +
                 `${idleNames.slice(0, 4).join(', ')}${idleNames.length > 4 ? ', …' : ''}. If this ` +
-                'request is work, group_send it to one of them with the full instruction instead ' +
-                'of doing it yourself; group_status shows the whole board.'
+                "request CONTINUES this group's goal, group_send it to one of them with the " +
+                'full instruction instead of doing it yourself; group_status shows the whole ' +
+                'board. A DIFFERENT job never lands on this board — group_start a NEW group: ' +
+                'the quiet board retires by itself and the same people get fresh seats.'
               : '\n[group:';
           const teamAsk = wholeTeamAsk
             ? ' The user asked for the WHOLE TEAM: give every idle member a part (one ' +
@@ -2202,7 +2230,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           };
           // An agent on a mission is one GPU already working. Routing skips it
           // rather than handing the same card a second job.
-          const onMission = missionsRef?.busyAgents() ?? new Map<string, string>();
+          const onMission = heldAgents();
           const agents = [
             boss,
             ...config

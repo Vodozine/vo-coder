@@ -125,7 +125,10 @@ export function groupToolSpecs(): ToolSpec[] {
         'land, ws_assemble merges them in order into the REAL deliverable path — blocks that ' +
         'depend on other blocks still parallelise, because the blueprint contract is what ' +
         'decouples them. ALL coordination files (blueprint, blocks, team notes, checklists) ' +
-        'live under .vodo/team/ — the project root is for the product, never the paperwork.',
+        'live under .vodo/team/ — the project root is for the product, never the paperwork. ' +
+        'ONE BOARD, ONE JOB: if this chat already has a live group that has gone quiet, ' +
+        'starting a new one retires it automatically and the same agents take fresh seats — ' +
+        'never re-task an old board with a DIFFERENT job.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -449,9 +452,9 @@ export async function executeGroupTool(
       if (held) {
         return {
           content:
-            `${held.name} is on the mission "${held.mission}" and cannot take a seat until it ` +
-            'finishes — that is one model already working, and handing it a second job halves ' +
-            'both. Seat someone else, or give the task to an idle member with group_send.',
+            `${held.name} is marked single-instance and is ${held.mission} — the seat waits ` +
+            'until that instance goes idle. Seat someone else, or give the task to an idle ' +
+            'member with group_send.',
           isError: true,
         };
       }
@@ -544,10 +547,36 @@ export async function executeGroupTool(
       isError: true,
     };
   }
+  // NEW JOB = NEW GROUP. Agents are templates — every seat is an instance, so
+  // the PEOPLE are always available; the BOARD is not reusable. When this
+  // chat's previous group has gone quiet it retires here, and the same agents
+  // take fresh seats with clean briefs. A board still working blocks instead:
+  // two live boards on one chat would make group_send ambiguous.
+  let retiredNote = '';
+  const prior = deps.groups?.().find((g) => !g.endedAt && g.coordinatorId === coordinatorId);
+  if (prior) {
+    const busy = prior.members.filter(
+      (m) => (deps.statusOf?.(m.sessionId) ?? 'idle') !== 'idle',
+    );
+    if (busy.length > 0) {
+      return {
+        content:
+          `The current group ("${prior.goal.slice(0, 60)}") is still working — ` +
+          `${busy.map((m) => m.agentName).join(', ')} ${busy.length === 1 ? 'is' : 'are'} not ` +
+          'idle. Wait for the board to go quiet (you will be woken), or stop that work first.',
+        isError: true,
+      };
+    }
+    deps.updateGroup?.({ ...prior, endedAt: Date.now() });
+    retiredNote =
+      `(The previous board — "${prior.goal.slice(0, 48)}" — was quiet and has retired. Same ` +
+      'people where needed, fresh seats, clean briefs.)' + String.fromCharCode(10);
+  }
   const result = await startGroup(deps, projectId, coordinatorId ?? '', goal, parts, dir);
   if (!result.ok) return { content: result.error, isError: true };
   return {
     content:
+      retiredNote +
       `Started ${result.group.members.length} agents in parallel:\n` +
       result.group.members.map((m) => `- ${m.agentName}: ${m.task}`).join('\n') +
       (result.queued.length
@@ -768,7 +797,7 @@ export async function startGroup(
       if (h) {
         const took = plan.find((q) => q.task === p.task)?.agent.name;
         held.push(
-          `${h.name} is on the mission "${h.mission}" — their part ` +
+          `${h.name} is single-instance and ${h.mission} — their part ` +
             (took ? `went to ${took}` : 'is queued'),
         );
         continue;

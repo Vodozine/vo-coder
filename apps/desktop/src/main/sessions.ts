@@ -323,7 +323,7 @@ export class SessionManager {
         (mcp.length ? ` · MCP: ${mcp.join(', ')}` : ' · no MCP servers') +
         (hints ? ` · good at: ${hints}` : '') +
         (a.memory === false ? ' · NO project memory' : '') +
-        (busy ? ` · BUSY — on the mission "${busy}", do not give it work` : '')
+        (busy ? ` · BUSY — ${busy}; do not give it work` : '')
       );
     });
     return (

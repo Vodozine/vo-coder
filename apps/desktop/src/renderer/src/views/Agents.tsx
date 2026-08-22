@@ -53,6 +53,7 @@ function AgentForm({
   // starts as hired help — given a part, not the run of the project.
   const [memory, setMemory] = useState(initial ? initial.memory !== false : false);
   const [personal, setPersonal] = useState(initial?.personal === true);
+  const [singleInstance, setSingleInstance] = useState(initial?.singleInstance === true);
   const [thinkingVisibility, setThinkingVisibility] = useState(
     initial?.thinkingVisibility ?? 'visible',
   );
@@ -203,6 +204,20 @@ function AgentForm({
           off limits to Vodo — never drafted, never routed to
         </label>
       </div>
+      <div className="field-row wide">
+        <label>instances</label>
+        <label
+          className="checkbox"
+          title="Off (default): this agent is a template — every chat, group seat and mission is its own instance, so it is always available; a capable GPU or the cloud simply runs several at once. On: only one running instance exists — while any chat, group or mission is using it, it shows busy everywhere else until idle. For agents whose model owns a small local GPU."
+        >
+          <input
+            type="checkbox"
+            checked={singleInstance}
+            onChange={(e) => setSingleInstance(e.target.checked)}
+          />
+          single instance — busy anywhere means busy everywhere
+        </label>
+      </div>
       <div className="field-row">
         <label>thinking</label>
         <label className="checkbox">
@@ -251,6 +266,7 @@ function AgentForm({
               // Only ever an explicit true — absent means ordinary workforce,
               // so agents from before this flag keep working as they did.
               ...(personal ? { personal: true } : {}),
+              ...(singleInstance ? { singleInstance: true } : {}),
               thinkingVisibility,
               injectionMode,
               routingHints: routingHints.trim() || undefined,
