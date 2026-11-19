@@ -3,627 +3,535 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vo-Coder — the tool shed for AI agents</title>
-<meta name="description" content="A provider-agnostic AI agent workbench for the desktop. You talk to Vodo; Vodo picks the right model for the job — or puts a whole team of agents on it at once. Windows, macOS, Linux. Free and open source.">
-<link rel="canonical" href="https://vodozine.github.io/vo-coder/">
-<meta property="og:title" content="Vo-Coder — the tool shed for AI agents">
-<meta property="og:description" content="One chat, every provider. Cheapest-adequate routing, multi-agent group projects, real memory, missions, homelab control. Free and open source.">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://vodozine.github.io/vo-coder/">
-<meta property="og:image" content="https://vodozine.github.io/vo-coder/img/group-8.png">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="img/vodo-portrait.png?v=2">
+<title>Vo-Coder — your workspace, your AI team, your models</title>
+<meta name="description" content="Vo-Coder is a desktop workspace for building, creating and working with AI: a 3D world of your projects, an AI team you configure, design, audio, video and 3D studios, memory that stays yours.">
 <style>
-  :root{
-    --bg:#0b0d11; --bg2:#0f131a; --panel:#141922; --panel2:#1a2029;
-    --line:#242c38; --line2:#2f3a49;
-    --ink:#dde3ec; --ink-dim:#9aa4b4; --ink-faint:#6f7a8a;
-    --amber:#e8a54e; --amber-dim:#b8813c; --green:#79c08a; --blue:#7aa7e8;
-    --radius:14px; --maxw:1120px;
-    --mono:ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
-    --sans:"Segoe UI",system-ui,-apple-system,Inter,Roboto,Helvetica,Arial,sans-serif;
-  }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth;scroll-padding-top:70px}
-  body{
-    margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
-    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;
-  }
-  img{max-width:100%;display:block}
-  a{color:var(--amber);text-decoration:none}
-  a:hover{text-decoration:underline}
-  code,kbd{font-family:var(--mono);font-size:.88em;background:#11161e;border:1px solid var(--line);
-    border-radius:6px;padding:.12em .42em;color:#e9d3ac}
-  pre{background:#0e131a;border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;
-    overflow-x:auto;font-family:var(--mono);font-size:14px;line-height:1.6;color:#cfd8e5}
-  pre code{background:none;border:0;padding:0;color:inherit}
-  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+:root{
+  --bg:#07090d; --panel:#0e1117; --panel2:#121620; --line:#1f2633; --line2:#2a3242;
+  --text:#dfe4ec; --dim:#8c95a6; --faint:#5b6475;
+  --amber:#f0a62e; --amber-dim:#7a5418; --cyan:#4fd6ee; --green:#5ad17a; --rose:#ef4f86; --violet:#a98bff;
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+  --sans:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.6;
+  background-image:radial-gradient(1px 1px at 20% 30%,#ffffff22 50%,transparent 51%),radial-gradient(1px 1px at 70% 60%,#ffffff1a 50%,transparent 51%),radial-gradient(1px 1px at 40% 80%,#ffffff14 50%,transparent 51%);
+  background-size:340px 340px,420px 420px,280px 280px}
+a{color:var(--amber);text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:2px 7px;border-radius:5px;border:1px solid var(--line2);color:var(--dim);white-space:nowrap}
+.tag.amber{color:var(--amber);border-color:var(--amber-dim)} .tag.cyan{color:var(--cyan);border-color:#1d5664}
+.tag.green{color:var(--green);border-color:#22553a} .tag.rose{color:var(--rose);border-color:#5e2338}
+.tag.violet{color:var(--violet);border-color:#43386b}
 
-  /* ---------- top bar ---------- */
-  header.bar{position:sticky;top:0;z-index:40;background:rgba(11,13,17,.86);
-    backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-  .bar-in{max-width:var(--maxw);margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:.2px;color:var(--ink)}
-  .brand img{width:30px;height:30px;border-radius:8px}
-  .bar nav{margin-left:auto;display:flex;gap:20px;flex-wrap:wrap}
-  .bar nav a{color:var(--ink-dim);font-size:14.5px}
-  .bar nav a:hover{color:var(--amber);text-decoration:none}
-  .bar .ghost{border:1px solid var(--line2);border-radius:9px;padding:6px 13px;color:var(--ink);font-size:14px}
-  .bar .ghost:hover{border-color:var(--amber);color:var(--amber);text-decoration:none}
+/* top bar, like the app */
+.topbar{position:sticky;top:0;z-index:20;background:#07090dcc;backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:18px;height:58px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text);font-size:17px}
+.logo .mark{font-family:var(--mono);font-weight:800;color:var(--cyan);font-size:20px;letter-spacing:-2px}
+.logo .mark b{color:var(--amber)}
+.pro{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--amber);border:1.5px solid var(--amber);border-radius:5px;padding:1px 6px}
+.nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav a{color:var(--dim);font-size:14px;padding:6px 11px;border-radius:8px}
+.nav a:hover{color:var(--text);background:var(--panel2)}
 
-  /* ---------- hero ---------- */
-  .hero{padding:78px 0 34px;position:relative;overflow:hidden}
-  .hero::before{content:"";position:absolute;inset:-260px 0 auto 50%;transform:translateX(-50%);
-    width:1200px;height:620px;border-radius:50%;
-    background:radial-gradient(closest-side,rgba(232,165,78,.16),rgba(232,165,78,0));pointer-events:none}
-  .hero-in{position:relative;display:grid;grid-template-columns:1.25fr .75fr;gap:40px;align-items:center}
-  .hero h1{font-size:clamp(38px,6vw,62px);line-height:1.04;margin:0 0 8px;letter-spacing:-1.2px}
-  .hero .tag{font-size:clamp(19px,2.4vw,23px);color:var(--amber);font-weight:600;margin:0 0 16px}
-  .hero p.lede{color:var(--ink-dim);font-size:18.5px;margin:0 0 26px;max-width:56ch}
-  .hero-art img{width:100%;max-width:300px;margin:0 auto;filter:drop-shadow(0 22px 44px rgba(0,0,0,.55))}
-  .cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  .btn{display:inline-flex;align-items:center;gap:9px;border-radius:11px;padding:12px 20px;
-    font-weight:600;font-size:15.5px;border:1px solid transparent;transition:transform .12s ease}
-  .btn:hover{text-decoration:none;transform:translateY(-1px)}
-  .btn-primary{background:var(--amber);color:#231703}
-  .btn-primary:hover{background:#f4b667}
-  .btn-alt{border-color:var(--line2);color:var(--ink);background:var(--panel)}
-  .btn-alt:hover{border-color:var(--amber);color:var(--amber)}
-  .under-cta{margin-top:14px;color:var(--ink-faint);font-size:14px}
-  .under-cta b{color:var(--ink-dim);font-weight:600}
+/* hero */
+.hero{position:relative;padding:70px 0 40px}
+.hero h1{font-size:clamp(38px,5.6vw,72px);line-height:1.04;margin:14px 0 18px;letter-spacing:-.02em}
+.hero h1 em{font-style:normal;color:var(--amber)}
+.hero p.lead{font-size:20px;color:var(--dim);max-width:760px;margin:0 0 28px}
+.btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:10px;font-weight:600;font-size:15px;border:1px solid var(--line2);color:var(--text);background:var(--panel)}
+.btn.primary{background:var(--amber);color:#1a1205;border-color:var(--amber)}
+.btn:hover{filter:brightness(1.1)}
+.hero-shot{margin-top:46px}
 
-  /* ---------- generic sections ---------- */
-  section{padding:56px 0;border-top:1px solid var(--line)}
-  section.plain{border-top:0}
-  h2{font-size:clamp(27px,3.4vw,36px);letter-spacing:-.5px;margin:0 0 10px}
-  h2 .num{font-family:var(--mono);font-size:14px;color:var(--amber-dim);display:block;
-    letter-spacing:2px;text-transform:uppercase;margin-bottom:9px}
-  h3{font-size:20px;margin:26px 0 6px;letter-spacing:-.2px}
-  .sub{color:var(--ink-dim);font-size:18px;max-width:74ch;margin:0 0 26px}
-  p{margin:0 0 14px}
-  .muted{color:var(--ink-dim)}
-  ul.clean{list-style:none;padding:0;margin:14px 0}
-  ul.clean li{position:relative;padding-left:22px;margin-bottom:10px;color:var(--ink-dim)}
-  ul.clean li::before{content:"▸";position:absolute;left:0;color:var(--amber-dim)}
-  ul.clean li b,ul.clean li strong{color:var(--ink);font-weight:600}
+/* window frame around screenshots */
+.frame{position:relative;border:1px solid var(--line2);border-radius:14px;overflow:hidden;background:#05070a;box-shadow:0 30px 80px -30px #000,0 0 0 1px #ffffff05;cursor:zoom-in}
+.frame img{width:100%;height:auto}
+.frame img.crop{aspect-ratio:16/10;object-fit:cover;object-position:top}
+.frame .hud{position:absolute;left:14px;top:12px;display:flex;gap:8px;pointer-events:none}
+.frame .hud span{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);background:#05070acc;border:1px solid #1d5664;border-radius:5px;padding:3px 8px}
+figure{margin:0}
+figcaption{font-size:13px;color:var(--faint);margin-top:10px;font-family:var(--mono)}
 
-  .shot{border:1px solid var(--line2);border-radius:var(--radius);overflow:hidden;background:var(--panel);
-    box-shadow:0 20px 50px rgba(0,0,0,.45)}
-  .shot img{width:100%}
-  figure{margin:0}
-  figcaption{color:var(--ink-faint);font-size:13.5px;padding:10px 4px 0;font-family:var(--mono)}
+/* sections */
+section{padding:80px 0;border-top:1px solid var(--line)}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:12px}
+.sec-head .num{font-family:var(--mono);color:var(--amber);font-size:13px}
+h2{font-size:clamp(28px,3.4vw,42px);line-height:1.12;margin:0 0 16px;letter-spacing:-.01em}
+h3{font-size:19px;margin:0 0 6px}
+.intro{color:var(--dim);font-size:18px;max-width:780px;margin:0 0 36px}
+.split{display:grid;grid-template-columns:1.25fr 1fr;gap:40px;align-items:center}
+.split.rev{grid-template-columns:1fr 1.25fr}
+.split.rev > :first-child{order:2}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.points{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.points li{padding-left:22px;position:relative;color:var(--dim)}
+.points li::before{content:"";position:absolute;left:0;top:10px;width:8px;height:8px;border-radius:2px;background:var(--amber)}
+.points li b{color:var(--text)}
 
-  .split{display:grid;grid-template-columns:1fr 1fr;gap:38px;align-items:start}
-  .split.wide-left{grid-template-columns:1.15fr .85fr}
-  .split.wide-right{grid-template-columns:.85fr 1.15fr}
-  .stack-gap{margin-top:34px}
+/* tiles = the app's work column */
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;position:relative}
+.tile .t-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.tile .t-title{font-weight:600;font-size:15px}
+.tile p{margin:0;color:var(--dim);font-size:14px;line-height:1.55}
+.tile:hover{border-color:var(--line2)}
 
-  .grid{display:grid;gap:18px}
-  .grid.g2{grid-template-columns:repeat(2,1fr)}
-  .grid.g3{grid-template-columns:repeat(3,1fr)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px}
-  .card h4{margin:0 0 7px;font-size:17px;letter-spacing:-.2px}
-  .card p{margin:0;color:var(--ink-dim);font-size:15.5px;line-height:1.55}
-  .card .ic{font-size:20px;display:block;margin-bottom:8px}
+/* the story block */
+.story{background:linear-gradient(180deg,#0f1219,#0a0c11);border:1px solid var(--amber-dim);border-radius:16px;padding:40px 44px;position:relative}
+.story::before{content:"VODO · THE STORY";position:absolute;top:-10px;left:28px;background:var(--bg);padding:0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--amber)}
+.story p{font-size:18px;color:var(--dim);max-width:900px}
+.story p b{color:var(--text)}
+.quote{font-size:clamp(22px,2.6vw,30px);color:var(--text);font-weight:600;line-height:1.3;margin:6px 0 18px}
 
-  .pill{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.6px;
-    text-transform:uppercase;color:var(--amber);border:1px solid var(--amber-dim);
-    border-radius:999px;padding:3px 11px;margin-bottom:14px}
-  .note{border-left:3px solid var(--amber-dim);background:var(--panel);border-radius:0 10px 10px 0;
-    padding:14px 18px;color:var(--ink-dim);font-size:15.5px;margin:18px 0}
-  .note b{color:var(--ink)}
+/* modes table */
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:500}
+td:first-child{font-weight:600;white-space:nowrap}
+td{color:var(--dim)}
 
-  table.pv{width:100%;border-collapse:collapse;font-size:15.5px;margin-top:16px}
-  table.pv th,table.pv td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
-  table.pv th{color:var(--ink-faint);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.7px}
-  table.pv td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
-  table.pv td:last-child{color:var(--ink-dim)}
+/* feature index */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}
+.filters button{font:inherit;font-size:13px;color:var(--dim);background:var(--panel);border:1px solid var(--line2);border-radius:999px;padding:6px 14px;cursor:pointer}
+.filters button.on{color:#1a1205;background:var(--amber);border-color:var(--amber)}
+.search{width:100%;max-width:420px;font:inherit;font-size:14px;color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+.search:focus{outline:none;border-color:var(--amber)}
+.count{font-family:var(--mono);font-size:12px;color:var(--faint);margin-left:12px}
+.findex{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.findex .tile{padding:14px 15px}
+.findex .tile .t-title{font-size:14px}
+.findex .tile p{font-size:13px}
 
-  .os{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px}
-  .os .card h4{display:flex;align-items:center;gap:8px}
-  .dl-note{color:var(--ink-faint);font-size:14.5px;margin-top:6px}
+/* layers */
+.layers{display:grid;gap:10px;max-width:820px}
+.layer{display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:center;padding:14px 18px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.layer .k{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+.layer:nth-child(2) .k{color:var(--amber)} .layer:nth-child(3) .k{color:var(--green)} .layer:nth-child(4) .k{color:var(--violet)}
+.layer span{color:var(--dim);font-size:15px}
 
-  footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--ink-faint);font-size:14.5px}
-  footer a{color:var(--ink-dim)}
-  .foot-row{display:flex;gap:22px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.providers{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.providers span{font-size:13px;padding:5px 11px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
 
-  @media (max-width:900px){
-    body{font-size:16px}
-    .hero{padding:48px 0 20px}
-    .hero-in{grid-template-columns:1fr;gap:26px}
-    .hero-art{order:-1}
-    .hero-art img{max-width:180px}
-    .split,.split.wide-left,.split.wide-right,.grid.g2,.grid.g3,.os{grid-template-columns:1fr}
-    .bar nav{display:none}
-    section{padding:40px 0}
-  }
+footer{border-top:1px solid var(--line);padding:46px 0 60px;color:var(--faint);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+
+/* lightbox */
+.lb{position:fixed;inset:0;background:#000000ee;display:none;align-items:center;justify-content:center;z-index:50;padding:30px;cursor:zoom-out}
+.lb.on{display:flex}
+.lb img{max-width:96vw;max-height:92vh;border-radius:10px;border:1px solid var(--line2)}
+
+.js .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+@media (max-width:900px){
+  .split,.split.rev,.grid2{grid-template-columns:1fr}
+  .split.rev > :first-child{order:0}
+  .grid3{grid-template-columns:1fr}
+  .nav{display:none}
+  .layer{grid-template-columns:1fr;gap:4px}
+  .story{padding:30px 22px}
+}
 </style>
 </head>
 <body>
+<script>document.body.classList.add('js')</script>
 
-<header class="bar">
-  <div class="bar-in">
-    <a class="brand" href="#top"><img src="img/vodo-portrait.png?v=2" alt=""> Vo-Coder</a>
-    <nav>
-      <a href="#what">What it is</a>
-      <a href="#group">Group projects</a>
-      <a href="#pipelines">Pipelines</a>
-      <a href="#routing">Routing</a>
-      <a href="#models">Models</a>
+<header class="topbar">
+  <div class="wrap">
+    <a class="logo" href="#top"><span class="mark">&gt;<b>|</b></span> Vo-Coder <span class="pro">PRO</span></a>
+    <nav class="nav">
+      <a href="#world">World</a>
+      <a href="#workspace">Workspace</a>
+      <a href="#team">AI team</a>
+      <a href="#studios">Studios</a>
       <a href="#memory">Memory</a>
-      <a href="#build">Building</a>
-      <a href="meet.html">Meet Vodo</a>
-      <a href="pro.html">Pro</a>
-      <a href="#download">Download</a>
+      <a href="#beyond">Beyond</a>
+      <a href="#features">All features</a>
+      <a href="free.html">Free edition</a>
+      <a href="https://github.com/Vodozine/vo-coder">GitHub</a>
     </nav>
-    <a class="ghost" href="https://github.com/Vodozine/vo-coder">GitHub</a>
   </div>
 </header>
 
-<a id="top"></a>
+<main id="top">
+
+<!-- HERO -->
 <div class="hero">
-  <div class="wrap hero-in">
-    <div>
-      <h1>The tool shed for AI&nbsp;agents.</h1>
-      <p class="tag">You talk to Vodo. Vodo picks the right man for the job.</p>
-      <p class="lede">
-        One chat, every provider. Each message goes to the cheapest model that's actually good enough —
-        or to a whole team of agents at once.
-      </p>
-      <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/Vodozine/vo-coder/releases/latest">Download for free</a>
-        <a class="btn btn-alt" href="#group">See it work</a>
-        <a class="btn btn-alt" href="https://github.com/Vodozine/vo-coder/discussions">Discussions</a>
-      </div>
-      <p class="under-cta">
-        Windows · macOS · Linux &nbsp;·&nbsp; <b>Free</b> and open source &nbsp;·&nbsp; runs on your machine
-      </p>
+  <div class="wrap">
+    <div class="label">A personal computing environment built around working with AI</div>
+    <h1>Your workspace.<br>Your AI team.<br><em>Your choice of models.</em></h1>
+    <p class="lead">Vo-Coder brings your projects, agents, creative studios and memory together in one desktop app. Build software, make music, design, run your homelab and work on documents with an assistant called Vodo and a team you put together yourself. Your code shows up as a city you can walk through.</p>
+    <div class="btns">
+      <a class="btn primary" href="#features">See every feature</a>
+      <a class="btn" href="#story">The story</a>
     </div>
-    <div class="hero-art"><img src="img/vodo-full.png?v=2" alt="Vodo, the Vo-Coder assistant"></div>
+    <figure class="hero-shot reveal">
+      <div class="frame"><img src="img/pro/world-city.png" alt="World View: the Vo-Coder repository as a city of 3,393 files floating in space"><div class="hud"><span>World view</span><span>3,393 files</span></div></div>
+      <figcaption>This is Vo-Coder's own source code. Every building is a folder, every block is a file.</figcaption>
+    </figure>
   </div>
 </div>
 
-<div class="wrap">
-  <figure class="shot">
-    <img src="img/chat.png" alt="Vo-Coder chat: Vodo routes a message, shows its reasoning, and works with tools">
-  </figure>
-</div>
-
-<!-- ============================================================ -->
-<section id="what">
-  <div class="wrap">
-    <h2><span class="num">01 — the idea</span>One harness, every model</h2>
-    <p class="sub">
-      The harness holds the tools — files, terminals, web, vision, MCP servers, infrastructure. The model is
-      just the engineer who walks in. Swap models; the shed stays yours.
-    </p>
-    <div class="grid g3">
-      <div class="card">
-        <span class="ic">🧭</span>
-        <h4>Vodo is the one face</h4>
-        <p>You never juggle providers. He reads what a message needs and hands it to the cheapest model that
-        can do it.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🛠</span>
-        <h4>Agents with hands</h4>
-        <p>They read and write files, run commands, search the web and look at images — inside the folder you
-        pointed them at.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🔒</span>
-        <h4>Yours, locally</h4>
-        <p>Keys encrypted by your OS keychain. Local models (Ollama, LM Studio, llama.cpp) are first-class.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="group">
-  <div class="wrap">
-    <h2><span class="num">02 — multi-agent</span>A whole team, one goal, one folder</h2>
-    <p class="sub">
-      Describe a goal. Vodo splits it into briefs, assigns each to the right specialist and starts up to eight
-      at once — the rest queue. You watch every one in split view and can redirect any of them mid-run.
-      No agents built yet? He stands in for them.
-    </p>
-
-    <figure class="shot">
-      <img src="img/group-8.png" alt="Eight-pane split view: six specialist agents researching in parallel while the coordinator assembles">
-      <figcaption>Six specialists in parallel, Vodo coordinating — 8 panes per page.</figcaption>
-    </figure>
-
-    <div class="split stack-gap">
-      <div>
-        <ul class="clean">
-          <li><b>He delegates the finish.</b> Assembly goes to a member, not to him.</li>
-          <li><b>One shared folder.</b> Briefs land as real files, not chat text you copy out.</li>
-          <li><b>A stalled member reports to him</b>, not to you.</li>
-          <li><b>It finishes by itself</b> — verified, merged, opened in Preview, written up.</li>
-        </ul>
-      </div>
-      <div>
-        <ul class="clean">
-          <li>Every member is an ordinary chat — archived and reopenable.</li>
-          <li>The run folds into <b>one bundle</b> in the sidebar.</li>
-          <li>It shows up in the project's memory, so later chats know what was built.</li>
-          <li><b>Worktrees</b> mode gives each agent its own git branch instead of one shared checkout —
-            parts merged back once each is built and verified.</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="pipelines">
-  <div class="wrap">
-    <h2><span class="num">03 — pipelines</span>Draw the team once, keep it</h2>
-    <p class="sub">
-      A group project is Vodo planning a crew on the fly. A pipeline is you planning it yourself and saving it.
-      Drop a <b>Foreman</b>, <b>Agent</b> steps and <b>Reviewer gates</b>, then wire them up — <b>pass</b> goes
-      forward, <b>fail</b> loops back.
-    </p>
-    <figure class="shot">
-      <img src="img/pipelines.png" loading="lazy"
-           alt="Pipeline editor: a Foreman tile, Agent steps and a Reviewer gate wired together with pass and fail branches on a node canvas">
-      <figcaption>Name it, Save, run it again.</figcaption>
-    </figure>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="routing">
-  <div class="wrap">
-    <h2><span class="num">04 — routing</span>Cheapest model that's good enough</h2>
-    <p class="sub">
-      Every message is scored, then matched against live provider pricing and benchmark quality. "Make this
-      look modern" wakes a capable executor; "thanks!" costs a fraction of a cent.
-    </p>
-    <div class="split wide-right">
-      <div>
-        <h3>Four modes</h3>
-        <ul class="clean">
-          <li><b>Auto</b> — cheapest adequate model, per message.</li>
-          <li><b>My agents first</b> — your specialists get matching work.</li>
-          <li><b>My agents only</b> — every turn lands on one of yours.</li>
-          <li><b>Off</b> — one model, pinned.</li>
-        </ul>
-        <h3>It keeps working when a provider doesn't</h3>
-        <ul class="clean">
-          <li>429s and 5xx back off and retry; a model that keeps failing gets <b>benched</b>.</li>
-          <li>A silent or throttled model can't freeze a turn — a watchdog aborts it.</li>
-          <li>Image requests never land on a text model.</li>
-        </ul>
-      </div>
-      <figure class="shot">
-        <img src="img/chat-context.png" alt="Context window meter and routing note above a chat message">
-        <figcaption>Every reply carries its route, cost and context budget.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="agents">
-  <div class="wrap">
-    <h2><span class="num">05 — your staff</span>Build the specialists you want</h2>
-    <p class="sub">
-      An agent is a name, a prompt, routing hints, a model and the MCP servers it may use. The hints decide who
-      gets which message — and which brief in a group.
-    </p>
-    <div class="split">
-      <figure class="shot">
-        <img src="img/agents.png" alt="Agents page listing custom specialists">
-        <figcaption>Your roster — no config files.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="img/agents-edit.png" alt="Agent editor with the priced model picker open">
-        <figcaption>Every model with its context window and price.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="models">
-  <div class="wrap">
-    <h2><span class="num">06 — providers</span>Nine ways in, one bill you can see</h2>
-    <p class="sub">
-      Add a key and the provider's models join the fleet. Flip one <b>On/Off</b> without deleting credentials.
-      Subscriptions are metered as a fixed monthly cost, not invented per-token spend.
-    </p>
-    <table class="pv">
-      <tr><th>Provider</th><th>What it gives you</th></tr>
-      <tr><td>Anthropic</td><td>Claude models via API key.</td></tr>
-      <tr><td>OpenAI</td><td>GPT chat, image generation, text-to-speech.</td></tr>
-      <tr><td>OpenRouter</td><td>Hundreds of models behind one key, live pricing.</td></tr>
-      <tr><td>xAI (Grok)</td><td>API key <em>or</em> <b>subscription sign-in</b> — no key at all.</td></tr>
-      <tr><td>NVIDIA NIM</td><td>Cloud endpoints with a generous free tier.</td></tr>
-      <tr><td>Z.ai (GLM)</td><td>The GLM Coding Plan, on plan quota.</td></tr>
-      <tr><td>Ollama</td><td>Local models, one endpoint per machine or GPU.</td></tr>
-      <tr><td>LM Studio</td><td>Paste host:port; the model list fills itself.</td></tr>
-      <tr><td>llama.cpp</td><td>Straight to a llama-server endpoint.</td></tr>
-    </table>
-
-    <div class="split stack-gap wide-left">
-      <div>
-        <h3>Local models, taken seriously</h3>
-        <ul class="clean">
-          <li><b>One endpoint per GPU</b> — pin a model to a box with <code>model@endpoint</code>.</li>
-          <li><b>Context that fits</b> — you're warned before a model spills into system RAM.</li>
-          <li><b>Residency control</b> — keep a model loaded between turns.</li>
-          <li><b>Cache-friendly prompts</b> — the prefix is stable, so the KV cache is reused.</li>
-        </ul>
-      </div>
-      <figure class="shot">
-        <img src="img/settings.png" alt="Settings page: providers, keys, endpoints and routing">
-        <figcaption>One settings page — keys, endpoints, routing, voice, updates.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="memory">
-  <div class="wrap">
-    <h2><span class="num">07 — memory</span>It remembers, and you can read it</h2>
-    <p class="sub">
-      Every conversation is kept verbatim in a local SQLite archive and distilled into a map — decisions, files,
-      tasks, facts and their links. Turn on <b>Smart context</b> and a chat that replayed 290k tokens a turn
-      drops to a few thousand.
-    </p>
-
-    <figure class="shot">
-      <img src="img/memory-graph.webp" loading="lazy"
-           alt="The project's memory as a 3D graph: hundreds of nodes coloured by type, linked, floating in space">
-      <figcaption>Flip Memory to <b>Graph</b> and fly through the project. Click a node to read it.</figcaption>
-    </figure>
-
-    <div class="split wide-right stack-gap">
-      <div>
-        <ul class="clean">
-          <li><b>Two views</b> — <b>Notes</b> lays the map out as editable cards; <b>Graph</b> is the same data
-            in 3D.</li>
-          <li><b>A journal across everything</b> — chats, projects, missions, tools. "What was I working on last
-            Monday?" is answered from the record.</li>
-          <li><b>Per-project</b>, so every agent in a group sees what the others decided.</li>
-          <li><b>Pinned facts</b> survive compaction, restarts and model swaps.</li>
-        </ul>
-      </div>
-      <figure class="shot">
-        <img src="img/memory.png" alt="Memory view: the project map as editable Notes cards">
-        <figcaption>The <b>Notes</b> view — data you can correct, not a black box.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="build">
-  <div class="wrap">
-    <h2><span class="num">08 — building</span>Watch the work happen</h2>
-    <p class="sub">
-      Point a chat at any folder — no project needed — and the agent gets tools over it. Preview follows
-      whatever folder the current chat is working in.
-    </p>
-    <div class="split">
-      <figure class="shot">
-        <img src="img/preview.png" alt="Live code view with the project tree and syntax-highlighted file">
-        <figcaption>Project tree with change states, per-line diffs, git-aware review.</figcaption>
-      </figure>
-      <div>
-        <ul class="clean">
-          <li><b>Select code, ask about it</b> — right where it sits.</li>
-          <li><b>App preview</b> starts and stops your dev server.</li>
-          <li><b>One-click review</b> ranks findings, then Approve / Revise / Don't accept.</li>
-          <li><b>Permission prompts</b> on every write and command.</li>
-          <li><b>A real PTY terminal</b> with tabs — the same shell your tools run in.</li>
-          <li><b>Scaffolding</b> writes a <code>PROJECT_CONFIG.md</code> agents treat as the north star.</li>
-        </ul>
-      </div>
-    </div>
-    <figure class="shot stack-gap">
-      <img src="img/preview-split-browser.png?v=2" loading="lazy"
-           alt="Split view: the chat on the left, the running app in the browser pane on the right">
-      <figcaption>Split view — the chat beside the running app, divider draggable.</figcaption>
-    </figure>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="missions">
-  <div class="wrap">
-    <h2><span class="num">09 — unattended</span>Missions, and a phone in your pocket</h2>
-    <div class="split wide-left">
-      <div>
-        <p class="muted">
-          A mission is a background objective Vodo pursues in its own agent instance — one-shot or on a
-          schedule, so long work never blocks the chat. Just ask: <em>"check my backups every hour."</em>
-        </p>
-        <ul class="clean">
-          <li>Missions run unattended by design — approving the mission approves its work.</li>
-          <li><b>Telegram remote</b> — pair your own bot and talk to Vodo from anywhere: launch missions, get
-            notifications, approve tool calls with inline buttons.</li>
-          <li>Same journal everywhere, so the desktop knows what the phone started.</li>
-        </ul>
-      </div>
-      <figure class="shot">
-        <img src="img/missions.png" alt="Missions view with scheduled background objectives">
-        <figcaption>Schedules, history and results.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="homelab">
-  <div class="wrap">
-    <span class="pill">Optional</span>
-    <h2><span class="num">10 — infrastructure</span>Mr Homelab</h2>
-    <p class="sub">
-      Turn him on in Settings and a dedicated infrastructure agent gets his own tab, wired to the bundled
-      <b>infra</b> MCP server. Off by default — if you don't run your own metal, you'll never see it.
-    </p>
-    <ul class="clean">
-      <li><b>Environment discovery and a Proxmox driver</b> — VMs, containers, snapshots, backups — behind
-        read &lt; write &lt; destructive tiers. A read-only inventory needs no approval; deleting a VM does.</li>
-      <li><b>Kept out of ordinary routing</b>, but a group project can put him on the infrastructure brief.</li>
-      <li>The infra server works in any MCP client. Need more? Search the official registry and add with one
-        click.</li>
-    </ul>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="more">
-  <div class="wrap">
-    <h2><span class="num">11 — the rest</span>Also in the box</h2>
-    <div class="grid g3">
-      <div class="card">
-        <span class="ic">📚</span>
-        <h4>Skills</h4>
-        <p>A <code>SKILL.md</code> folder, any markdown how-to, or a GitHub link. Only a one-line catalogue
-        rides the prompt. Type <code>/</code> to summon one.</p>
-      </div>
-      <div class="card">
-        <span class="ic">👁</span>
-        <h4>Eyes for any model</h4>
-        <p><code>look_at_image</code> runs a file through your vision model, so even a text-only coder can see a
-        screenshot. Camera RAW included.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🎨</span>
-        <h4>Image generation</h4>
-        <p>Renders inline and lands in the project's <code>designs/</code> folder.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🎙</span>
-        <h4>Voice, both ways</h4>
-        <p>Push-to-talk and hands-free Live. Offline whisper.cpp, or OpenAI / ElevenLabs / any compatible
-        endpoint.</p>
-      </div>
-      <div class="card">
-        <span class="ic">📂</span>
-        <h4>Any folder, any time</h4>
-        <p>Attach a folder to one chat and the agent can browse, read, run and see inside it.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🔍</span>
-        <h4>Web built in</h4>
-        <p>Search and page fetching in every session — no extra key, no setup.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🛡</span>
-        <h4>Three levels of trust</h4>
-        <p><b>Auto</b> works alone, <b>Plan</b> proposes, <b>Manual</b> asks first. Stop always interrupts.</p>
-      </div>
-      <div class="card">
-        <span class="ic">📊</span>
-        <h4>Honest meters</h4>
-        <p>Per-project and all-time cost, with subscriptions counted as subscriptions.</p>
-      </div>
-      <div class="card">
-        <span class="ic">🧩</span>
-        <h4>MCP everywhere</h4>
-        <p>Connect any MCP server and scope it per agent. Search the registry in-app.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section id="download">
-  <div class="wrap">
-    <h2><span class="num">12 — install</span>Download</h2>
-    <p class="sub">
-      Free and open source. On first run: add one API key — or start a local Ollama / LM Studio server and use
-      no key at all.
-    </p>
-    <div class="cta" style="margin-bottom:26px">
-      <a class="btn btn-primary" href="https://github.com/Vodozine/vo-coder/releases/latest">Latest release</a>
-      <a class="btn btn-alt" href="https://github.com/Vodozine/vo-coder">Source on GitHub</a>
-    </div>
-    <div class="os">
-      <div class="card">
-        <h4>🪟 Windows</h4>
-        <p>NSIS installer, auto-updating.</p>
-      </div>
-      <div class="card">
-        <h4>🍎 macOS</h4>
-        <p>DMG for Apple Silicon and Intel. First launch: <b>right-click → Open</b> — the build isn't
-        notarized.</p>
-      </div>
-      <div class="card">
-        <h4>🐧 Linux</h4>
-        <p>AppImage. Mark it executable and run it.</p>
-      </div>
-    </div>
-    <div class="note">
-      <b>macOS says "damaged"?</b> Gatekeeper on an unsigned build. Run this once:
-      <pre style="margin-top:12px"><code>xattr -cr /Applications/Vo-Coder.app</code></pre>
-    </div>
-    <div class="note">
-      <b>A Pro edition is on the way.</b> Same shed, a few more tools hanging on the wall. No date yet —
-      it'll show up here.
-    </div>
-
-    <h3>Build it yourself</h3>
-    <pre><code>git clone https://github.com/Vodozine/vo-coder.git
-cd vo-coder
-npm install
-npx tsc -b            # compile the workspace packages
-npm run preview       # the real Electron window, isolated dev profile</code></pre>
-  </div>
-</section>
-
-<!-- ============================================================ -->
+<!-- STORY -->
 <section id="story">
   <div class="wrap">
-    <h2><span class="num">13 — the story</span>Why this exists</h2>
-    <div class="split wide-left">
-      <div>
-        <p class="muted">
-          Vo-Coder is a <b>pet project</b>. I built it for myself and use it daily — it's shared because it's
-          useful, not because it's finished. Bugs happen; I fix them as they surface.
-          <a href="https://github.com/Vodozine/vo-coder/discussions">Discussions</a> is the place.
-        </p>
-        <p class="muted">
-          It started as the brain of <b>Vodomation OS</b>, a custom Linux distro still in the works. That
-          framework was too different for a straight port, so this standalone version was rebuilt from scratch.
-          Vodo tells that part himself over on <a href="meet.html">Meet Vodo</a>.
-        </p>
-      </div>
-      <div>
-        <div class="card">
-          <h4>License — MIT, one condition</h4>
-          <p>Fork it, ship it commercially, keep your changes closed. The only obligation is a visible
-          <b>"Based on Vo-Coder"</b> credit.
-          <a href="https://github.com/Vodozine/vo-coder/blob/master/LICENSE">Read it →</a></p>
-        </div>
-        <div class="card" style="margin-top:18px">
-          <h4>Privacy</h4>
-          <p>No telemetry, no account, no server of ours in the middle. The only call it makes on its own is
-          the update check — and you can switch that off.</p>
-        </div>
-      </div>
+    <div class="story reveal">
+      <div class="quote">"Your idea deserves a try. Let's make something and see what happens."</div>
+      <p>I built Vo-Coder the way I made music: <b>without first checking how everyone else does it.</b> No research first, no copying the market. Just the idea, built until it works, and only afterwards a look around to see what others did.</p>
+      <p>Sometimes I reinvent the wheel. More often I end up somewhere nobody else went: a coding harness that grew into a <b>3D world</b>, a <b>music studio with a mixing console you can sit at</b>, a <b>live visual stage</b>, a <b>smart-home twin</b> and a <b>team of AI agents</b> you can watch flying to the files they're editing.</p>
+      <p>It started as the <b>tool shed</b>: interchangeable models picking up tools and getting to work. Its roots are in <b>Vodomation OS</b>, a custom Linux desktop where applications grow with you. Vo-Coder was rebuilt from scratch to bring that idea to Windows, macOS and Linux. I use it every day, and every workflow, every screen and every piece of logic in it comes from that use.</p>
     </div>
   </div>
 </section>
 
-<footer>
-  <div class="wrap foot-row">
-    <div>Vo-Coder — the tool shed for AI agents. 🤍</div>
-    <div>
-      <a href="https://github.com/Vodozine/vo-coder">GitHub</a> ·
-      <a href="https://github.com/Vodozine/vo-coder/releases">Releases</a> ·
-      <a href="https://github.com/Vodozine/vo-coder/discussions">Discussions</a> ·
-      <a href="pro.html">Pro</a> ·
-      <a href="#top">Back to top</a>
+<!-- WORLD -->
+<section id="world">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">01</span><span class="label">World view</span></div>
+    <h2>Your project is a place you can walk into.</h2>
+    <p class="intro">Every project starts as an empty world. As you and your agents create folders and files, a city grows. Folders become platforms, files become buildings, and code becomes walls you can read up close.</p>
+    <div class="split reveal">
+      <figure><div class="frame"><img src="img/pro/world-vodo.png" alt="Vodo at his platform in the world, beside the chat panel"><div class="hud"><span>Following Vodo</span></div></div><figcaption>Vodo at his desk. The chat stays open beside the world.</figcaption></figure>
+      <ul class="points">
+        <li><b>Agents fly to their work.</b> When an agent edits a file, it travels to that building. Follow it and see exactly where it's working.</li>
+        <li><b>Read the walls.</b> Click a code wall, scroll it, select a line and ask about what you're looking at. No need to explain where it is.</li>
+        <li><b>Explore on foot.</b> Walk with WASD, run, jump between rooftops, take off and land. Or fly freely, follow an agent, or pull back to see the whole city.</li>
+        <li><b>Studios have their own platforms.</b> Audio, video, image, label, web and 3D work happen at stations with real equipment and live screens.</li>
+        <li><b>Atmosphere you control.</b> Drifting mist, galaxies, world music that keeps playing across views, and a 30 / 48 / 60 fps setting.</li>
+        <li><b>Off when you want it off.</b> Switch the world off and the 3D scene unloads completely. The normal workspace works the same either way.</li>
+      </ul>
     </div>
+    <div class="grid2" style="margin-top:34px">
+      <figure class="reveal"><div class="frame"><img src="img/pro/about-walls.png" alt="Reading code on the walls of a building in the world"><div class="hud"><span>Reading a wall</span></div></div><figcaption>Up close: code on the walls, with the latest edit captured beside it.</figcaption></figure>
+      <figure class="reveal"><div class="frame"><img class="crop" src="img/pro/world-studios.png" alt="The six studio platforms: video, audio, 3D, image, label and web page"><div class="hud"><span>Studio platforms</span></div></div><figcaption>The studio platforms, each connected to its own editor.</figcaption></figure>
+    </div>
+    <figure class="reveal" style="margin-top:22px"><div class="frame"><img src="img/pro/about-world.png" alt="A larger project world with agents at work"></div></figure>
+  </div>
+</section>
+
+<!-- WORKSPACE -->
+<section id="workspace">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">02</span><span class="label">The workspace</span></div>
+    <h2>The conversation grows a workspace around it.</h2>
+    <p class="intro">Talk to Vodo and the results don't stay buried in the chat. Plans, decisions, numbers, pictures and code land as live tiles in the work column beside it, where you can pin them, reuse them and spread them across your screens.</p>
+    <figure class="reveal"><div class="frame"><img src="img/pro/code-mode.png" alt="Code mode: Vodo's output on the left, live Git changes, build result and every edited file on the right"><div class="hud"><span>Code mode</span><span>live</span></div></div><figcaption>Code mode: Git changes with Commit &amp; push, a one-click Build, token meters, and every file the agent touches, updated as it writes.</figcaption></figure>
+    <div class="grid3" style="margin-top:30px">
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Live tiles</span><span class="tag amber">Work column</span></div><p>KPIs, tables, charts, calculators, quizzes, checklists, image cards, feeds, dashboards and custom graphics. The agent sends data and the app draws it.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Decisions on cards</span><span class="tag cyan">Choices</span></div><p>When you need to choose, Vodo puts the options on a card with its recommendation, instead of burying them in a paragraph.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Point, don't explain</span><span class="tag green">Context</span></div><p>Highlight code, click a node in the code map or a wall in the world, and ask about it. What you select becomes context.</p></div>
+    </div>
+    <h3 style="margin:46px 0 14px">Project modes shape the work</h3>
+    <table class="reveal">
+      <tr><th>Mode</th><th>What comes into view</th></tr>
+      <tr><td>General</td><td>Ideas, comparisons, plans, numbers and visual explanations.</td></tr>
+      <tr><td>Code</td><td>Files, changes, builds, tests, previews, Git and the project map.</td></tr>
+      <tr><td>Business</td><td>Reports, Word documents, Excel workbooks, presentations, charts and plans.</td></tr>
+      <tr><td>School</td><td>Hints, explanations, diagrams and checks for understanding, shaped around the learner.</td></tr>
+      <tr><td>Chemistry</td><td>Compound information, quantities and units, sources, hazards and documented conditions.</td></tr>
+      <tr><td>Investment</td><td>Sourced, dated numbers, assumptions, scenarios and risk beside return. It never trades.</td></tr>
+    </table>
+    <figure class="reveal" style="margin-top:34px"><div class="frame"><img src="img/pro/about-workspace.png" alt="Chat beside a dashboard of pinned image tiles"><div class="hud"><span>Pinned tiles</span></div></div><figcaption>A character sheet designed in conversation and pinned to the project's dashboard.</figcaption></figure>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section id="team">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">03</span><span class="label">Your AI team</span></div>
+    <h2>Any model. Your agents. One coordinator.</h2>
+    <p class="intro">Give agents names, roles, instructions, tools and a model. Mix cloud providers, local models and the coding CLIs you already pay for. Vodo coordinates them, hands out work and checks what comes back.</p>
+    <div class="split rev reveal">
+      <figure><div class="frame"><img src="img/pro/providers.png" alt="Provider picker with 18 providers"><div class="hud"><span>18 providers</span></div></div></figure>
+      <div>
+        <ul class="points">
+          <li><b>Cloud:</b> Anthropic, OpenAI, Google Gemini, OpenRouter, xAI, Z.ai, NVIDIA.</li>
+          <li><b>Local:</b> Ollama, LM Studio, llama.cpp and FLM on an NPU, with named endpoints across your machines.</li>
+          <li><b>Light on small models:</b> a local model starts with only a few tools and a list of tool categories. It opens one category, such as audio or web, without reading the rest, so its context window stays free for the work.</li>
+          <li><b>Tool scripts:</b> a model can run several tools in one step by writing a short script, and gets back one answer. The script runs in a sealed sandbox with no access to files or the network, and every tool it calls asks for approval as usual.</li>
+          <li><b>CLIs:</b> Claude Code, Codex, OpenCode, Kimi, Muse and Antigravity run with their own login, so there's no key to store.</li>
+          <li><b>Routing:</b> let Vodo pick a model by task difficulty and cost, prefer your own agents, or switch routing off.</li>
+          <li><b>Colleagues or hired help:</b> give an agent project memory to make it a colleague, or leave it out for a focused worker that does only its brief.</li>
+        </ul>
+      </div>
+    </div>
+    <figure class="reveal" style="margin-top:34px"><div class="frame"><img src="img/pro/round-table.png" alt="Current Round Table view with eleven agents seated, individual chat cards and connected output panels"><div class="hud"><span>Round Table</span><span>11 agents</span></div></div><figcaption>The Round Table: eleven agents seated and listening, with their own chats and connected output panels.</figcaption></figure>
+    <div class="grid2" style="margin-top:22px">
+      <div class="tile reveal">
+        <div class="t-head"><span class="t-title">Group projects</span><span class="tag green">AI team</span></div>
+        <h3>One goal. A connected flow.</h3>
+        <p>Vodo coordinates on the left, the agents work in the middle, and their files and output appear on the right. Connections show the handoffs, with activity following the work as it happens.</p>
+        <p>Each agent has its own real chat. Pick a member to talk to them directly, or keep talking with Vodo.</p>
+      </div>
+      <figure class="reveal"><div class="frame"><img src="img/pro/missions.png" alt="Missions running in the background"><div class="hud"><span>Missions</span></div></div><figcaption>Missions keep working in the background or on a schedule.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- STUDIOS -->
+<section id="studios">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">04</span><span class="label">Design suite</span></div>
+    <h2>Seven studios. The same agent in every one.</h2>
+    <p class="intro">Video, audio, 3D, live visuals, images, packaging labels and web pages. Each studio has its own tools, and Vodo works inside it with you, in the same conversation, on the same model.</p>
+    <figure class="reveal"><div class="frame"><img src="img/pro/design-hub.png" alt="Design suite: Video, Audio, 3D Studio, Visualizer, Image, Label, Web page"></div></figure>
+
+    <h3 style="margin:52px 0 6px">Audio: a real DAW, with a room to sit in</h3>
+    <p class="intro" style="margin-bottom:22px">Arrange, MIDI editing, a full mixer, an effects rack and a patchbay, running on a native low-latency audio engine. It hosts VST3 and CLAP plugins over WASAPI or ASIO. Switch to the 3D view and you're sitting at a console in a studio room, moving the real faders.</p>
+    <figure class="reveal"><div class="frame"><img src="img/pro/audio-mixer.png" alt="Mixer with 16 drum channels, buses, processing and plugin slots"><div class="hud"><span>Mixer</span><span>16 channels</span></div></div><figcaption>A full drum mix: channels, buses, EQ, compression, gates, six FX sends and plugin slots per strip.</figcaption></figure>
+    <figure class="reveal" style="margin-top:22px"><div class="frame"><img src="img/pro/audio-arrange.png" alt="Arrange view with recorded drum tracks, tambourine, shaker and effects"><div class="hud"><span>Arrange</span><span>audio tracks</span></div></div><figcaption>The same session in Arrange: recorded multitrack drums, with Plugin Lab and your own lab plugins in the side tiles.</figcaption></figure>
+    <div class="grid2" style="margin-top:22px">
+      <figure class="reveal"><div class="frame"><img src="img/pro/audio-rack.png" alt="Effects rack: plate reverb, master compressor, V-Pressor, Master EQ, tape delay and maximizer"><div class="hud"><span>Rack</span><span>9 devices</span></div></div><figcaption>The rack: built-in hardware-style devices (plate reverb, VU compressor, seven-band EQ, tape delay, brickwall maximizer) beside VST3 and your own Plugin Lab devices.</figcaption></figure>
+      <figure class="reveal"><div class="frame"><img src="img/pro/audio-patchbay.png" alt="Patchbay with 80 channels and patched cables"><div class="hud"><span>Patchbay</span><span>80 channels</span></div></div><figcaption>The patchbay: pick up a cable and plug direct outs, inserts, FX sends, rack devices, returns and hardware into each other, like a real studio.</figcaption></figure>
+    </div>
+    <div class="grid2" style="margin-top:22px">
+      <figure class="reveal"><div class="frame"><img src="img/pro/audio-studio-room.png" alt="3D studio room with speakers and a mixing console"><div class="hud"><span>3D view</span></div></div><figcaption>Sit at the console. Drag faders and knobs directly.</figcaption></figure>
+      <div class="tile reveal" style="align-self:stretch">
+        <div class="t-head"><span class="t-title">What the audio studio does</span><span class="tag amber">Audio</span></div>
+        <ul class="points" style="margin-top:10px">
+          <li><b>Ask for music</b>: "a four-bar drum beat at 95 BPM", then "a bass line under it". The notes land in the song.</li>
+          <li><b>Plugin Lab</b>: describe a sound ("a gritty tape delay with a dark tone") and build your own effect or instrument.</li>
+          <li><b>Oscilloscope drawing</b>: draw shapes in stereo audio that show up on an XY scope.</li>
+          <li><b>Built-in instruments</b>, audio tracks, buses, groups, automation and elastic timing.</li>
+          <li><b>Export</b> to WAV, MP3 or FLAC, or generate takes with a music model you've configured.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:46px">
+      <div class="reveal">
+        <h3>3D Studio + Blender</h3>
+        <p style="color:var(--dim)">A scene you share with Vodo. Compose shapes, import GLB, FBX, OBJ and more, pose parts and bones, record keyframes and export animated GLB. When the job needs more, Vodo writes Blender Python, runs it, and the result comes back into the studio.</p>
+        <figure><div class="frame"><img src="img/pro/studio-3d.png" alt="3D Studio with transform, material and animation timeline"></div></figure>
+      </div>
+      <div class="reveal">
+        <h3>Label &amp; packaging</h3>
+        <p style="color:var(--dim)">Packaging labels with layers, barcodes and templates, a 3D mockup and a print-ready dieline, with Design AI that edits the artwork for you.</p>
+        <figure><div class="frame"><img src="img/pro/design-label.png" alt="Label designer with Design AI, tools, canvas and properties"></div></figure>
+      </div>
+    </div>
+
+    <div class="grid3" style="margin-top:30px">
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Visualizer</span><span class="tag violet">Live</span></div><p>An empty live stage. Ask for a mountain, a growing city or a flight through clouds, then shape it by voice while it plays. Layers have sliders, scenes can be saved, and output goes to a second display. Built for VJ sets.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Video</span><span class="tag violet">Timeline</span></div><p>Edit, grade and mix footage on a timeline with ripple, roll, slip and razor tools, keyframe lanes, color, compositing, transitions and markers. Export MP4 or MOV.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Web page</span><span class="tag green">Live edit</span></div><p>Edit a real website, page by page, right on the page: text, images, fonts and hyperlinks, with Design AI at your side. Agents can add pages, add, change and remove elements and place images too, sharing your undo history.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Image</span><span class="tag rose">Canvas</span></div><p>Layered artwork on a free canvas for posters, social posts and graphics, with your configured image generator.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Engine bridges</span><span class="tag cyan">Unity · Unreal</span></div><p>Connect Unity or Unreal projects through managed MCP bridges so agents can use the editor's own tools.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Generated media</span><span class="tag amber">Images · Video</span></div><p>Image and video generation from the chat, saved to the project and shown in the workspace. A vision model describes images for agents that can't see.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- MEMORY -->
+<section id="memory">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">05</span><span class="label">The soul and the brain</span></div>
+    <h2>The model can change. Your workspace remembers.</h2>
+    <p class="intro">Your assistant's identity, your rules, decisions, tasks and history live outside any one model. Swap a cloud model for a local one and the project still remembers what it's in the middle of. Vodo sleeps and dreams: conversations are archived, then distilled into a map of what matters.</p>
+    <figure class="reveal"><div class="frame"><img src="img/pro/memory-graph.png" alt="Memory graph: 3,610 nodes and 2,420 links across projects"><div class="hud"><span>Memory</span><span>3,610 nodes</span></div></div><figcaption>A real memory graph: decisions, tasks, issues, components, facts, files and preferences across all projects.</figcaption></figure>
+    <div class="split" style="margin-top:34px">
+      <div class="layers reveal">
+        <div class="layer"><div class="k">Soul</div><span>Each agent's own identity prompt: who it is and how it works.</span></div>
+        <div class="layer"><div class="k">Your rules</div><span>One file every agent obeys in every project, plus a <code>VO-CODER.md</code> per project.</span></div>
+        <div class="layer"><div class="k">Memory map</div><span>Decisions, tasks, facts and links distilled from every conversation. Smart context builds the briefing.</span></div>
+        <div class="layer"><div class="k">Lessons</div><span>Correct an agent once and it records the rule, then follows it next time.</span></div>
+      </div>
+      <figure class="reveal"><div class="frame"><img src="img/pro/memory-planets.png" alt="Memory notes as planets and a sun"><div class="hud"><span>Fly in</span></div></div><figcaption>Fly into the graph: notes become planets orbiting what they belong to.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- BEYOND -->
+<section id="beyond">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">06</span><span class="label">Beyond one screen</span></div>
+    <h2>Your desk, your phone, your house and your servers.</h2>
+    <p class="intro">Vo-Coder doesn't stop at the window. It reaches your other computers, your phone, your smart home and your homelab, and you can talk to it out loud while it works.</p>
+    <div class="split reveal">
+      <figure><div class="frame"><img src="img/pro/homelab.png" alt="Mr Homelab's server room in the world"><div class="hud"><span>Mr Homelab</span></div></div><figcaption>Mr Homelab's server room: Proxmox machines, containers, snapshots and backups.</figcaption></figure>
+      <div class="grid2" style="gap:12px">
+        <div class="tile"><div class="t-head"><span class="t-title">Live voice</span></div><p>Talk back and forth while Vodo works: open his browser, go full screen, play music, change settings.</p></div>
+        <div class="tile"><div class="t-head"><span class="t-title">Coordinator mode</span></div><p>Vodo sends tasks to your other workstations and VMs, moves files and forwards their approvals to you.</p></div>
+        <div class="tile"><div class="t-head"><span class="t-title">Phone &amp; Vo-Calling</span></div><p>Pair your phone over encrypted private connections, with Messages and video calls.</p></div>
+        <div class="tile"><div class="t-head"><span class="t-title">Smart home twin</span></div><p>The Vodomation hub: a 3D house, live device readings, Zigbee, MQTT, automations and energy.</p></div>
+      </div>
+    </div>
+    <figure class="reveal" style="margin-top:34px"><div class="frame"><img src="img/pro/settings.png" alt="Settings: models, knowledge, tools, workspace, system"><div class="hud"><span>Settings</span></div></div><figcaption>Everything on one page, with a tutorial to walk you through it.</figcaption></figure>
+  </div>
+</section>
+
+<!-- FEATURE INDEX -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head"><span class="num">07</span><span class="label">Every feature</span></div>
+    <h2>The full list.</h2>
+    <p class="intro">Everything Vo-Coder Pro does today, grouped the way the app is. Filter by area or search for something.</p>
+    <input class="search" id="q" placeholder="Search features, e.g. Blender, Telegram, VST…" aria-label="Search features"><span class="count" id="cnt"></span>
+    <div class="filters" id="filters"></div>
+    <div class="findex" id="findex"></div>
+  </div>
+</section>
+
+<!-- CONTROL -->
+<section>
+  <div class="wrap">
+    <div class="sec-head"><span class="num">08</span><span class="label">You stay in charge</span></div>
+    <h2>Auto, Plan or Manual.</h2>
+    <div class="grid3">
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Auto</span><span class="tag green">Works alone</span></div><p>Agents work on their own within the tool policy you set.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Plan</span><span class="tag cyan">Read-only</span></div><p>Agents look and plan without changing anything.</p></div>
+      <div class="tile reveal"><div class="t-head"><span class="t-title">Manual</span><span class="tag amber">Asks first</span></div><p>Every action waits for your approval.</p></div>
+    </div>
+    <p style="color:var(--dim);margin-top:24px;max-width:860px">API keys live in your operating system's keychain. File tools check that paths stay inside the workspace. Modules run isolated with the permissions they declare. Spending always asks. The workspace and its memory live on the machine running Vodo, which can be your desktop or a server you control.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><span class="logo" style="font-size:15px"><span class="mark">&gt;<b>|</b></span> Vo-Coder</span><br>Your workspace, with AI.</div>
+    <div style="text-align:right">Vo-Coder Pro is in active development.<br>Features described here are in the current Pro source tree.</div>
   </div>
 </footer>
 
+<div class="lb" id="lb"><img alt=""></div>
+
+<script>
+const F = [
+ // World
+ ['World','3D project city','Every project becomes a city: folders are platforms, files are buildings.'],
+ ['World','Readable code walls','Click a wall, scroll the code, select a line and ask about it.'],
+ ['World','Agents travel to their work','Agents fly to the file they are editing. Follow any of them.'],
+ ['World','Explore mode','Walk with WASD, run, jump across roofs, fly and land on surfaces.'],
+ ['World','Camera modes','Free fly, whole-world overview, follow Vodo or any agent, pause motion.'],
+ ['World','Studio platforms','Audio, video, image, label, web and 3D stations with live screens.'],
+ ['World','Memory portal','A gateway from the world into the project memory galaxy.'],
+ ['World','Atmosphere','Drifting mist, galaxies, sun and shadows, with quality and 30/48/60 fps settings.'],
+ ['World','World music','Your soundtrack keeps playing across views and ducks when someone speaks.'],
+ ['World','HUD mode','Chat, tiles and transcript over a transparent world.'],
+ ['World','Agent roster orb','See every agent in the world and jump to their chat.'],
+ ['World','Switch it off','Turn the world off and the 3D scene fully unloads.'],
+ // Workspace
+ ['Workspace','Work column tiles','KPIs, tables, charts, lists, calculators, quizzes, actions, feeds, dashboards and custom graphics.'],
+ ['Workspace','Decision cards','Choices with the agent’s recommendation, one question per card.'],
+ ['Workspace','Pinned project dashboard','Pin a tile so it appears in every chat of the project.'],
+ ['Workspace','Widget library','Save any widget and adapt copies for other work.'],
+ ['Workspace','Multi-display panels','Move panels, columns and widgets across screens and resize them.'],
+ ['Workspace','Project modes','General, Code, Business, School, Chemistry and Investment.'],
+ ['Workspace','Live code view','Watch every file being written, with diffs and change states.'],
+ ['Workspace','Git changes widget','Added/removed lines, then commit locally or push to a branch.'],
+ ['Workspace','One-click Build','Saved build command with versioning, live progress and error reporting.'],
+ ['Workspace','Code map','A map of the project. Click a node and ask about it.'],
+ ['Workspace','Selection as context','Highlight code to explain, rethink or change it.'],
+ ['Workspace','Preview','Run the project’s own app inside Vo-Coder and split it beside the chat.'],
+ ['Workspace','Terminal','A real terminal docked in the workspace.'],
+ ['Workspace','Split views','Up to 16 panes side by side.'],
+ ['Workspace','Documents & chat files','Every file a chat produced, in one sidebar.'],
+ ['Workspace','Vodo’s browser','A browser the agent drives beside the chat, with a media player.'],
+ ['Workspace','File-drop boxes','Drop invoices, receipts, contracts or lessons and get an automatic overview.'],
+ ['Workspace','Office files','Read, create and edit Word, Excel and PowerPoint.'],
+ ['Workspace','UI zoom & Icelandic','Zoom the whole UI. Every screen is in English and Icelandic.'],
+ // Team
+ ['AI team','18 providers','Anthropic, OpenAI, Gemini, OpenRouter, xAI, Z.ai, NVIDIA and more.'],
+ ['AI team','Local models','Ollama, LM Studio, llama.cpp and FLM (NPU), with many endpoints.'],
+ ['AI team','Tool categories','Small models open one area of tools at a time instead of the whole list.'],
+ ['AI team','Tool scripts','Several tools in one step from a sandboxed script, each call still approved.'],
+ ['AI team','Coding CLIs as agents','Claude Code, Codex, OpenCode, Kimi, Muse and Antigravity on their own login.'],
+ ['AI team','Model routing','Pick by task difficulty and cost, prefer your agents, or turn it off.'],
+ ['AI team','Agent souls','Each agent has its own identity, role, tools and model.'],
+ ['AI team','Colleagues vs hired help','A memory switch per agent decides whether it carries the project.'],
+ ['AI team','Group projects','Follow Vodo, the agents and their output in a connected flow, with visible handoffs and individual chats.'],
+ ['AI team','Saved teams','A roster with a coordinator, ready to sit down at a table.'],
+ ['AI team','Round-table meetings','Bring agents together to discuss and report.'],
+ ['AI team','Worktrees mode','Each coding agent gets its own branch, merged back after a verified build.'],
+ ['AI team','Pipelines','Draw who does what, in what order, and where review sends work back.'],
+ ['AI team','Missions','Approved objectives that run once or on a schedule, with reports.'],
+ ['AI team','Activity dashboard','Agent status, incidents, reviews, live events and llama-server monitoring.'],
+ ['AI team','Usage meters','Tokens and costs per project and overall.'],
+ ['AI team','Code review','Ask for a review of the current changes from the composer.'],
+ // Studios
+ ['Studios','Audio: arrange & MIDI','Instrument and audio tracks, clips, groups, loop, metronome and block recorder.'],
+ ['Studios','Audio: mixer','Channels, buses, EQ, compression, gates, six FX sends and plugin slots.'],
+ ['Studios','Audio: rack & patchbay','Patch cables between direct outs, inserts, sends, returns and hardware.'],
+ ['Studios','Audio: 3D studio room','Sit at a 3D console and move the faders directly.'],
+ ['Studios','Native audio engine','Low-latency C++ engine with WASAPI and ASIO.'],
+ ['Studios','VST3 & CLAP hosting','Load your plugins on any channel.'],
+ ['Studios','Plugin Lab','Describe a sound and build your own effect or instrument.'],
+ ['Studios','Music by conversation','Ask for beats, bass lines and effects. The notes land in the song.'],
+ ['Studios','Oscilloscope drawing','Draw vector shapes as stereo audio for an XY scope.'],
+ ['Studios','Audio export','Render to WAV, MP3 or FLAC.'],
+ ['Studios','Video editor','Timeline, ripple/roll/slip/razor, keyframes, color, compositing, transitions.'],
+ ['Studios','3D Studio','Shapes, model import, poses, keyframes and animated GLB export.'],
+ ['Studios','Blender pipeline','Vodo runs Blender Python and the result comes back into the studio.'],
+ ['Studios','Visualizer','A live visual stage with layers, sliders, saved scenes and second-display output.'],
+ ['Studios','Image canvas','Layered artwork for posters and social graphics.'],
+ ['Studios','Label & dieline','Packaging labels with barcode, 3D mockup and print dieline.'],
+ ['Studios','Web page live edit','Edit a real website on the page, links included.'],
+ ['Studios','Web agent tools','Agents add pages, edit elements and place images, with shared undo.'],
+ ['Studios','Image & video generation','From the chat, saved into the project.'],
+ ['Studios','Unity & Unreal bridges','Agents use the game editor’s own tools.'],
+ // Memory
+ ['Memory','Conversation archives','Every turn kept in local SQLite, searchable later.'],
+ ['Memory','Memory map','Decisions, tasks, facts, components and their links.'],
+ ['Memory','Smart context','A briefing built from memory instead of replaying everything.'],
+ ['Memory','Memory galaxy','A 3D graph you can fly through, with planets for notes.'],
+ ['Memory','Lessons','Corrections become rules the agent remembers.'],
+ ['Memory','Skill drafts','Agents propose new skills and you approve them on a card.'],
+ ['Memory','Your rules','One file every agent obeys, plus VO-CODER.md per project.'],
+ ['Memory','Journal','Activity across chats, projects, missions and Telegram.'],
+ ['Memory','Notes by hand','Write your own notes. Agents can’t overwrite them.'],
+ // Beyond
+ ['Beyond','Live voice','Real-time conversation while the agent works and drives the app.'],
+ ['Beyond','Dictation','Offline speech-to-text with whisper.cpp, in your language.'],
+ ['Beyond','Spoken replies','Voices per agent, with speed and pitch.'],
+ ['Beyond','Remote & self-hosted','Run the agent headless in Docker on a homelab or cloud host.'],
+ ['Beyond','Coordinator mode','Vodo dispatches tasks to other workstations and VMs.'],
+ ['Beyond','Phone pairing','Connect the mobile app with private, encrypted connections.'],
+ ['Beyond','Vo-Calling & Messages','Private messaging and video calls between your devices.'],
+ ['Beyond','Telegram','Talk to Vodo, approve tool calls and start projects from your phone.'],
+ ['Beyond','Browser control','The agent opens, reads, clicks and types in its own browser.'],
+ ['Beyond','Computer control','Desktop control on Windows, when you switch it on.'],
+ ['Beyond','Smart home hub','3D house twin, Zigbee2MQTT, MQTT, automations, energy and dashboards.'],
+ ['Beyond','Homelab & Proxmox','Machines, containers, snapshots and backups, with permission tiers.'],
+ ['Beyond','Camera','Vodo can look through a camera you choose.'],
+ ['Beyond','Navigation','Find places, plan trips and show them on a map.'],
+ ['Beyond','Google services','Gmail, Calendar and Drive through your own sign-in.'],
+ ['Beyond','Crew workspace','Shared folder and crew identities for working together.'],
+ // Extend
+ ['Extend','Modules','Ask Vodo to build widgets, screens, windows, services or agent tools.'],
+ ['Extend','Hardware status lights','Modules can drive LEDs, strips and displays from live agent activity.'],
+ ['Extend','Hardware controllers','Buttons, knobs and encoders that operate Vo-Coder.'],
+ ['Extend','Skills','Import Claude-style skills from a folder or GitHub link. Summon with /.'],
+ ['Extend','MCP servers','Connect any MCP tool or service.'],
+ ['Extend','Permissions','Auto, Plan and Manual modes, module grants and keychain secrets.']
+];
+const cats = ['All',...new Set(F.map(f=>f[0]))];
+const tagc = {World:'cyan',Workspace:'amber','AI team':'green',Studios:'violet',Memory:'cyan',Beyond:'rose',Extend:'amber'};
+let cat='All', q='';
+const fx=document.getElementById('findex'), fl=document.getElementById('filters'), cnt=document.getElementById('cnt');
+cats.forEach(c=>{const b=document.createElement('button');b.textContent=c;if(c===cat)b.className='on';b.onclick=()=>{cat=c;[...fl.children].forEach(x=>x.classList.toggle('on',x===b));draw()};fl.appendChild(b)});
+document.getElementById('q').addEventListener('input',e=>{q=e.target.value.toLowerCase();draw()});
+function draw(){
+  const list=F.filter(f=>(cat==='All'||f[0]===cat)&&(!q||(f[1]+' '+f[2]+' '+f[0]).toLowerCase().includes(q)));
+  fx.innerHTML=list.map(f=>`<div class="tile"><div class="t-head"><span class="t-title">${f[1]}</span><span class="tag ${tagc[f[0]]}">${f[0]}</span></div><p>${f[2]}</p></div>`).join('');
+  cnt.textContent=list.length+' of '+F.length+' features';
+}
+draw();
+// lightbox
+const lb=document.getElementById('lb'), lbi=lb.querySelector('img');
+document.querySelectorAll('.frame img').forEach(i=>i.parentElement.addEventListener('click',()=>{lbi.src=i.src;lbi.alt=i.alt;lb.classList.add('on')}));
+lb.onclick=()=>lb.classList.remove('on');
+addEventListener('keydown',e=>{if(e.key==='Escape')lb.classList.remove('on')});
+// reveal on scroll
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.08});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
 </body>
 </html>
